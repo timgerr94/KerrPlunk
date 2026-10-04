@@ -68,7 +68,8 @@ function sanitizedIngredients(ingredients) {
 function loadMealWithIngredients(id) {
   const meal = db.get().prepare(`
     SELECT m.*, u.display_name AS creator_name, u.avatar_color AS creator_color,
-           mrt.end_date AS recurrence_end_date
+           mrt.end_date AS recurrence_end_date,
+           mrt.recurrence_frequency AS recurrence_frequency
     FROM meals m
     LEFT JOIN users u ON u.id = m.created_by
     LEFT JOIN meal_recurrence_templates mrt ON mrt.id = m.recurrence_template_id
@@ -101,7 +102,7 @@ function createMealRecord({ date, meal_type, title, notes, recipe_url, recipe_id
 }
 
 /**
- * Die Vorkommen von Wochenserien im Zeitraum from..to (einschliesslich), die
+ * Die Vorkommen wiederkehrender Serien im Zeitraum from..to (einschliesslich), die
  * noch keine Zeile haben und angelegt werden muessten: `[{ template, date }]`,
  * nach Vorlage und Datum sortiert. EINE Regel fuer den Materialisierer und fuer
  * die Belegt-Pruefung von apply-plan - eine Kopie liefe beim naechsten
@@ -115,7 +116,7 @@ function pendingOccurrences(from, to) {
     SELECT *
     FROM meal_recurrence_templates
     WHERE start_date <= ?
-      AND (end_date IS NULL OR end_date >= ?)
+    AND (end_date IS NULL OR end_date >= ?)
     ORDER BY id ASC
   `).all(to, from);
   if (!templates.length) return [];
@@ -132,7 +133,16 @@ function pendingOccurrences(from, to) {
   `);
   const pending = [];
   for (const template of templates) {
-    if (!VALID_WEEKDAYS.includes(template.weekday)) continue;
+    if (template.recurrence_frequency === 'monthly') {
+      if (
+        !VALID_WEEKDAYS.includes(template.weekday)
+        || !Number.isInteger(template.week_of_month)
+        || template.week_of_month < 1
+        || template.week_of_month > 5
+      ) continue;
+    } else if (!VALID_WEEKDAYS.includes(template.weekday)) {
+      continue;
+    }
     for (const date of datesForTemplateInRange(template, from, to)) {
       if (hasException.get(template.id, date) || hasMeal.get(template.id, date)) continue;
       pending.push({ template, date });
@@ -144,7 +154,7 @@ function pendingOccurrences(from, to) {
 /**
  * Pruefer fuer apply-plan mit skip_occupied: ist der Slot (date + meal_type)
  * belegt? Belegt heisst: eine gespeicherte Mahlzeit ODER ein Vorkommen einer
- * Wochenserie, das `materializeRecurringMeals` beim Aufschlagen der Woche
+ * Serienvorkommen, das `materializeRecurringMeals` beim Aufschlagen der Woche
  * anlegen wuerde. Vorkommen existieren erst als Zeile, wenn jemand die Woche
  * geladen hat; ein Import in eine nie geoeffnete Woche saehe sonst einen leeren
  * Slot, den die Serie beim ersten Blick daneben fuellt. Fragt die Serien je
@@ -260,6 +270,7 @@ router.get('/', (req, res) => {
     const meals = db.get().prepare(`
       SELECT m.*, u.display_name AS creator_name, u.avatar_color AS creator_color,
              mrt.end_date AS recurrence_end_date,
+             mrt.recurrence_frequency AS recurrence_frequency,
              -- Hat das verknuepfte Rezept ein Bild (#1059)? Der Planer stellt
              -- damit den Platzhalter ODER das Vorschaubild, ohne je Karte
              -- nachzufragen - und ohne einen Request, der fuer ein bildloses
@@ -352,10 +363,14 @@ router.post('/', (req, res) => {
     const vNotes      = str(req.body.notes, 'Notizen', { max: MAX_TEXT, required: false });
     const vRecipeUrl  = str(req.body.recipe_url, 'Rezept-URL', { max: MAX_TEXT, required: false });
     const vRecipeId   = num(req.body.recipe_id, 'Rezept-ID', { required: false });
-    const repeatWeekly = req.body.repeat_weekly === true;
+    const requestedFrequency = req.body.repeat_frequency;
+    if (requestedFrequency != null && requestedFrequency !== '' && !['weekly', 'monthly'].includes(requestedFrequency)) {
+      return res.status(400).json({ error: 'Wiederholung muss wöchentlich oder monatlich sein.', code: 400 });
+    }
+    const repeatFrequency = requestedFrequency || (req.body.repeat_weekly === true ? 'weekly' : null);
     // Leeres/fehlendes repeat_until heißt „ohne Ende" - die Serie bleibt dann
     // unbegrenzt, wie vor #619, aber jetzt als bewusste Wahl statt als einziger Zustand.
-    const vRepeatUntil = repeatWeekly
+    const vRepeatUntil = repeatFrequency
       ? date(req.body.repeat_until, 'Wiederholungs-Ende')
       : { value: null, error: null };
     const errors = collectErrors([vDate, vType, vTitle, vNotes, vRecipeUrl, vRecipeId, vRepeatUntil]);
@@ -374,15 +389,17 @@ router.post('/', (req, res) => {
       const cleanIngredients = sanitizedIngredients(ingredients);
       let recurrenceTemplateId = null;
 
-      if (repeatWeekly) {
+      if (repeatFrequency) {
         const template = db.get().prepare(`
           INSERT INTO meal_recurrence_templates
-            (start_date, end_date, weekday, meal_type, title, notes, recipe_url, recipe_id, created_by)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (start_date, end_date, weekday, recurrence_frequency, week_of_month, meal_type, title, notes, recipe_url, recipe_id, created_by)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
           vDate.value,
           vRepeatUntil.value,
           mealWeekday(vDate.value),
+          repeatFrequency,
+          repeatFrequency === 'monthly' ? Math.ceil(Number(vDate.value.slice(-2)) / 7) : null,
           vType.value,
           vTitle.value,
           vNotes.value,

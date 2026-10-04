@@ -158,6 +158,19 @@ function validateItemFields(body, { partial = false, current = null } = {}) {
     values.notes = vNotes.value;
   }
 
+  if (!partial || body.restock_interval_days !== undefined) {
+    if (body.restock_interval_days === null || body.restock_interval_days === '' || body.restock_interval_days === undefined) {
+      values.restock_interval_days = null;
+    } else {
+      const vInterval = num(body.restock_interval_days, 'Einkaufsintervall');
+      results.push(vInterval);
+      if (vInterval.value !== null && (!Number.isInteger(vInterval.value) || vInterval.value < 1 || vInterval.value > 3650)) {
+        results.push({ error: 'Einkaufsintervall muss eine ganze Zahl von 1 bis 3650 Tagen sein.' });
+      }
+      values.restock_interval_days = vInterval.value;
+    }
+  }
+
   return { values, errors: collectErrors(results) };
 }
 
@@ -346,6 +359,7 @@ router.post('/import-shopping', (req, res) => {
     // eine sync_config-Abfrage plus zwei Intl.DateTimeFormat-Konstruktionen,
     // und die Schleife laeuft synchron in einer Transaktion.
     const today = householdToday(db.get());
+    const purchasedAt = new Date().toISOString();
 
     const result = db.get().transaction(() => {
       const findMatch = db.get().prepare(`
@@ -356,10 +370,35 @@ router.post('/import-shopping', (req, res) => {
           AND expires_on IS ?
         LIMIT 1
       `);
-      const bump = db.get().prepare('UPDATE pantry_items SET quantity = ? WHERE id = ?');
+      const findRule = db.get().prepare(`
+        SELECT restock_interval_days FROM pantry_items
+        WHERE name = ? COLLATE NOCASE AND unit = ? AND location_id IS ?
+          AND restock_interval_days IS NOT NULL
+        ORDER BY id DESC LIMIT 1
+      `);
+      const bump = db.get().prepare(`
+        UPDATE pantry_items
+        SET quantity = ?, last_purchased_at = ?, restock_snoozed_until = NULL
+        WHERE id = ?
+      `);
       const insert = db.get().prepare(`
-        INSERT INTO pantry_items (name, quantity, unit, location_id, category, expires_on, created_by)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO pantry_items
+          (name, quantity, unit, location_id, category, expires_on, restock_interval_days, last_purchased_at, created_by)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      const recordProductPurchase = db.get().prepare(`
+        UPDATE pantry_items
+        SET restock_list_id = ?,
+            restock_interval_days = COALESCE(restock_interval_days, ?),
+            last_purchased_at = ?, restock_snoozed_until = NULL
+        WHERE name = ? COLLATE NOCASE AND unit = ? AND location_id IS ?
+      `);
+      const clearPredictions = db.get().prepare(`
+        DELETE FROM shopping_items
+        WHERE predicted_pantry_item_id IN (
+          SELECT id FROM pantry_items
+          WHERE name = ? COLLATE NOCASE AND unit = ? AND location_id IS ?
+        )
       `);
 
       let added = 0, merged = 0, skipped = 0;
@@ -392,17 +431,27 @@ router.post('/import-shopping', (req, res) => {
         // dieselbe Charge, also aufaddieren. Ein abweichendes MHD ist eine neue
         // Charge und bekommt bewusst eine eigene Zeile.
         const match = findMatch.get(source.name, unit, locationId, expiresOn);
+        const inheritedInterval = findRule.get(source.name, unit, locationId)?.restock_interval_days ?? 30;
         if (match) {
-          bump.run(normalizePantryQuantity(Number(match.quantity) + quantity, { fallback: quantity }), match.id);
+          bump.run(
+            normalizePantryQuantity(Number(match.quantity) + quantity, { fallback: quantity }),
+            purchasedAt,
+            match.id,
+          );
           // Eine aufgefüllte Charge kann von Menge 0 zurückkommen - dann ist die
           // Erinnerung wieder fällig, die das Ausbuchen abgeräumt hat.
           syncReminder(getItem(match.id), access, today);
           merged += 1;
         } else {
-          const inserted = insert.run(source.name, quantity, unit, locationId, category, expiresOn, userId);
+          const inserted = insert.run(
+            source.name, quantity, unit, locationId, category, expiresOn,
+            inheritedInterval, purchasedAt, userId,
+          );
           syncReminder(getItem(inserted.lastInsertRowid), access, today);
           added += 1;
         }
+        recordProductPurchase.run(vList.value, inheritedInterval, purchasedAt, source.name, unit, locationId);
+        clearPredictions.run(source.name, unit, locationId);
       }
 
       return { added, merged, skipped };
@@ -440,6 +489,7 @@ router.post('/', (req, res) => {
   try {
     const { values, errors } = validateItemFields(req.body);
     if (errors.length) return res.status(400).json({ error: errors.join(' '), code: 400 });
+    values.restock_interval_days ??= 30;
 
     // Schreiben und Erinnerung in EINER Transaktion, wie in
     // server/routes/inventory/items.js: sonst kann der Artikel stehen und die
@@ -447,11 +497,14 @@ router.post('/', (req, res) => {
     const created = db.get().transaction(() => {
       const result = db.get().prepare(`
         INSERT INTO pantry_items
-          (name, quantity, unit, location_id, category, expires_on, min_quantity, notes, created_by)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          (name, quantity, unit, location_id, category, expires_on, min_quantity, notes,
+           restock_interval_days, last_purchased_at, created_by)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         values.name, values.quantity, values.unit, values.location_id,
         values.category, values.expires_on, values.min_quantity, values.notes,
+        values.restock_interval_days,
+        values.restock_interval_days ? new Date().toISOString() : null,
         req.authUserId || req.session.userId
       );
       const item = getItem(result.lastInsertRowid);
@@ -486,11 +539,15 @@ router.put('/:itemId', (req, res) => {
       db.get().prepare(`
         UPDATE pantry_items
         SET name = ?, quantity = ?, unit = ?, location_id = ?, category = ?,
-            expires_on = ?, min_quantity = ?, notes = ?
+            expires_on = ?, min_quantity = ?, notes = ?, restock_interval_days = ?,
+            last_purchased_at = COALESCE(last_purchased_at, ?)
         WHERE id = ?
       `).run(
         values.name, values.quantity, values.unit, values.location_id,
-        values.category, values.expires_on, values.min_quantity, values.notes, item.id
+        values.category, values.expires_on, values.min_quantity, values.notes,
+        values.restock_interval_days,
+        values.restock_interval_days ? new Date().toISOString() : null,
+        item.id
       );
       const fresh = getItem(item.id);
       syncReminder(fresh);

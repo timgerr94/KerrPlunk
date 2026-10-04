@@ -90,6 +90,9 @@ const APP_SHELL = [
   '/styles/inventory.css',
   '/styles/detail-view.css',
   '/styles/screensaver.css',
+  '/styles/skins.css',
+  '/fonts/IMFellEnglish-Regular.ttf',
+  '/fonts/PartyBusiness-4B0K.ttf',
   '/components/yuvomi-install-prompt.js',
   // Geteilte Module. Sie werden von Shell UND Seitenmodulen importiert und
   // müssen deshalb zusammen mit der Shell erneuert werden: der Browser bindet

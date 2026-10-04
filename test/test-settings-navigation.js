@@ -66,6 +66,9 @@ import {
   kitchenGroupHidden,
 } from '../public/settings/pages/modules-navigation.js';
 import {
+  buildRows,
+  rowHtml,
+  collectDisabledModuleIds,
   buildActiveModulesPayload,
   persistHouseholdToggle,
 } from '../public/settings/pages/modules-active.js';
@@ -357,6 +360,29 @@ test('das Blatt der aktiven Module liegt adminOnly in der Modul-Domaene', () => 
   assert.deepEqual(settingsSheetSections(leaf, admin).map((section) => section.adminOnly), [true]);
   assert.equal(findSettingsLeaf('/settings/modules/active', admin)?.id, 'modules-active');
   assert.equal(findSettingsLeaf('/settings/modules/active', member), null);
+});
+
+test('Active modules exposes independently disableable Housekeeping sections', () => {
+  const rows = buildRows({ disabled_modules: ['housekeeping-reports'] }, []);
+  const housekeeping = rows.find((row) => row.id === 'housekeeping');
+  assert.ok(housekeeping);
+  assert.deepEqual(housekeeping.children.map((child) => child.id), [
+    'housekeeping-dashboard', 'housekeeping-reports', 'housekeeping-staff',
+  ]);
+  assert.deepEqual(housekeeping.children.map((child) => child.enabled), [true, false, true]);
+  const html = rowHtml(housekeeping);
+  assert.match(html, /data-housekeeping-expand/);
+  for (const id of ['housekeeping-dashboard', 'housekeeping-reports', 'housekeeping-staff']) {
+    assert.match(html, new RegExp(`data-housekeeping-child-toggle="${id}"`));
+  }
+
+  const inputs = [
+    { checked: false, dataset: { housekeepingChildToggle: 'housekeeping-dashboard' } },
+    { checked: true, dataset: { housekeepingChildToggle: 'housekeeping-reports' } },
+    { checked: false, dataset: { housekeepingChildToggle: 'housekeeping-staff' } },
+  ];
+  const list = { querySelectorAll: (selector) => selector === '[data-housekeeping-child-toggle]' ? inputs : [] };
+  assert.deepEqual(collectDisabledModuleIds(list), ['housekeeping-dashboard', 'housekeeping-staff']);
 });
 
 test('navigation settings leaf reuses the canonical module-order helpers', async () => {

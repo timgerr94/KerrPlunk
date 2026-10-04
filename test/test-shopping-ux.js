@@ -468,6 +468,17 @@ test('parseShoppingQuantity: die Schreibweisen aus dem Seed bleiben, wie sie war
   assert.deepEqual(p(null), { quantity: 1, unit: 'pcs' });
 });
 
+test('pantryTransferEntries: uses parsed quantities and the default location', () => {
+  resetShoppingState();
+  assert.deepEqual(__test.pantryTransferEntries([
+    { id: 12, quantity: '2 kg' },
+    { id: 13, quantity: '' },
+  ], 4), [
+    { shopping_item_id: 12, quantity: 2, unit: 'kg', location_id: 4 },
+    { shopping_item_id: 13, quantity: 1, unit: 'pcs', location_id: 4 },
+  ]);
+});
+
 test('parseShoppingQuantity: der Dezimaltrenner kommt aus der Region, nicht aus dem Quelltext', () => {
   // In de trennt das Komma. Das konnte die alte Fassung auch - sie hatte den
   // Trenner nur fest verdrahtet und lag damit ueberall sonst falsch.

@@ -1435,6 +1435,13 @@ const MIGRATIONS_SQL = {
     CREATE INDEX idx_health_nutrition_entries_user_date
       ON health_nutrition_entries(user_id, consumed_at);
   `,
+  227: `
+    ALTER TABLE meal_recurrence_templates
+      ADD COLUMN recurrence_frequency TEXT NOT NULL DEFAULT 'weekly'
+      CHECK (recurrence_frequency IN ('weekly', 'monthly'));
+    ALTER TABLE meal_recurrence_templates ADD COLUMN week_of_month INTEGER
+      CHECK (week_of_month IS NULL OR week_of_month BETWEEN 1 AND 5);
+  `,
 };
 
 export { MIGRATIONS_SQL };

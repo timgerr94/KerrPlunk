@@ -1317,6 +1317,49 @@ test('settings theme toggle exposes pressed state', () => {
   assert.match(source, /mode: 'select'/);
 });
 
+test('visual skin stays independent from the light and dark theme mode', () => {
+  const settings = read('../public/settings/pages/personal-appearance.js');
+  const init = read('../public/theme-init.js');
+  const router = read('../public/router.js');
+  const shell = read('../public/index.html');
+  const skin = read('../public/styles/skins.css');
+  const sw = read('../public/sw.js');
+
+  assert.match(settings, /id="visual-skin-select"/);
+  assert.match(settings, /yuvomi-skin/);
+  assert.match(settings, /data-skin/);
+  assert.match(init, /getItem\('yuvomi-skin'\)/);
+  assert.match(router, /applySkin:\s*\(value\)\s*=>/);
+  assert.match(shell, /href="\/styles\/skins\.css"/);
+  assert.match(skin, /"IM Fell English"/);
+  assert.match(skin, /"party-business-font-f2250"/);
+  assert.match(skin, /\/fonts\/IMFellEnglish-Regular\.ttf/);
+  assert.match(skin, /\/fonts\/PartyBusiness-4B0K\.ttf/);
+  assert.match(sw, /'\/fonts\/IMFellEnglish-Regular\.ttf'/);
+  assert.match(sw, /'\/fonts\/PartyBusiness-4B0K\.ttf'/);
+  assert.match(skin, /\[data-theme="dark"\]/);
+});
+
+test('Middle-earth skin color pairs retain readable contrast in both modes', () => {
+  const textPairs = [
+    ['light primary text', '#252014', '#FFF9E9'],
+    ['light secondary text', '#62583F', '#FFF9E9'],
+    ['light accent text', '#42613D', '#F5F3ED'],
+    ['light button label', '#FFFFFF', '#42613D'],
+    ['dark primary text', '#F5F0E3', '#2B2822'],
+    ['dark secondary text', '#B9AE91', '#2B2822'],
+    ['dark accent text', '#A9C393', '#373229'],
+    ['dark button label', '#17140F', '#A9C393'],
+    ['dark legacy button label', '#FFFFFF', '#527347'],
+  ];
+  for (const [label, foreground, background] of textPairs) {
+    assert.ok(contrastRatio(foreground, background) >= 4.5, `${label} must meet WCAG AA`);
+  }
+
+  assert.ok(contrastRatio('#817555', '#F5F3ED') >= 3, 'light control border must be visible');
+  assert.ok(contrastRatio('#93896E', '#2B2822') >= 3, 'dark control border must be visible');
+});
+
 test('personal settings leaves exist and export async render functions', () => {
   const files = [
     '../public/settings/pages/personal-account.js',

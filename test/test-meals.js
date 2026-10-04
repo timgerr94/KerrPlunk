@@ -41,6 +41,7 @@ db.exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
 db.exec(MIGRATIONS_SQL[1]);
 db.exec(MIGRATIONS_SQL[13]);
 db.exec(MIGRATIONS_SQL[64]);
+db.exec(MIGRATIONS_SQL[227]);
 db.exec(MIGRATIONS_SQL[73]);
 
 // Test-Benutzer
@@ -137,6 +138,13 @@ test('Wiederkehrende Mahlzeit: Wochentag wird Montag-basiert berechnet', () => {
   assert(mealWeekday('2026-03-29') === 6, 'Sonntag ist 6');
 });
 
+test('Wiederkehrende Mahlzeit: Anlegen bietet wöchentliche und monatliche Wiederholung', () => {
+  const html = mealsUi.buildModalContent({ mode: 'create', date: '2026-06-05', mealType: 'lunch', meal: {} });
+  assert(html.indexOf('id="modal-repeat"') < html.indexOf('id="modal-recipe-id"'), 'Wiederholung steht außerhalb des erweiterten Bereichs');
+  assert(html.includes('id="modal-repeat-frequency"'), 'Wiederholungs-Auswahl vorhanden');
+  assert(html.includes('value="weekly"') && html.includes('value="monthly"'), 'beide Rhythmen vorhanden');
+});
+
 test('Wiederkehrende Mahlzeit: Daten starten nicht vor dem Startdatum', () => {
   const dates = datesForTemplateInRange(
     { start_date: '2026-03-25', weekday: 2 },
@@ -146,6 +154,22 @@ test('Wiederkehrende Mahlzeit: Daten starten nicht vor dem Startdatum', () => {
   assert(dates.length === 3, `3 Mittwoche erwartet, erhalten ${dates.length}`);
   assert(dates[0] === '2026-03-25', 'Startdatum ist erstes Vorkommen');
   assert(dates[2] === '2026-04-08', 'Folgewoche korrekt');
+});
+
+test('Wiederkehrende Mahlzeit: monatlich am gleichen Wochentag und in derselben Monatswoche', () => {
+  const dates = datesForTemplateInRange(
+    { start_date: '2026-06-05', weekday: 4, recurrence_frequency: 'monthly', week_of_month: 1 },
+    '2026-06-01',
+    '2026-09-30'
+  );
+  assert(dates.join(',') === '2026-06-05,2026-07-03,2026-08-07,2026-09-04', `erste Freitage erwartet, erhalten ${dates.join(',')}`);
+
+  const fifthFridays = datesForTemplateInRange(
+    { start_date: '2026-05-29', weekday: 4, recurrence_frequency: 'monthly', week_of_month: 5 },
+    '2026-05-01',
+    '2026-07-31'
+  );
+  assert(fifthFridays.join(',') === '2026-05-29,2026-07-31', `fünfte Freitage erwartet, erhalten ${fifthFridays.join(',')}`);
 });
 
 test('Wiederkehrende Mahlzeit: Template und Zutaten anlegen', () => {

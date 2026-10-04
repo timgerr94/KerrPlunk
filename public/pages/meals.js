@@ -1871,10 +1871,12 @@ function openMealModal(opts) {
       // zeigt sich nur, wenn die Serie überhaupt im Spiel ist - beim Anlegen mit
       // gesetztem Schalter, beim Bearbeiten im Serien-Umfang.
       const repeatUntilGroup = panel.querySelector('#modal-repeat-until-group');
-      const repeatToggle     = panel.querySelector('#modal-repeat-weekly');
+      const repeatToggle     = panel.querySelector('#modal-repeat');
+      const repeatFrequencyGroup = panel.querySelector('#modal-repeat-frequency-group');
       const editScopeSelect  = panel.querySelector('#modal-edit-scope');
 
       repeatToggle?.addEventListener('change', () => {
+        repeatFrequencyGroup.hidden = !repeatToggle.checked;
         repeatUntilGroup.hidden = !repeatToggle.checked;
       });
       editScopeSelect?.addEventListener('change', () => {
@@ -1978,10 +1980,10 @@ function buildModalContent({ mode, date, mealType, meal, fromSlot = false, recip
              value="${esc(isEdit && meal.recipe_url ? meal.recipe_url : '')}">
     </div>
 
-    ${isEdit ? (isRecurring ? `
+    ${isEdit && isRecurring ? `
     <div class="meal-recurrence-note">
       <i data-lucide="repeat-2" class="icon-sm" aria-hidden="true"></i>
-      <span>${t('meals.recurrenceEditHint')}</span>
+      <span>${t('meals.recurrenceBadge')} (${t(`subscriptions.cycle.${meal.recurrence_frequency || 'weekly'}`)})</span>
     </div>
     <div class="form-group">
       <label class="form-label" for="modal-edit-scope">${t('meals.editScopeLabel')}</label>
@@ -1995,20 +1997,28 @@ function buildModalContent({ mode, date, mealType, meal, fromSlot = false, recip
       <yuvomi-datepicker type="date" id="modal-repeat-until"
                          value="${meal.recurrence_end_date ? formatDateInput(meal.recurrence_end_date) : ''}"></yuvomi-datepicker>
       <p class="form-hint">${t('meals.recurrenceUntilHint')}</p>
-    </div>` : '') : `
+    </div>` : ''}
+  `;
+
+  const createRecurrenceHtml = !isEdit ? `
     <div class="meal-recurrence-option">
       <label class="toggle">
-        <input type="checkbox" id="modal-repeat-weekly">
+        <input type="checkbox" id="modal-repeat">
         <span class="toggle__track"></span>
         <span>${t('meals.recurrenceLabel')}</span>
       </label>
-      <p class="form-hint">${t('meals.recurrenceHint')}</p>
+      <div class="form-group" id="modal-repeat-frequency-group" hidden>
+        <select class="form-input" id="modal-repeat-frequency" aria-label="${t('meals.recurrenceLabel')}">
+          <option value="weekly">${t('subscriptions.cycle.weekly')}</option>
+          <option value="monthly">${t('subscriptions.cycle.monthly')}</option>
+        </select>
+      </div>
       <div class="form-group" id="modal-repeat-until-group" hidden>
         <label class="form-label" for="modal-repeat-until">${t('meals.recurrenceUntilLabel')}</label>
         <yuvomi-datepicker type="date" id="modal-repeat-until" value=""></yuvomi-datepicker>
         <p class="form-hint">${t('meals.recurrenceUntilHint')}</p>
       </div>
-    </div>`}`;
+    </div>` : '';
 
   const whenHtml = `
     <div class="modal-grid modal-grid--2${fromSlot && !isEdit ? ' meal-modal__when' : ''}">
@@ -2051,6 +2061,8 @@ function buildModalContent({ mode, date, mealType, meal, fromSlot = false, recip
         ${t('meals.addIngredient')}
       </button>
     </div>
+
+    ${createRecurrenceHtml}
 
     ${advancedSection(advancedFieldsHtml, { open: advancedOpen })}
 
@@ -2098,14 +2110,14 @@ async function saveModal(overlay) {
   const notes     = overlay.querySelector('#modal-notes').value.trim() || null;
   const recipe_url = overlay.querySelector('#modal-recipe-url').value.trim() || null;
   const recipe_id = overlay.querySelector('#modal-recipe-id')?.value || null;
-  const repeat_weekly = state.modal?.mode === 'create'
-    ? Boolean(overlay.querySelector('#modal-repeat-weekly')?.checked)
-    : false;
+  const repeat_frequency = state.modal?.mode === 'create' && overlay.querySelector('#modal-repeat')?.checked
+    ? overlay.querySelector('#modal-repeat-frequency')?.value || 'weekly'
+    : null;
   const scope = overlay.querySelector('#modal-edit-scope')?.value || 'single';
   // Das Wiederholungs-Ende zählt nur, solange die Serie im Spiel ist: beim
   // Anlegen mit gesetztem Schalter, beim Bearbeiten im Serien-Umfang. Sonst
   // steht im Feld zwar ein Wert, er gehört aber zu keiner der beiden Absichten.
-  const seriesScoped   = state.modal?.mode === 'create' ? repeat_weekly : scope === 'series';
+  const seriesScoped   = state.modal?.mode === 'create' ? Boolean(repeat_frequency) : scope === 'series';
   const repeatUntilEl  = overlay.querySelector('#modal-repeat-until');
   const repeatUntilRaw = seriesScoped ? (repeatUntilEl?.value ?? '') : '';
   // Leeres Feld heißt „ohne Ende" und geht als leerer String raus: der Server
@@ -2141,7 +2153,7 @@ async function saveModal(overlay) {
     const { mode, meal } = state.modal;
 
     if (mode === 'create') {
-      const res     = await api.post('/meals', { date, meal_type, title, notes, recipe_url, recipe_id, ingredients, repeat_weekly, repeat_until });
+      const res     = await api.post('/meals', { date, meal_type, title, notes, recipe_url, recipe_id, ingredients, repeat_frequency, repeat_until });
       state.meals.push(res.data);
     } else {
       if (scope === 'series') {

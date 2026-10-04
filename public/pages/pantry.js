@@ -1318,11 +1318,15 @@ function openItemModal(mode, item = null) {
           <p class="form-hint">${esc(t('pantry.minQuantityHint'))}</p>
         </div>
         <div class="form-group">
+          <label class="form-label" for="pantry-restock-interval">${esc(t('pantry.restockIntervalLabel'))}</label>
+          <input id="pantry-restock-interval" class="form-input" type="number" min="1" max="3650" step="1" inputmode="numeric" placeholder="30">
+        </div>
+        <div class="form-group">
           <label class="form-label" for="pantry-notes">${esc(t('pantry.notesLabel'))}</label>
           <textarea id="pantry-notes" class="form-input" rows="3"
                     placeholder="${esc(t('pantry.notesPlaceholder'))}"></textarea>
         </div>`,
-      { open: isEdit && (item.min_quantity != null || !!item.notes) })}
+      { open: isEdit && (item.min_quantity != null || item.restock_interval_days != null || !!item.notes) })}
       <div class="modal-panel__footer modal-panel__footer--plain">
         ${isEdit ? `<button type="button" class="btn btn--danger-outline pantry-form__delete" id="pantry-delete"><i data-lucide="trash-2" class="icon-md" aria-hidden="true"></i>${esc(t('common.delete'))}</button>` : ''}
         <button type="button" class="btn btn--secondary" data-action="close-modal">${esc(t('common.cancel'))}</button>
@@ -1337,6 +1341,9 @@ function openItemModal(mode, item = null) {
         ? item.category
         : (categories.find((c) => c.name === DEFAULT_CATEGORY_NAME)?.name ?? categories[0]?.name ?? DEFAULT_CATEGORY_NAME);
       panel.querySelector('#pantry-min').value = isEdit && item.min_quantity != null ? String(item.min_quantity) : '';
+      panel.querySelector('#pantry-restock-interval').value = isEdit && item.restock_interval_days != null
+        ? String(item.restock_interval_days)
+        : isEdit ? '' : '30';
       panel.querySelector('#pantry-notes').value = isEdit && item.notes ? item.notes : '';
 
       panel.querySelector('#pantry-save').addEventListener('click', () => saveItem(panel, mode, item));
@@ -1363,6 +1370,7 @@ async function saveItem(panel, mode, item) {
   }
 
   const minRaw = panel.querySelector('#pantry-min').value.trim();
+  const restockRaw = panel.querySelector('#pantry-restock-interval').value.trim();
   const payload = {
     name,
     quantity: normalizePantryQuantity(panel.querySelector('#pantry-quantity').value, { fallback: 1 }),
@@ -1371,6 +1379,7 @@ async function saveItem(panel, mode, item) {
     category: panel.querySelector('#pantry-category').value,
     expires_on: panel.querySelector('#pantry-expires').value || null,
     min_quantity: minRaw === '' ? null : normalizePantryQuantity(minRaw, { fallback: 0 }),
+    restock_interval_days: restockRaw === '' ? null : Number(restockRaw),
     notes: panel.querySelector('#pantry-notes').value.trim() || null,
   };
 

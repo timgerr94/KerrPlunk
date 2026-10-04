@@ -4647,6 +4647,89 @@ function addDurationToDateTime(dateKey, timeStr, minutes) {
   };
 }
 
+function quickAddUserAtStart(value, users) {
+  return [...users]
+    .map((user) => ({ user, name: String(user.display_name ?? '').trim() }))
+    .filter(({ name }) => (
+      name
+      && value.length > name.length
+      && value.slice(0, name.length).toLowerCase() === name.toLowerCase()
+      && /[\s,]/.test(value[name.length])
+    ))
+    .sort((a, b) => b.name.length - a.name.length)[0] ?? null;
+}
+
+function parseQuickAddAssignees(prefix, users) {
+  let remaining = prefix.trim();
+  const assignedTo = [];
+
+  while (true) {
+    const match = quickAddUserAtStart(remaining, users);
+    if (!match) break;
+    assignedTo.push(match.user.id);
+    remaining = remaining.slice(match.name.length);
+    const separator = remaining.match(/^\s*(?:,\s*(?:and\s+)?|\band\s+)?/i);
+    remaining = remaining.slice(separator[0].length).trimStart();
+    if (!quickAddUserAtStart(remaining, users)) break;
+  }
+
+  return { title: remaining.trim(), assignedTo };
+}
+
+function parseDayQuickAdd(value, users = state.users) {
+  const match = String(value ?? '').trim().match(/^(.+?)\s*(?:@\s*|\bat\s+|\s+)(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$/i);
+  if (!match) return null;
+
+  const prefix = match[1].trim();
+  const hour = Number(match[2]);
+  const minute = Number(match[3] ?? 0);
+  const suffix = match[4]?.toLowerCase();
+  if (!prefix || minute > 59) return null;
+
+  let hour24 = hour;
+  if (suffix) {
+    if (hour < 1 || hour > 12) return null;
+    hour24 = (hour % 12) + (suffix === 'pm' ? 12 : 0);
+  } else if (match[3] === undefined || hour > 23) {
+    return null;
+  }
+
+  const { title, assignedTo } = parseQuickAddAssignees(prefix, users);
+  if (!title) return null;
+
+  return {
+    title,
+    time: `${pad(hour24)}:${pad(minute)}`,
+    assignedTo,
+  };
+}
+
+function wireDayQuickAddTitle(panel) {
+  const titleInput = panel.querySelector('#modal-title');
+  if (!titleInput) return;
+
+  titleInput.addEventListener('input', () => {
+    const parsed = parseDayQuickAdd(titleInput.value);
+    if (!parsed) return;
+
+    titleInput.value = parsed.title;
+    if (parsed.assignedTo.length) {
+      const assignedIds = new Set(parsed.assignedTo);
+      const assigneeBoxes = [...panel.querySelectorAll('[data-ms-input="cal_assigned"]')];
+      assigneeBoxes.forEach((box) => {
+        box.checked = !box.classList.contains('user-ms__none') && assignedIds.has(Number(box.value));
+      });
+      assigneeBoxes.find((box) => box.checked)?.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+
+    const startTime = panel.querySelector('#modal-start-time');
+    if (startTime && !panel.querySelector('#modal-allday')?.checked) {
+      startTime.value = formatTimeInput(parsed.time);
+      startTime.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+  });
+}
+
 /** Minuten seit Mitternacht - der Bezug jeder Now-Linie. */
 function nowMinutes() {
   // Die Uhr des Haushalts (#829 Teil 3): sonst steht die Jetzt-Linie auf einem
@@ -4812,6 +4895,15 @@ function renderDayView(container) {
   // bereits als Ansichts-Label (Audit A1-18).
   container.insertAdjacentHTML('beforeend', `
     <div class="day-view">
+      ${readOnly() ? '' : `
+      <form class="cal-day-quick-add" id="cal-day-quick-add" autocomplete="off">
+        <input class="form-input" id="cal-day-quick-add-input" type="text" required
+               aria-label="${t('calendar.addEvent')}"
+           placeholder="e.g. Elsie Dance 6PM">
+        <button class="btn btn--primary" type="submit" aria-label="${t('calendar.addEvent')}" title="${t('calendar.addEvent')}">
+          <i data-lucide="plus" aria-hidden="true"></i>
+        </button>
+      </form>`}
       ${(allday.length || scheduleChips.length || dayWaste.length || tasksOnDay(state.cursor).length || holidaysOnDay(state.cursor).length) ? `
       <div class="allday-row" style="display:grid;grid-template-columns:var(--cal-gutter-width) 1fr;">
         <div class="calendar-all-day-label">${t('calendar.allDayShort')}</div>
@@ -4854,6 +4946,15 @@ function renderDayView(container) {
       </div>
     </div>
   `);
+
+  const quickAddForm = container.querySelector('#cal-day-quick-add');
+  const quickAddInput = quickAddForm?.querySelector?.('#cal-day-quick-add-input');
+  quickAddInput?.addEventListener('input', () => quickAddInput.setCustomValidity(''));
+  quickAddForm?.addEventListener('submit', (event) => {
+    event.preventDefault();
+    void submitDayQuickAdd(quickAddForm);
+  });
+  if (quickAddForm && window.lucide) window.lucide.createIcons({ el: quickAddForm });
 
   container.querySelector('.allday-row')?.addEventListener('click', (e) => {
     const taskChip = e.target.closest('.cal-task-chip');
@@ -4909,6 +5010,78 @@ function renderDayView(container) {
   container.querySelector('.day-view').addEventListener('keydown', handleGridKeydown);
 
   scrollToHour(container.querySelector('#day-scroll'), container.querySelector('.day-view__body'));
+}
+
+async function submitDayQuickAdd(form) {
+  if (readOnly()) return;
+  const input = form.querySelector('#cal-day-quick-add-input');
+  const parsed = parseDayQuickAdd(input.value);
+  if (!parsed) {
+    input.setCustomValidity('e.g. Elsie Dance 6PM');
+    input.reportValidity();
+    return;
+  }
+  input.setCustomValidity('');
+
+  const button = form.querySelector('button[type="submit"]');
+  const start_datetime = `${state.cursor}T${parsed.time}`;
+  const end = addDurationToDateTime(state.cursor, parsed.time, state.defaultDuration || 60);
+  const assigned_to = parsed.assignedTo.length
+    ? parsed.assignedTo
+    : state.defaultAssignMe && state.currentUserId != null ? [state.currentUserId] : [];
+  const body = {
+    title: parsed.title,
+    start_datetime,
+    end_datetime: `${end.date}T${end.time}`,
+    all_day: false,
+    assigned_to,
+    icon: 'calendar',
+    visibility: 'all',
+    countdown: false,
+    recurrence_rule: null,
+  };
+
+  const syncTarget = state.defaultSyncTarget || '';
+  if (syncTarget.startsWith('google:')) {
+    body.target_google_calendar_id = syncTarget.slice('google:'.length);
+  } else if (syncTarget.startsWith('caldav:')) {
+    const [accountId, calendarUrl] = syncTarget.slice('caldav:'.length).split('|');
+    if (accountId && calendarUrl) {
+      body.target_caldav_account_id = parseInt(accountId, 10);
+      body.target_caldav_calendar_url = calendarUrl;
+    }
+  } else if (syncTarget.startsWith('outlook:')) {
+    const [accountId, calendarId] = syncTarget.slice('outlook:'.length).split('|');
+    if (accountId && calendarId) {
+      body.target_outlook_account_id = parseInt(accountId, 10);
+      body.target_outlook_calendar_id = calendarId;
+    }
+  }
+
+  button.disabled = true;
+  try {
+    const result = await api.post('/calendar', body);
+    const eventId = result.data?.id;
+    const remindAts = reminderTimesFromOffsets(state.defaultReminders, start_datetime);
+    let reminderError = null;
+    if (eventId && remindAts.length) {
+      try {
+        await api.put(`/reminders?entity_type=event&entity_id=${eventId}`, { remind_ats: remindAts });
+      } catch (err) {
+        reminderError = err;
+      }
+    }
+    state.events.push(result.data);
+    form.reset();
+    renderView();
+    _container?.querySelector('#cal-day-quick-add-input')?.focus();
+    refreshReminders();
+    window.yuvomi?.showToast(t('calendar.createdToast'), 'success');
+    if (reminderError) window.yuvomi?.showToast(calendarSaveErrorMessage(reminderError), 'danger');
+  } catch (err) {
+    button.disabled = false;
+    window.yuvomi?.showToast(calendarSaveErrorMessage(err), 'danger');
+  }
 }
 
 /**
@@ -5940,6 +6113,8 @@ export const __test = {
   occurrenceAttr, eventForChip,
   // Die Nur-lesen-Weiche (#467) und der Anlegeweg, den sie als erstes schliesst.
   readOnly, openEventModal,
+  parseDayQuickAdd,
+  wireDayQuickAddTitle,
   periodStepOf, periodArrowLabels, openCalendarFilters,
   buildEventModalContent, eventAdvancedTopics, wireVisibilityWarning,
   calendarSaveErrorMessage,
@@ -7205,6 +7380,8 @@ function wireEventForm(panel, { mode, event = null, reminder = null }) {
     ),
   });
   bindUserMultiSelect(panel, 'cal_assigned');
+  if (mode === 'create') wireDayQuickAddTitle(panel);
+  wireVisibilityWarning(panel, '#modal-visibility', 'cal_assigned', '#modal-visibility-warning');
   wireVisibilityWarning(panel, '#modal-visibility', 'cal_assigned', '#modal-visibility-warning', '#modal-visibility-private-warning',
     event?.created_by ?? state.currentUserId);
 

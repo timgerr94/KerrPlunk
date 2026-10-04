@@ -70,6 +70,7 @@ const state = {
    *  wie bei den Aufgaben-Gruppen, #812). */
   collapsedCategories: new Set(),
 };
+const pantryTransfersInFlight = new Set();
 
 // --------------------------------------------------------
 // Hilfsfunktionen
@@ -226,7 +227,7 @@ function readOnly() {
  * bis sie hier ausdruecklich eingetragen wird. Das Klappen der Kategorien laeuft
  * ueber `data-category-toggle`, nicht ueber `data-action`, und steht davor.
  */
-const READ_SAFE_ACTIONS = new Set(['switch-list', 'item-details']);
+const READ_SAFE_ACTIONS = new Set(['switch-list', 'item-details', 'transfer-checked-to-pantry']);
 
 /** Der Riegel im delegierten Handler: laesst bei `read` nur die Positivliste durch. */
 function readOnlyBlocks(action) {
@@ -789,8 +790,23 @@ function renderTabs(container) {
   // duplizieren, uebernehmen, senden - ein POST -, verwalten, loeschen), und
   // ein Ausloeser ohne Eintraege waere ein Knopf, der nichts oeffnet.
   const ro = readOnly();
-  const actionsHtml = state.activeList && !ro ? `
-      ${pageToolsMenuHtml({
+  const checkedCount = state.items.filter((item) => checkedOf(item)).length;
+  const canTransferToPantry = Boolean(state.activeList && checkedCount > 0
+    && !window.yuvomi?.isModuleDisabled?.('pantry') && mayTransferShoppingToPantry());
+  const showListActions = Boolean(state.activeList && !ro);
+  const transferInProgress = pantryTransfersInFlight.has(state.activeListId);
+  const actionsHtml = canTransferToPantry || showListActions ? `
+    <div class="list-tabs-bar__actions">
+      ${canTransferToPantry ? `
+        <button class="list-tabs-bar__pantry btn btn--secondary" type="button"
+                data-action="transfer-checked-to-pantry"
+          ${transferInProgress ? 'disabled' : ''}
+                aria-label="${esc(`${t('shopping.toPantry')}, ${t('shopping.checkedHint', { count: checkedCount })}`)}">
+          <i data-lucide="package-check" class="icon-sm" aria-hidden="true"></i>
+          <span>${esc(t('shopping.toPantry'))}</span>
+          <span class="list-tabs-bar__pantry-count" aria-hidden="true">${checkedCount}</span>
+        </button>` : ''}
+      ${showListActions ? popoverMenuHtml({
         id: 'list-actions-menu',
         // Der Name muss die Liste nennen: der Trigger steht nicht mehr neben
         // einer Überschrift, die den Bezug herstellt. „Mehr" allein ließe offen,
@@ -810,7 +826,8 @@ function renderTabs(container) {
           { action: 'manage-stores', label: t('shopping.manageStores'), icon: 'store' },
           { action: 'delete-list', label: t('shopping.deleteListLabel'), icon: 'trash', id: state.activeList.id, danger: true },
         ],
-      })}` : '';
+      }) : ''}
+    </div>` : '';
 
   bar.insertAdjacentHTML('beforeend', `
     ${tabsHtml}
@@ -1233,6 +1250,7 @@ function renderItemMeta(item) {
   const bits = [];
   if (item.url)   bits.push('<i data-lucide="link" class="item-meta__icon" aria-hidden="true"></i>');
   if (item.notes) bits.push('<i data-lucide="sticky-note" class="item-meta__icon" aria-hidden="true"></i>');
+  if (item.predicted_pantry_item_id) bits.push(`<span class="list-row__tag">${esc(t('pantry.predictedItem'))}</span>`);
   return bits.length ? `<span class="item-meta">${bits.join('')}</span>` : '';
 }
 
@@ -1366,6 +1384,16 @@ function renderItem(item) {
                   aria-label="${t('shopping.detailsLabel', { name: esc(item.name) })}">
             <i data-lucide="pencil" class="icon-md" aria-hidden="true"></i>
           </button>
+          ${item.predicted_pantry_item_id ? popoverMenuHtml({
+    id: `shopping-prediction-${item.id}`,
+    label: t('shopping.listActionsLabel', { name: item.name }),
+    triggerClass: 'row-action',
+    items: [
+      { action: 'restock-snooze', label: t('pantry.snoozeRestock'), icon: 'clock-3', id: item.id },
+      { action: 'restock-skip', label: t('pantry.skipRestock'), icon: 'skip-forward', id: item.id },
+      { action: 'restock-disable', label: t('pantry.disableRestock'), icon: 'bell-off', id: item.id },
+    ],
+  }) : ''}
           <button class="row-action row-action--danger" data-action="delete-item" data-id="${item.id}"
                   aria-label="${t('shopping.deleteItemLabel', { name: esc(item.name) })}">
             ${/* trash-2 statt x: das Kreuz heisst app-weit „Schliessen"
@@ -2381,6 +2409,14 @@ function parseShoppingQuantity(raw) {
   return { quantity, unit: match[2] ? match[2].toLowerCase() : 'pcs' };
 }
 
+function pantryTransferEntries(items, locationId) {
+  return items.map((item) => ({
+    shopping_item_id: Number(item.id),
+    ...parseShoppingQuantity(item.quantity),
+    location_id: locationId,
+  }));
+}
+
 /**
  * Übernahme-Dialog „Einkauf → Vorrat". Ein gemeinsamer Lagerort für alle
  * Artikel plus Menge/Einheit je Zeile: nach dem Einkauf räumt man einen Beutel
@@ -2514,6 +2550,59 @@ async function openPantryTransfer(container) {
       });
     },
   });
+}
+
+async function transferCheckedToPantry(container, button) {
+  if (!mayTransferShoppingToPantry() || window.yuvomi?.isModuleDisabled?.('pantry')) return;
+  const checked = state.items.filter((item) => checkedOf(item));
+  const listId = state.activeListId;
+  if (!checked.length || !listId || button.disabled || pantryTransfersInFlight.has(listId)) return;
+
+  pantryTransfersInFlight.add(listId);
+  button.disabled = true;
+  try {
+    const locationsResponse = await api.get('/pantry/locations');
+    const locationId = locationsResponse.data?.[0]?.id ?? null;
+    const result = await api.post('/pantry/import-shopping', {
+      list_id: listId,
+      items: pantryTransferEntries(checked, locationId),
+    });
+    const stored = (result.data?.added ?? 0) + (result.data?.merged ?? 0);
+
+    if (stored && !readOnly()) {
+      const itemIds = checked.map((item) => Number(item.id));
+      const removed = await api.delete(`/shopping/${listId}/items/checked`, {
+        body: JSON.stringify({ ids: itemIds }),
+      });
+      acknowledgeOwnChange(removed);
+      const deleted = Number(removed.deleted) || 0;
+      updateListCounter(listId, -deleted, -deleted);
+      if (state.activeListId === listId && container.isConnected) {
+        if (deleted === itemIds.length) {
+          const removedIds = new Set(itemIds);
+          state.items = state.items.filter((item) => !removedIds.has(Number(item.id)));
+        } else {
+          await loadItems(listId);
+        }
+        updateItemsList(container);
+      }
+      renderTabs(container);
+    }
+
+    window.yuvomi?.showToast(
+      stored ? t('shopping.toPantryDone', { count: stored }) : t('shopping.toPantryNothing'),
+      stored ? 'success' : 'info',
+    );
+    refreshKitchenBadges();
+  } catch (err) {
+    window.yuvomi?.showToast(err.data?.error ?? t('common.errorGeneric'), 'danger');
+  } finally {
+    pantryTransfersInFlight.delete(listId);
+    if (state.activeListId === listId) {
+      const currentButton = container.querySelector('[data-action="transfer-checked-to-pantry"]');
+      if (currentButton) currentButton.disabled = false;
+    }
+  }
 }
 
 /**
@@ -3000,6 +3089,26 @@ function acknowledgeOwnChange(response) {
   _liveFeed?.acknowledge(response?.list_change);
 }
 
+async function handlePredictedRestockAction(id, action, container) {
+  if (readOnly()) return;
+  const item = state.items.find((entry) => Number(entry.id) === Number(id));
+  if (!item?.predicted_pantry_item_id) return;
+
+  try {
+    const response = await api.post(`/shopping/items/${id}/restock-action`, { action });
+    acknowledgeOwnChange(response);
+    state.items = state.items.filter((entry) => Number(entry.id) !== Number(id));
+    updateItemsList(container);
+    updateListCounter(state.activeListId, -1, checkedOf(item) ? -1 : 0);
+    renderTabs(container);
+    const toastKey = action === 'skip' ? 'pantry.skipRestock'
+      : action === 'disable' ? 'pantry.disableRestock' : 'pantry.snoozeRestock';
+    window.yuvomi?.showToast(t(toastKey), 'success');
+  } catch (err) {
+    window.yuvomi?.showToast(err.data?.error ?? t('common.errorGeneric'), 'danger');
+  }
+}
+
 /**
  * Was ein frischer Stand an der Zeilen-Ansicht aendert.
  *
@@ -3270,6 +3379,18 @@ function wireListContentEvents(container) {
     // ---- Artikel löschen (mit Undo, 5s Fenster) ----
     if (action === 'delete-item') {
       deleteItemUndoable(Number(target.dataset.id), container);
+    }
+
+    if (action === 'restock-snooze' || action === 'restock-skip' || action === 'restock-disable') {
+      await handlePredictedRestockAction(
+        Number(target.dataset.id),
+        action === 'restock-skip' ? 'skip' : action === 'restock-disable' ? 'disable' : 'snooze',
+        container,
+      );
+    }
+
+    if (action === 'transfer-checked-to-pantry') {
+      await transferCheckedToPantry(container, target);
     }
 
     // ---- Kategorien verwalten ----
@@ -3721,6 +3842,7 @@ export const __test = {
   // Mengen-Zerlegung fuer den Vorrats-Uebertrag: haengt an der Format-Locale,
   // ist also nur verhaltensgetrieben pruefbar (siehe test-shopping-ux.js).
   parseShoppingQuantity,
+  pantryTransferEntries,
   // Kategorie-Einklappen (#1039): reine Schluessel-/Speicherfunktionen, ohne
   // DOM. `state` bleibt bewusst ERREICHBAR, nicht ERSETZBAR - Tests lesen und
   // schreiben ihre Felder direkt, wie beim Muster in test-health-meds.js.

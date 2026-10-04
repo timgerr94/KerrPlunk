@@ -30,7 +30,7 @@ import {
   mirroredFieldsChanged,
   queueEventDeletion,
 } from '../services/calendar-outbound.js';
-import { mayWriteModule, moduleAccessVerdict, MODULE_ACCESS_ALLOW } from '../permissions.js';
+import { mayWriteModule, moduleAccessVerdict, MODULE_ACCESS_ALLOW, resolvePermissions } from '../permissions.js';
 import { documentVisibleSql } from '../services/document-access.js';
 import { tokenAllows } from '../scopes.js';
 import {
@@ -48,6 +48,7 @@ import {
 import { addMonthsClamped } from '../utils/interval-date.js';
 import { recordLocalColorChoice } from '../services/legacy-color-snapshot.js';
 import { householdMonthOf as householdMonthOfIn, householdMonthRange as householdMonthRangeIn } from '../services/housekeeping-month.js';
+import { householdDisabledModules } from '../services/household-modules.js';
 
 const log = createLogger('Housekeeping');
 const router = express.Router();
@@ -79,6 +80,34 @@ const TASK_TEMPLATES = [
 
 function userId(req) {
   return req.authUserId || req.session.userId;
+}
+
+const HOUSEKEEPING_VIEW_CAPABILITIES = Object.freeze({
+  dashboard: 'housekeeping_dashboard',
+  reports: 'housekeeping_reports',
+  staff: 'housekeeping_staff',
+});
+const HOUSEKEEPING_VIEW_MODULE_IDS = Object.freeze({
+  dashboard: 'housekeeping-dashboard',
+  reports: 'housekeeping-reports',
+  staff: 'housekeeping-staff',
+});
+
+function requireHousekeepingViews(req, res, views) {
+  const disabled = householdDisabledModules(db.get());
+  const enabledViews = views.filter((view) => !disabled.has(HOUSEKEEPING_VIEW_MODULE_IDS[view]));
+  if (!enabledViews.length) {
+    res.status(403).json({ error: 'Housekeeping section is disabled.', code: 403, reason: 'HOUSEKEEPING_VIEW_DISABLED' });
+    return false;
+  }
+  if (isAdminRequest(req)) return true;
+  const actor = db.get().prepare('SELECT id, role, family_role FROM users WHERE id = ?').get(userId(req));
+  if (actor) {
+    const { capabilities } = resolvePermissions(db.get(), actor);
+    if (enabledViews.some((view) => capabilities[HOUSEKEEPING_VIEW_CAPABILITIES[view]] === 'allow')) return true;
+  }
+  res.status(403).json({ error: 'Housekeeping section access denied.', code: 403, reason: 'HOUSEKEEPING_VIEW_REFUSED' });
+  return false;
 }
 
 function nowIso() {
@@ -795,6 +824,7 @@ function defaultShoppingList(actorId) {
 }
 
 router.get('/dashboard', (req, res) => {
+  if (!requireHousekeepingViews(req, res, ['dashboard'])) return;
   try {
     res.json({ data: housekeepingDashboard(receiptAccess(req), req.query) });
   } catch (err) {
@@ -813,6 +843,7 @@ router.get('/task-templates', (_req, res) => {
 });
 
 router.get('/worker', (req, res) => {
+  if (!requireHousekeepingViews(req, res, ['dashboard', 'staff'])) return;
   try {
     res.json({ data: publicWorker(loadWorker(), localDayContext(req.query), receiptAccess(req)) });
   } catch (err) {
@@ -822,6 +853,7 @@ router.get('/worker', (req, res) => {
 });
 
 router.get('/workers', (req, res) => {
+  if (!requireHousekeepingViews(req, res, ['dashboard', 'staff'])) return;
   try {
     const context = localDayContext(req.query);
     const receipts = receiptAccess(req);
@@ -926,6 +958,7 @@ router.post('/worker', async (req, res) => {
 });
 
 router.get('/summary', (req, res) => {
+  if (!requireHousekeepingViews(req, res, ['dashboard'])) return;
   try {
     const vMonth = month(req.query.month, 'month');
     if (vMonth.error) return res.status(400).json({ error: vMonth.error, code: 400 });
@@ -943,6 +976,7 @@ router.get('/summary', (req, res) => {
 });
 
 router.get('/work-sessions', (req, res) => {
+  if (!requireHousekeepingViews(req, res, ['dashboard', 'reports', 'staff'])) return;
   try {
     reconcilePaymentTasks();
     const vMonth = month(req.query.month, 'month');
@@ -962,6 +996,10 @@ router.get('/work-sessions', (req, res) => {
 });
 
 router.get('/visits', (req, res) => {
+  const view = req.query.worker_id
+    ? 'staff'
+    : req.query.month ? 'reports' : 'dashboard';
+  if (!requireHousekeepingViews(req, res, [view])) return;
   try {
     reconcilePaymentTasks();
     const vMonth = month(req.query.month, 'month');
@@ -1067,6 +1105,7 @@ router.post('/work-sessions/check-in', (req, res) => {
 });
 
 router.get('/visits/:id', (req, res) => {
+  if (!requireHousekeepingViews(req, res, ['dashboard', 'reports', 'staff'])) return;
   try {
     const vId = validateId(req.params.id, 'id');
     if (vId.error) return res.status(400).json({ error: vId.error, code: 400 });

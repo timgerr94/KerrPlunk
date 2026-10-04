@@ -83,6 +83,7 @@
     "test:recipes-routes": "node --experimental-sqlite --test test/test-recipes-routes.js",
     "test:recipe-pantry-match": "node --experimental-sqlite --test test/test-recipe-ingredient-pantry-match.js",
     "test:pantry-routes": "node --experimental-sqlite --test test/test-pantry-routes.js",
+    "test:pantry-restocks": "node --experimental-sqlite --test test/test-pantry-restocks.js",
     "test:pantry-status": "node --loader ./test/test-browser-loader.mjs --test test/test-pantry-status.js",
     "test:pantry-ux": "node --loader ./test/test-browser-loader.mjs --test test/test-pantry-ux.js",
     "test:pantry-ownership-migration": "node --experimental-sqlite --test test/test-pantry-ownership-migration.js",

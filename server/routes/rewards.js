@@ -394,23 +394,51 @@ router.post('/redemptions', (req, res) => {
     // Einstellung des Haushalts (`rewards_require_approval`) - ein Display
     // verschiebt diese Grenze nicht, in keine Richtung.
     let targetId;
+    let targetIds;
     if (isDisplayRequest(req)) {
       const actor = displayActingPerson(req, req.body?.user_id, 'rewards', { db: d });
       if (!actor.ok) return res.status(actor.status).json({ error: actor.error, code: actor.status });
       targetId = actor.userId;
+      targetIds = [targetId];
     } else {
       targetId = req.body?.user_id != null && isAdminRequest(req) ? toInt(req.body.user_id) : me;
+      targetIds = [targetId];
+      if (isAdminRequest(req) && req.body?.user_ids != null) {
+        if (!Array.isArray(req.body.user_ids) || req.body.user_ids.length !== 2) {
+          return res.status(400).json({ error: 'user_ids must contain exactly two participants.', code: 400 });
+        }
+        targetIds = req.body.user_ids.map(toInt);
+        if (targetIds.some((id) => !Number.isFinite(id)) || new Set(targetIds).size !== 2 || targetIds[0] !== targetId) {
+          return res.status(400).json({ error: 'Invalid participants.', code: 400 });
+        }
+      }
     }
     if (!targetId) return res.status(400).json({ error: 'user_id is required.', code: 400 });
 
     const item = d.prepare('SELECT * FROM reward_catalog WHERE id = ? AND is_active = 1').get(toInt(req.body?.catalog_id));
     if (!item) return res.status(404).json({ error: 'Reward not found.', code: 404 });
-    if (!isEnrolled(d, targetId))
+    if (targetIds.some((id) => !isEnrolled(d, id)))
       return res.status(400).json({ error: 'User does not participate in the reward system.', code: 400 });
 
-    const balance = getBalance(d, targetId);
-    if (balance < item.cost)
+    const balances = targetIds.map((userId) => getBalance(d, userId));
+    const combinedBalance = balances.reduce((sum, balance) => sum + balance, 0);
+    if (combinedBalance < item.cost)
       return res.status(400).json({ error: 'Insufficient points.', code: 400 });
+
+    let charges = [{ userId: targetId, cost: item.cost }];
+    if (targetIds.length === 2) {
+      const remaining = combinedBalance - item.cost;
+      const highRemaining = Math.ceil(remaining / 2);
+      const lowRemaining = Math.floor(remaining / 2);
+      const firstGetsHigh = balances[0] >= balances[1];
+      const desired = firstGetsHigh ? [highRemaining, lowRemaining] : [lowRemaining, highRemaining];
+      if (desired.some((balance, index) => balance > balances[index])) {
+        return res.status(400).json({
+          error: 'This reward cannot leave the selected balances equal.', code: 400, reason: 'cannot_balance',
+        });
+      }
+      charges = targetIds.map((userId, index) => ({ userId, cost: balances[index] - desired[index] }));
+    }
 
     const note = req.body?.note != null ? String(req.body.note).trim().slice(0, 500) || null : null;
     // Ohne Eltern-Freigabe (haushaltweit deaktiviert) wird die Einlösung sofort
@@ -436,10 +464,13 @@ router.post('/redemptions', (req, res) => {
             VALUES (?, ?, ?, ?, ?, ?, ?)
           `).run(targetId, item.id, item.name, item.icon, item.cost, note, me);
       // Punkte sofort reservieren, damit sie nicht doppelt ausgegeben werden.
-      postLedger(d, {
-        userId: targetId, delta: -item.cost, type: 'redeem',
-        reason: item.name, redemptionId: r.lastInsertRowid, createdBy: me,
-      });
+      for (const charge of charges) {
+        if (charge.cost === 0) continue;
+        postLedger(d, {
+          userId: charge.userId, delta: -charge.cost, type: 'redeem',
+          reason: item.name, redemptionId: r.lastInsertRowid, createdBy: me,
+        });
+      }
       return { id: r.lastInsertRowid };
     })();
 
@@ -502,11 +533,15 @@ router.patch('/redemptions/:id', (req, res) => {
       const leer = action === 'fulfill' && soldOut(d, item);
       const status = leer ? 'rejected' : nextStatus;
       if (status !== 'fulfilled') {
-        // Reservierte Punkte zurückgeben.
-        postLedger(d, {
-          userId: row.user_id, delta: row.cost, type: 'reversal',
-          reason: row.reward_name, redemptionId: row.id, createdBy: me,
-        });
+        // Every contributor gets back exactly the points reserved from them.
+        const charges = d.prepare("SELECT user_id, delta FROM reward_ledger WHERE redemption_id = ? AND type = 'redeem'").all(row.id);
+        const refunds = charges.length ? charges : [{ user_id: row.user_id, delta: -row.cost }];
+        for (const charge of refunds) {
+          postLedger(d, {
+            userId: charge.user_id, delta: Math.abs(charge.delta), type: 'reversal',
+            reason: row.reward_name, redemptionId: row.id, createdBy: me,
+          });
+        }
       }
       d.prepare(`
         UPDATE reward_redemptions SET status = ?, decision_reason = ?, decided_by = ?,

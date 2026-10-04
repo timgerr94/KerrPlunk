@@ -193,6 +193,20 @@ test('Zeile mit Schreibrecht (Gegenfall): Knopf, Griff, Bearbeiten, Loeschen, Wi
   assert.doesNotMatch(html, /item-check--static|swipe-row--static|shopping-item--static/);
 });
 
+test('predicted Pantry item is labeled and offers restock actions only with write access', async () => {
+  zustand();
+  const predicted = artikel({ predicted_pantry_item_id: 42 });
+  const writable = await withAccess(SCHREIBEN, () => shopping.renderItem(predicted));
+  assert.match(writable, /pantry\.predictedItem/);
+  assert.match(writable, /data-action="restock-snooze"/);
+  assert.match(writable, /data-action="restock-disable"/);
+  assert.match(writable, /data-action="restock-skip"/);
+
+  const readonly = await withAccess(LESEN, () => shopping.renderItem(predicted));
+  assert.match(readonly, /pantry\.predictedItem/);
+  assert.doesNotMatch(readonly, /data-action="restock-(?:snooze|skip|disable)"/);
+});
+
 test('Zeile bei `read`: ein abgehakter Artikel zeigt den Haken gesetzt und sagt es', async () => {
   zustand();
   const html = await withAccess(LESEN, () => shopping.renderItem(artikel({ is_checked: 1 })));

@@ -301,6 +301,36 @@ test('POST /redemptions — Admin kann stellvertretend einlösen', async () => {
   assert.equal(getBalance(db, kid.id), 90);
 });
 
+test('POST /redemptions — Admin kann zwei Konten ausgleichen und Ablehnung erstattet beide', async () => {
+  const first = freshKid(100);
+  const second = freshKid(80);
+  const res = await call('POST', '/redemptions', {
+    actor: ADMIN,
+    body: { catalog_id: KINO, user_id: first.id, user_ids: [first.id, second.id] },
+  });
+  assert.equal(res.status, 201);
+  assert.equal(getBalance(db, first.id), 65, '35 Punkte vom höheren Saldo reserviert');
+  assert.equal(getBalance(db, second.id), 65, '15 Punkte vom niedrigeren Saldo reserviert');
+
+  const rejected = await call('PATCH', `/redemptions/${res.body.data.id}`, { actor: ADMIN, body: { action: 'reject' } });
+  assert.equal(rejected.status, 200);
+  assert.equal(getBalance(db, first.id), 100, 'erste Person erhält exakt ihre Punkte zurück');
+  assert.equal(getBalance(db, second.id), 80, 'zweite Person erhält exakt ihre Punkte zurück');
+});
+
+test('POST /redemptions — Pooling lehnt unausgleichbare Salden ab', async () => {
+  const first = freshKid(100);
+  const second = freshKid(20);
+  const res = await call('POST', '/redemptions', {
+    actor: ADMIN,
+    body: { catalog_id: KINO, user_id: first.id, user_ids: [first.id, second.id] },
+  });
+  assert.equal(res.status, 400);
+  assert.equal(res.body.reason, 'cannot_balance');
+  assert.equal(getBalance(db, first.id), 100);
+  assert.equal(getBalance(db, second.id), 20);
+});
+
 test('POST /redemptions — ohne Freigabe: sofortiges autoFulfill', async () => {
   db.prepare("INSERT INTO sync_config (key, value) VALUES ('rewards_require_approval','0') ON CONFLICT(key) DO UPDATE SET value='0'").run();
   try {

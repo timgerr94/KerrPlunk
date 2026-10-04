@@ -8,6 +8,8 @@ import {
   DEFAULT_MODULE_ACCENT,
   KITCHEN_CHILD_IDS,
   KITCHEN_CHILD_LABEL_KEYS,
+  HOUSEKEEPING_CHILD_IDS,
+  HOUSEKEEPING_CHILD_LABEL_KEYS,
   NAV_SECTION,
   NAV_SECTIONS,
   NAV_SECTION_LABEL_KEYS,
@@ -39,12 +41,20 @@ import { moduleDisplayLabel } from '/utils/extension-i18n.js';
  */
 
 /** Zeilen in derselben Reihenfolge und Gruppierung wie die Navigation - nur ohne Sortierung. */
-function buildRows(preferences, thirdPartyModules) {
+export function buildRows(preferences, thirdPartyModules) {
   const disabled = new Set(Array.isArray(preferences.disabled_modules) ? preferences.disabled_modules : []);
   const rows = [];
 
   for (const module of BUILT_IN_MODULES) {
     if (KITCHEN_CHILD_IDS.includes(module.id) || module.locked) continue;
+    const children = module.id === 'housekeeping'
+      ? HOUSEKEEPING_CHILD_IDS.map((id) => ({
+        id,
+        label: t(HOUSEKEEPING_CHILD_LABEL_KEYS[id]),
+        icon: MODULE_ICON.housekeeping,
+        enabled: !disabled.has(id),
+      }))
+      : null;
     rows.push({
       type: 'built-in',
       id: module.id,
@@ -52,6 +62,7 @@ function buildRows(preferences, thirdPartyModules) {
       label: t(module.labelKey),
       icon: MODULE_ICON[module.id],
       enabled: !disabled.has(module.id),
+      ...(children ? { children, enabledChildren: children.filter((child) => child.enabled).length } : {}),
     });
   }
 
@@ -111,7 +122,7 @@ function statusChipHtml(row) {
   return `<span class="settings-module-status settings-module-status--disabled">${esc(t('settings.thirdPartyModulesStatusDisabled'))}</span>`;
 }
 
-function rowHtml(row) {
+export function rowHtml(row) {
   const stateClass = row.enabled ? 'settings-module-row--enabled' : 'settings-module-row--disabled';
   // Ein Drittanbieter-Modul bringt seine Farbe als Wert mit, ein eingebautes
   // holt sie aus dem geteilten Auflöser - beide landen in derselben Property.
@@ -142,6 +153,20 @@ function rowHtml(row) {
     attrs: { 'data-kitchen-child-toggle': child.id },
   })).join('')}
     </div>` : '';
+  const housekeepingPanel = row.id === 'housekeeping' ? `
+    <button type="button" class="settings-disclosure__trigger settings-module-kitchen__trigger" aria-expanded="false" data-housekeeping-expand>
+      <span>Manage</span>
+      <i data-lucide="chevron-down" class="settings-disclosure__icon" aria-hidden="true"></i>
+    </button>
+    <div class="settings-disclosure__panel settings-module-kitchen__children" data-housekeeping-children hidden>
+      ${row.children.map((child) => toggleRowHtml({
+    label: child.label,
+    checked: child.enabled,
+    className: 'settings-module-kitchen__child',
+    icon: child.icon,
+    attrs: { 'data-housekeeping-child-toggle': child.id },
+  })).join('')}
+    </div>` : '';
 
   return `
     <div class="settings-module-row settings-module-row--fixed ${stateClass}${row.hasError ? ' settings-module-row--error' : ''}" data-module-row-id="${esc(row.id)}">
@@ -155,7 +180,7 @@ function rowHtml(row) {
           ${statusChipHtml(row)}
         </div>
         ${row.error ? `<p class="form-error" role="alert">${esc(row.error)}</p>` : ''}
-        ${kitchenPanel}
+        ${kitchenPanel}${housekeepingPanel}
       </div>
       ${row.type === 'kitchen' ? '' : toggleRowHtml({
     control: 'switch',
@@ -189,6 +214,9 @@ export function collectDisabledModuleIds(list) {
   }
   for (const input of list.querySelectorAll('[data-kitchen-child-toggle]')) {
     if (!input.checked) ids.add(input.dataset.kitchenChildToggle);
+  }
+  for (const input of list.querySelectorAll('[data-housekeeping-child-toggle]')) {
+    if (!input.checked) ids.add(input.dataset.housekeepingChildToggle);
   }
   return [...ids];
 }
@@ -242,7 +270,7 @@ function bindEvents(container, user) {
 
   list.addEventListener('change', async (event) => {
     const input = event.target.closest(
-      '[data-built-in-module-toggle], [data-third-party-module-toggle], [data-kitchen-child-toggle]',
+      '[data-built-in-module-toggle], [data-third-party-module-toggle], [data-kitchen-child-toggle], [data-housekeeping-child-toggle]',
     );
     if (!input) return;
     const enabled = input.checked;
@@ -294,6 +322,7 @@ export async function render(container, { user }) {
   `);
 
   bindDisclosure(container, { triggerSelector: '[data-kitchen-expand]', panelSelector: '[data-kitchen-children]', id: 'kitchen-children-active' });
+    bindDisclosure(container, { triggerSelector: '[data-housekeeping-expand]', panelSelector: '[data-housekeeping-children]', id: 'housekeeping-children-active' });
   bindEvents(container, user);
   window.lucide?.createIcons({ el: container });
 }

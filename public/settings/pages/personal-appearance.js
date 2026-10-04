@@ -71,6 +71,12 @@ function currentTheme() {
   return safeStorageGet('yuvomi-theme', 'system') || 'system';
 }
 
+function currentSkin() {
+  return safeStorageGet('yuvomi-skin', 'default') === 'middle-earth'
+    ? 'middle-earth'
+    : 'default';
+}
+
 function formatOptions(selected) {
   return DATE_FORMATS.map(([value, label]) => (
     `<option value="${value}"${selected === value ? ' selected' : ''}>${label}</option>`
@@ -226,6 +232,7 @@ function renderLoadError(container) {
  */
 function renderPage(container, preferences, isAdmin) {
   const theme = currentTheme();
+  const skin = currentSkin();
   const activeRegion = resolveRegion(preferences);
   const customHidden = isAdmin && activeRegion !== CUSTOM_REGION;
   container.replaceChildren();
@@ -246,6 +253,15 @@ function renderPage(container, preferences, isAdmin) {
               <i data-lucide="${icon}" class="icon-md" aria-hidden="true"></i>${esc(t(labelKey))}
             </button>`;
           }).join('')}
+        </div>
+      </div>
+      <div class="settings-card">
+        <div class="form-group">
+          <label class="form-label" for="visual-skin-select">${t('settings.visualSkinLabel')}</label>
+          <select class="form-input" id="visual-skin-select">
+            <option value="default"${skin === 'default' ? ' selected' : ''}>${t('settings.visualSkinDefault')}</option>
+            <option value="middle-earth"${skin === 'middle-earth' ? ' selected' : ''}>${t('settings.visualSkinMiddleEarth')}</option>
+          </select>
         </div>
       </div>
       <!-- DER WAND-MODUS WOHNT HIER UND NICHT IM ANPASSEN-PANEL.
@@ -388,6 +404,25 @@ function applyTheme(value) {
   }
 }
 
+function applySkin(value) {
+  const skin = value === 'middle-earth' ? 'middle-earth' : 'default';
+  safeStorageSet('yuvomi-skin', skin);
+  if (window.yuvomi?.applySkin) {
+    try {
+      window.yuvomi.applySkin(skin);
+      return;
+    } catch {
+      // Fall back to applying the skin directly when router storage fails.
+    }
+  }
+
+  if (skin === 'middle-earth') {
+    document.documentElement.setAttribute('data-skin', skin);
+  } else {
+    document.documentElement.removeAttribute('data-skin');
+  }
+}
+
 // Spiegelt die aktive Region als Formatier-Locale für Zahlen/Währung in den
 // localStorage (getFormatLocale() in i18n.js liest ihn). Leert den Schlüssel bei
 // "Benutzerdefiniert", damit die Zahlenformatierung auf die UI-Sprache zurückfällt.
@@ -518,6 +553,10 @@ function bindEvents(container, user) {
     activeClass: 'is-active',
     mode: 'select',
     onChange: (value) => applyTheme(value),
+  });
+
+  container.querySelector('#visual-skin-select')?.addEventListener('change', (event) => {
+    applySkin(event.currentTarget.value);
   });
 
   // Gerätelokal wie das Theme darüber: kein Server-Request, keine Preference.

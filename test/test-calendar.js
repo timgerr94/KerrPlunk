@@ -22,6 +22,81 @@ function test(name, fn) {
 }
 function assert(cond, msg) { if (!cond) throw new Error(msg || 'Assertion fehlgeschlagen'); }
 
+test('day quick-add parses explicit 12-hour and 24-hour times', () => {
+  const parse = calendarHelpers.parseDayQuickAdd;
+  assert(JSON.stringify(parse('dr appointment @3PM')) === JSON.stringify({ title: 'dr appointment', time: '15:00', assignedTo: [] }));
+  assert(JSON.stringify(parse('Dentist at 3:25 pm')) === JSON.stringify({ title: 'Dentist', time: '15:25', assignedTo: [] }));
+  assert(JSON.stringify(parse('School pickup 15:00')) === JSON.stringify({ title: 'School pickup', time: '15:00', assignedTo: [] }));
+  assert(JSON.stringify(parse('School pickup at 14:00')) === JSON.stringify({ title: 'School pickup', time: '14:00', assignedTo: [] }));
+  assert(parse('Appointment @3') === null, 'ambiguous 12-hour input must not be guessed');
+  assert(parse('Appointment @14:75') === null, 'invalid minutes must be rejected');
+});
+
+test('day quick-add recognizes a leading household member as the assignee', () => {
+  const parse = calendarHelpers.parseDayQuickAdd;
+  const users = [
+    { id: 4, display_name: 'Beren' },
+    { id: 5, display_name: 'Lara Croft' },
+    { id: 6, display_name: 'Sam' },
+  ];
+  assert(JSON.stringify(parse('Beren dentist @ 10AM', users)) === JSON.stringify({ title: 'dentist', time: '10:00', assignedTo: [4] }));
+  assert(JSON.stringify(parse('lara croft school pickup @15:30', users)) === JSON.stringify({ title: 'school pickup', time: '15:30', assignedTo: [5] }));
+  assert(JSON.stringify(parse('Beren-ish dentist @10AM', users)) === JSON.stringify({ title: 'Beren-ish dentist', time: '10:00', assignedTo: [] }));
+  assert(JSON.stringify(parse('Elsie, Megan, and Sam Dance 3PM', [
+    { id: 7, display_name: 'Elsie' }, { id: 8, display_name: 'Megan' }, { id: 9, display_name: 'Sam' },
+  ])) === JSON.stringify({ title: 'Dance', time: '15:00', assignedTo: [7, 8, 9] }));
+  assert(JSON.stringify(parse('Elsie, Megan, Sam Dance 3PM', [
+    { id: 7, display_name: 'Elsie' }, { id: 8, display_name: 'Megan' }, { id: 9, display_name: 'Sam' },
+  ])) === JSON.stringify({ title: 'Dance', time: '15:00', assignedTo: [7, 8, 9] }));
+});
+
+test('new event title quick-add fills title, assignee, and start time', () => {
+  const originalUsers = calendarHelpers.state.users;
+  calendarHelpers.state.users = [
+    { id: 4, display_name: 'Beren' },
+    { id: 5, display_name: 'Lara' },
+  ];
+  const listeners = {};
+  const title = {
+    value: '',
+    addEventListener(type, listener) { (listeners[type] ??= []).push(listener); },
+  };
+  const makeAssignee = (value, checked = false, isNone = false) => ({
+    value,
+    checked,
+    classList: { contains: (name) => name === 'user-ms__none' && isNone },
+    dispatchEvent(event) { this.lastEvent = event; },
+  });
+  const none = makeAssignee('', false, true);
+  const beren = makeAssignee('4');
+  const lara = makeAssignee('5', true);
+  const startTime = {
+    value: '09:00',
+    dispatchEvent(event) { this.lastEvent = event; },
+  };
+  const panel = {
+    querySelector(selector) {
+      return selector === '#modal-title' ? title
+        : selector === '#modal-start-time' ? startTime
+          : null;
+    },
+    querySelectorAll(selector) {
+      return selector === '[data-ms-input="cal_assigned"]' ? [none, beren, lara] : [];
+    },
+  };
+
+  calendarHelpers.wireDayQuickAddTitle(panel);
+  title.value = 'Beren dentist @3PM';
+  listeners.input[0]();
+
+  assert(title.value === 'dentist', 'the title excludes the assignee and time syntax');
+  assert(beren.checked && !lara.checked && !none.checked, 'the named person replaces the previous assignment');
+  assert(beren.lastEvent?.type === 'change', 'assignee listeners are notified');
+  assert(startTime.value === '15:00' || startTime.value === '3:00 PM', 'the parsed time fills the start field');
+  assert(startTime.lastEvent?.type === 'change', 'duration listeners are notified to update the end time');
+  calendarHelpers.state.users = originalUsers;
+});
+
 // Fake-Knopf mit einer echten (Set-gestuetzten) classList und einem
 // `inert`-Feld - genug DOM-Oberflaeche, um `.is-current` und `inert` wie im
 // echten Browser zu pruefen, ohne eine ganze DOM-Bibliothek zu laden.

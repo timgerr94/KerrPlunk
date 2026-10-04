@@ -136,6 +136,22 @@ test('POST / mit repeat_weekly: Template + Sofort-Instanz mit recurrence_templat
   assert.equal(tpl.weekday, mealWeekday(RECUR_BASE));
 });
 
+test('POST / mit repeat_frequency monthly: wiederholt am gleichen Wochentag und in derselben Monatswoche', async () => {
+  const start = '2026-06-05';
+  const r = await createMeal({ date: start, title: 'Erster Freitag', repeat_frequency: 'monthly' });
+  assert.equal(r.status, 201);
+  const templateId = r.body.data.recurrence_template_id;
+  const template = db.prepare('SELECT * FROM meal_recurrence_templates WHERE id = ?').get(templateId);
+  assert.equal(template.recurrence_frequency, 'monthly');
+  assert.equal(template.weekday, 4);
+  assert.equal(template.week_of_month, 1);
+
+  await call('GET', '/?week=2026-07-03');
+  assert.equal(db.prepare('SELECT COUNT(*) c FROM meals WHERE recurrence_template_id = ? AND date = ?').get(templateId, '2026-07-03').c, 1);
+  await call('GET', '/?week=2026-08-07');
+  assert.equal(db.prepare('SELECT COUNT(*) c FROM meals WHERE recurrence_template_id = ? AND date = ?').get(templateId, '2026-08-07').c, 1);
+});
+
 // --------------------------------------------------------------------------
 // GET / (Wochenübersicht)
 // --------------------------------------------------------------------------

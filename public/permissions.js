@@ -121,3 +121,9 @@ export function canUseFasting() {
   if (_perms.admin) return true;
   return _perms.capabilities?.health_use_fasting === 'allow';
 }
+
+/** Is a fine-grained capability enabled? Missing keys use the declared fallback. */
+export function canUseCapability(key, defaultAccess = 'none') {
+  if (_perms.admin) return true;
+  return (_perms.capabilities?.[key] ?? defaultAccess) === 'allow';
+}

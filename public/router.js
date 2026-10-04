@@ -5136,6 +5136,19 @@ window.yuvomi = {
       // Theme gilt für diese Sitzung, überlebt den Reload aber nicht.
     }
   },
+  applySkin: (value) => {
+    const skin = value === 'middle-earth' ? 'middle-earth' : 'default';
+    if (skin === 'middle-earth') {
+      document.documentElement.setAttribute('data-skin', skin);
+    } else {
+      document.documentElement.removeAttribute('data-skin');
+    }
+    try {
+      localStorage.setItem('yuvomi-skin', skin);
+    } catch {
+      // Skin gilt für diese Sitzung, überlebt den Reload aber nicht.
+    }
+  },
   restoreThemeColor: () => {
     updateThemeColorForRoute(currentRoute());
   },

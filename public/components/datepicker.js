@@ -27,8 +27,9 @@ import {
   timeInputPlaceholder,
   getTimeFormat,
 } from '/i18n.js';
+import { api } from '/api.js';
 import { esc } from '/utils/html.js';
-import { todayKey } from '/utils/date.js';
+import { todayKey, weekStartIndex, weekdayOrder } from '/utils/date.js';
 
 // ── lokale Datums-Helfer (kanonisches ISO, lokale Zeitzone) ──────────────
 const pad2 = (n) => String(n).padStart(2, '0');
@@ -50,15 +51,15 @@ function todayIso() {
   return todayKey();
 }
 
-// Wochentagskürzel (Montag-first) und Monats-/Jahres-Label rein aus Intl —
+// Wochentagskürzel (Sonntag-first) und Monats-/Jahres-Label rein aus Intl —
 // keine eigenen Locale-Strings für Kalenderbeschriftung nötig.
 function weekdayLabels(locale) {
   // timeZone:'UTC', weil die Tage per Date.UTC() gebaut werden — ohne das würde
   // Intl westlich von UTC auf den Vortag zurückrutschen und die Kürzel verschieben.
   const fmt = new Intl.DateTimeFormat(locale, { weekday: 'short', timeZone: 'UTC' });
-  // 2024-01-01 war ein Montag → 7 aufeinanderfolgende Tage ab Montag.
+  // 2024-01-07 war ein Sonntag → Index entspricht Date#getDay().
   return Array.from({ length: 7 }, (_, i) =>
-    fmt.format(new Date(Date.UTC(2024, 0, 1 + i))));
+    fmt.format(new Date(Date.UTC(2024, 0, 7 + i))));
 }
 
 function monthLabel(locale, year, month) {
@@ -389,21 +390,32 @@ class YuvomiDatepicker extends HTMLElement {
     el.setAttribute('aria-label', this._resolveLabel()
       || (sub.kind === 'date' ? t('datepicker.openCalendar') : t('datepicker.openTimePicker')));
     el.dir = this._dir();
-    if (sub.kind === 'date') this._renderCalendar(el, sub);
-    else this._renderTimeList(el, sub);
+    const open = (weekStart = 1) => {
+      if (this._activeSub !== sub) return;
+      if (sub.kind === 'date') this._renderCalendar(el, sub, weekStart);
+      else this._renderTimeList(el, sub);
 
-    sub.trigger.setAttribute('aria-expanded', 'true');
-    try { el.showPopover(); } catch { /* bereits offen */ }
-    this._position(sub.trigger, el);
-    document.addEventListener('pointerdown', this._onDocPointer, true);
-    window.addEventListener('resize', this._reposition, { passive: true });
-    window.addEventListener('scroll', this._reposition, { passive: true, capture: true });
+      sub.trigger.setAttribute('aria-expanded', 'true');
+      try { el.showPopover(); } catch { /* bereits offen */ }
+      this._position(sub.trigger, el);
+      document.addEventListener('pointerdown', this._onDocPointer, true);
+      window.addEventListener('resize', this._reposition, { passive: true });
+      window.addEventListener('scroll', this._reposition, { passive: true, capture: true });
 
-    // Fokus in die aktive Auswahl
-    (el.querySelector('[aria-selected="true"]') || el.querySelector('[tabindex="0"]')
-      || el.querySelector('button'))?.focus();
-    if (sub.kind === 'time') {
-      el.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'center' });
+      // Fokus in die aktive Auswahl
+      (el.querySelector('[aria-selected="true"]') || el.querySelector('[tabindex="0"]')
+        || el.querySelector('button'))?.focus();
+      if (sub.kind === 'time') {
+        el.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'center' });
+      }
+    };
+    if (sub.kind === 'date') {
+      document.addEventListener('pointerdown', this._onDocPointer, true);
+      api.get('/preferences')
+        .then((response) => open(weekStartIndex(response?.data?.week_start)))
+        .catch(() => open());
+    } else {
+      open();
     }
   }
 
@@ -445,10 +457,11 @@ class YuvomiDatepicker extends HTMLElement {
   }
 
   // ── Kalender ───────────────────────────────────────────────────────────
-  _renderCalendar(el, sub) {
+  _renderCalendar(el, sub, weekStart) {
     const base = parseIso(sub.iso) || parseIso(todayIso());
     this._viewYear = base.y;
     this._viewMonth = base.m;
+    this._weekStart = weekStart;
     el.replaceChildren();
     el.insertAdjacentHTML('beforeend', `
       <div class="ydp-cal">
@@ -467,8 +480,9 @@ class YuvomiDatepicker extends HTMLElement {
 
     const locale = getLocale();
     const wdRow = el.querySelector('.ydp-cal__weekdays');
-    weekdayLabels(locale).forEach((w) => {
-      wdRow.insertAdjacentHTML('beforeend', `<span class="ydp-cal__wd">${esc(w)}</span>`);
+    const labels = weekdayLabels(locale);
+    weekdayOrder(weekStart).forEach((day) => {
+      wdRow.insertAdjacentHTML('beforeend', `<span class="ydp-cal__wd">${esc(labels[day])}</span>`);
     });
 
     el.querySelector('.ydp-nav-prev').addEventListener('click', () => this._shiftMonth(el, sub, -1));
@@ -507,8 +521,7 @@ class YuvomiDatepicker extends HTMLElement {
     grid.replaceChildren();
 
     const first = new Date(this._viewYear, this._viewMonth, 1);
-    let offset = first.getDay() - 1;        // Montag = 0
-    if (offset < 0) offset = 6;
+    const offset = (first.getDay() - this._weekStart + 7) % 7;
     const start = new Date(this._viewYear, this._viewMonth, 1 - offset);
 
     const selIso = sub.iso;

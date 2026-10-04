@@ -746,6 +746,13 @@ async function openRedeemModal(memberId, presetItemId = null) {
          <select class="input" id="rw-redeem-member">
            ${members.map((m) => `<option value="${m.id}" ${m.id === defaultMember ? 'selected' : ''}>${esc(m.display_name)} · ${esc(pointsLabel(m.balance))}</option>`).join('')}
          </select>
+       </div>
+       <div class="form-group">
+         <label class="label" for="rw-redeem-member-2">${esc(t('rewards.secondParticipant'))}</label>
+         <select class="input" id="rw-redeem-member-2">
+           <option value="">${esc(t('rewards.noSecondParticipant'))}</option>
+           ${members.filter((m) => m.id !== defaultMember).map((m) => `<option value="${m.id}">${esc(m.display_name)} · ${esc(pointsLabel(m.balance))}</option>`).join('')}
+         </select>
        </div>` : `<input type="hidden" id="rw-redeem-member" value="${defaultMember ?? ''}">`;
 
   const rewardSelect = `
@@ -782,6 +789,7 @@ async function openRedeemModal(memberId, presetItemId = null) {
       </form>`,
     onSave: (panel) => {
       const memberEl = panel.querySelector('#rw-redeem-member');
+      const secondMemberEl = panel.querySelector('#rw-redeem-member-2');
       const itemEl = panel.querySelector('#rw-redeem-item');
       const summary = panel.querySelector('#rw-redeem-summary');
       const errEl = panel.querySelector('#rw-redeem-error');
@@ -790,17 +798,28 @@ async function openRedeemModal(memberId, presetItemId = null) {
       const refresh = () => {
         const cost = Number(itemEl.selectedOptions[0]?.dataset.cost || 0);
         const mid = Number(memberEl.value);
-        const bal = balanceOf(mid);
+        if (secondMemberEl?.value === memberEl.value) secondMemberEl.value = '';
+        const ids = [mid];
+        if (secondMemberEl?.value) ids.push(Number(secondMemberEl.value));
+        const memberBalances = ids.map(balanceOf);
+        const bal = memberBalances.reduce((sum, value) => sum + value, 0);
         const after = bal - cost;
-        const ok = after >= 0;
+        const sortedBalances = memberBalances.slice().sort((a, b) => b - a);
+        const leftovers = ids.length === 2 && after >= 0
+          ? sortedBalances.map((_, index) => Math.ceil(after / 2) - index * (after % 2))
+          : [after];
+        const canBalance = ids.length < 2 || leftovers.every((value, index) => value <= sortedBalances[index]);
+        const ok = after >= 0 && canBalance;
         summary.replaceChildren();
         summary.insertAdjacentHTML('beforeend', `
           <div class="rw-redeem-summary__row"><span>${esc(t('rewards.balance'))}</span><strong>${fmtPoints(bal)}</strong></div>
           <div class="rw-redeem-summary__row"><span>${esc(t('rewards.cost'))}</span><strong>−${fmtPoints(cost)}</strong></div>
-          <div class="rw-redeem-summary__row rw-redeem-summary__row--total ${ok ? '' : 'rw-redeem-summary__row--neg'}"><span>${esc(t('rewards.remaining'))}</span><strong>${fmtPoints(after)}</strong></div>`);
+          <div class="rw-redeem-summary__row rw-redeem-summary__row--total ${ok ? '' : 'rw-redeem-summary__row--neg'}"><span>${esc(t('rewards.remaining'))}</span><strong>${fmtPoints(after)}</strong></div>
+          ${ids.length === 2 && after >= 0 ? `<div class="rw-redeem-summary__row ${canBalance ? '' : 'rw-redeem-summary__row--neg'}"><span>${esc(t('rewards.remainingEach'))}</span><strong>${fmtPoints(leftovers[0])} / ${fmtPoints(leftovers[1])}</strong></div>` : ''}`);
         submit.disabled = !ok;
       };
       memberEl.addEventListener('change', refresh);
+      secondMemberEl?.addEventListener('change', refresh);
       itemEl.addEventListener('change', refresh);
       refresh();
 
@@ -812,6 +831,7 @@ async function openRedeemModal(memberId, presetItemId = null) {
           await api.post('/rewards/redemptions', {
             catalog_id: Number(itemEl.value),
             user_id: Number(memberEl.value),
+            ...(secondMemberEl?.value ? { user_ids: [Number(memberEl.value), Number(secondMemberEl.value)] } : {}),
             note: panel.querySelector('#rw-redeem-note').value.trim() || undefined,
           });
           await closeModal({ force: true });

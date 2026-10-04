@@ -27,6 +27,7 @@
  */
 import { test, mock } from 'node:test';
 import assert from 'node:assert/strict';
+import { getPermissions, setPermissions } from '../public/permissions.js';
 
 globalThis.window = globalThis.window ?? {};
 const toasts = [];
@@ -131,6 +132,36 @@ test('ohne Serverfelder bietet die Zeile nichts an, was scheitern koennte', () =
   assert.equal(count(html, 'data-open-visit="12"'), 1);
 });
 
+test('Housekeeping capabilities hide disabled tabs and skip their data requests', async () => {
+  const previous = getPermissions();
+  try {
+    setPermissions({ admin: false, modules: {}, widgets: {}, capabilities: {
+      housekeeping_dashboard: 'none',
+      housekeeping_reports: 'none',
+      housekeeping_staff: 'none',
+    } });
+    installApi();
+    await hk.loadData();
+    assert.deepEqual(hk.availableTabs().map((tab) => tab.id), ['tasks']);
+    assert.equal(requests.some((url) => url === '/housekeeping/dashboard'), false);
+    assert.equal(requests.some((url) => url.startsWith('/housekeeping/visits')), false);
+    assert.equal(requests.some((url) => url.startsWith('/housekeeping/workers')), false);
+  } finally {
+    setPermissions(previous);
+  }
+});
+
+test('household-disabled Housekeeping sections hide their tabs and skip their data requests', async () => {
+  installApi({ disabledModules: [
+    'housekeeping-dashboard', 'housekeeping-reports', 'housekeeping-staff',
+  ] });
+  await hk.loadData();
+  assert.deepEqual(hk.availableTabs().map((tab) => tab.id), ['tasks']);
+  assert.equal(requests.some((url) => url === '/housekeeping/dashboard'), false);
+  assert.equal(requests.some((url) => url.startsWith('/housekeeping/visits')), false);
+  assert.equal(requests.some((url) => url.startsWith('/housekeeping/workers')), false);
+});
+
 // ---------------------------------------------------------------------------
 // #1137: Monatsnavigation
 // ---------------------------------------------------------------------------
@@ -142,11 +173,12 @@ const REPORTS = {
 };
 
 const requests = [];
-function installApi({ onMonth } = {}) {
+function installApi({ onMonth, disabledModules = [] } = {}) {
   requests.length = 0;
   globalThis.__apiStub = {
     get: async (url) => {
       requests.push(url);
+      if (url === '/preferences') return { data: { disabled_modules: disabledModules } };
       if (url === '/housekeeping/visits') return { data: REPORTS['2026-09'] };
       const month = url.match(/^\/housekeeping\/visits\?month=(\d{4}-\d{2})$/)?.[1];
       if (month) return onMonth ? onMonth(month) : { data: REPORTS[month] ?? { month, visits: [], totals: {} } };

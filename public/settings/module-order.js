@@ -1,4 +1,12 @@
 export const KITCHEN_CHILD_IDS = Object.freeze(['meals', 'recipes', 'shopping', 'pantry']);
+export const HOUSEKEEPING_CHILD_IDS = Object.freeze([
+  'housekeeping-dashboard', 'housekeeping-reports', 'housekeeping-staff',
+]);
+export const HOUSEKEEPING_CHILD_LABEL_KEYS = Object.freeze({
+  'housekeeping-dashboard': 'housekeeping.dashboard',
+  'housekeeping-reports': 'housekeeping.reports',
+  'housekeeping-staff': 'housekeeping.staff',
+});
 
 // Eingebaute Module in kanonischer Domaenen-Reihenfolge. Uebersicht und
 // Einstellungen sind gesperrt: nicht sortierbar, nicht abschaltbar, nicht
