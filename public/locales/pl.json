@@ -949,10 +949,14 @@
         "saveAsRecipe": "Zapisz jako przepis",
         "recipeScaleLabel": "Skaluj składniki",
         "deletedToast": "Posiłek usunięty.",
+<<<<<<< HEAD
         "recurrenceLabel": "Powtarzaj co tydzień",
         "recurrenceWeekly": "Co tydzień",
         "cookLabel": "Gotuje",
         "cookNamed": "Gotuje: {{name}}",
+=======
+        "recurrenceLabel": "Powtarzaj",
+>>>>>>> 2b7868654 (My local changes)
         "recurrenceHint": "Yuvomi automatycznie dodaje ten posiłek w ten sam dzień tygodnia w kolejnych tygodniach.",
         "recurrenceUntilLabel": "Powtarzaj do",
         "recurrenceUntilHint": "Pozostaw puste, aby powtarzać bez końca.",
@@ -2040,6 +2044,7 @@
         "wallModeHint": "Zamienia stronę główną na tym urządzeniu w spokojny ekran dla tabletu na ścianie: godzina, plan dnia, kto dziś ma dyżur i pogoda - na tyle duże, by czytać z dwóch metrów, bez obsługi. Między 22 a 6 ekran przygasa. Dotyczy tylko tego urządzenia, nie pozostałych w domu.",
         "wallModeOn": "Tryb ścienny włączony, widoczny w {{page}}.",
         "wallModeOff": "Tryb ścienny wyłączony.",
+<<<<<<< HEAD
         "screensaverIdleLabel": "Czas bezczynności przed uruchomieniem wygaszacza",
         "screensaverIdleHint": "Jak długo to urządzenie pozostaje nietknięte, zanim uruchomi się wygaszacz ze zdjęciami. Dotyczy tylko tego urządzenia, nie reszty gospodarstwa domowego. Działa, gdy administrator połączy Immich.",
         "screensaverIdleSaved": "Czas oczekiwania wygaszacza na tym urządzeniu: {{delay}}.",
@@ -2048,6 +2053,12 @@
         "screensaverCoverLabel": "Zdjęcie na cały ekran",
         "screensaverCoverHint": "Zdjęcia wypełniają cały ekran zamiast się w nim mieścić. Krawędzie są przycinane, zwłaszcza w zdjęciach pionowych. Dotyczy tylko tego urządzenia.",
         "screensaverDeviceSaved": "Zapisano dla tego urządzenia. Zadziała przy następnym uruchomieniu wygaszacza.",
+=======
+        "themeDarkLabel": "Ciemny motyw",
+        "visualSkinLabel": "Styl wizualny",
+        "visualSkinDefault": "Klasyczny",
+        "visualSkinMiddleEarth": "Śródziemie",
+>>>>>>> 2b7868654 (My local changes)
         "changePassword": "Zmień hasło",
         "currentPasswordLabel": "Aktualne hasło",
         "newPasswordLabel": "Nowe hasło",
@@ -5927,6 +5938,11 @@
         "locationLabel": "Miejsce przechowywania",
         "categoryLabel": "Kategoria",
         "expiresLabel": "Najlepiej spożyć przed",
+        "restockIntervalLabel": "Zwykle kupować co X dni",
+        "predictedItem": "Prognoza",
+        "skipRestock": "Pomiń ten cykl",
+        "snoozeRestock": "Odłóż o 7 dni",
+        "disableRestock": "Nie przewiduj ponownie",
         "expiresHint": "Zostaw puste dla produktów, które się nie psują.",
         "minQuantityLabel": "Stan minimalny",
         "minQuantityHint": "Od tej ilości produkt jest uznawany za prawie wyczerpany.",

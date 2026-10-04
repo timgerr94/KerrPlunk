@@ -819,10 +819,14 @@
         "saveAsRecipe": "I-save bilang resipe",
         "recipeScaleLabel": "I-scale ang mga sangkap",
         "deletedToast": "Natanggal na ang pagkain.",
+<<<<<<< HEAD
         "recurrenceLabel": "Ulitin lingguhan",
         "recurrenceWeekly": "Lingguhan",
         "cookLabel": "Tagaluto",
         "cookNamed": "Tagaluto: {{name}}",
+=======
+        "recurrenceLabel": "Ulitin",
+>>>>>>> 2b7868654 (My local changes)
         "recurrenceHint": "Awtomatikong idinaragdag ng Yuvomi ang pagkaing ito sa parehong araw ng linggo sa mga susunod na linggo.",
         "recurrenceUntilLabel": "Ulitin hanggang",
         "recurrenceUntilHint": "Iwanang blangko para umulit nang walang hanggan.",
@@ -1880,6 +1884,7 @@
         "wallModeHint": "Ginagawang tahimik na display ang home sa device na ito para sa tablet na nakasabit sa dingding: oras, programa ng araw, kung sino ang naka-duty at ang panahon - sapat na laki para mabasa mula dalawang metro, walang kailangang pindutin. Dumidilim ito mula 10 ng gabi hanggang 6 ng umaga. Dito lang ito, hindi sa ibang device sa bahay.",
         "wallModeOn": "Naka-on ang wall mode, makikita sa {{page}}.",
         "wallModeOff": "Naka-off ang wall mode.",
+<<<<<<< HEAD
         "screensaverIdleLabel": "Simulan ang screensaver pagkalipas ng",
         "screensaverIdleHint": "Gaano katagal hindi gagalawin ang device na ito bago magsimula ang photo screensaver. Para lang sa device na ito, hindi sa iba pang bahagi ng sambahayan. Magkakabisa kapag naikonekta na ng admin ang Immich.",
         "screensaverIdleSaved": "Paghihintay ng screensaver sa device na ito: {{delay}}.",
@@ -1888,6 +1893,12 @@
         "screensaverCoverLabel": "Punuin ng larawan ang screen",
         "screensaverCoverHint": "Pinupuno ng mga larawan ang buong screen sa halip na magkasya rito. Napuputol ang mga gilid, lalo na sa mga patayong larawan. Para lang sa device na ito.",
         "screensaverDeviceSaved": "Na-save para sa device na ito. Magkakabisa sa susunod na pagsisimula ng screensaver.",
+=======
+        "themeDarkLabel": "Madilim na mode",
+        "visualSkinLabel": "Biswal na estilo",
+        "visualSkinDefault": "Klasiko",
+        "visualSkinMiddleEarth": "Middle-earth",
+>>>>>>> 2b7868654 (My local changes)
         "changePassword": "Palitan ang password",
         "currentPasswordLabel": "Kasalukuyang password",
         "newPasswordLabel": "Bagong password",
@@ -5653,6 +5664,11 @@
         "locationLabel": "Lugar ng imbakan",
         "categoryLabel": "Kategorya",
         "expiresLabel": "Mainam bago ang",
+        "restockIntervalLabel": "Karaniwang bilhin kada X araw",
+        "predictedItem": "Hinulaang bili",
+        "skipRestock": "Laktawan ang siklong ito",
+        "snoozeRestock": "Ipagpaliban nang 7 araw",
+        "disableRestock": "Huwag nang hulaan",
         "expiresHint": "Iwanang blangko para sa mga item na hindi nag-e-expire.",
         "minQuantityLabel": "Pinakamababang stock",
         "minQuantityHint": "Sa o mas mababa sa dami na ito, itinuturing na nauubos ang item.",

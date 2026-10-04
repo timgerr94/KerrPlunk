@@ -116,13 +116,25 @@ test('POST /pantry: fehlender Name → 400, nichts angelegt', async () => {
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM pantry_items').get().n, before);
 });
 
-test('POST /pantry: ohne Menge → 1 (nicht 0), Default-Einheit pcs', async () => {
+test('POST /pantry: ohne Menge → 1, Default-Einheit pcs und Einkaufsintervall 30 Tage', async () => {
   const r = await call('POST', '/pantry', { name: 'Salz' });
   assert.equal(r.status, 201);
   assert.equal(r.body.data.quantity, 1);
   assert.equal(r.body.data.unit, 'pcs');
   assert.equal(r.body.data.expires_on, null);
+  assert.equal(r.body.data.restock_interval_days, 30);
+  assert.ok(Number.isFinite(Date.parse(r.body.data.last_purchased_at)));
   assert.equal(r.body.data.created_by, USER);
+});
+
+test('POST /pantry: restock interval starts a purchase cycle and rejects invalid days', async () => {
+  const created = await call('POST', '/pantry', { name: 'Rice', restock_interval_days: 30 });
+  assert.equal(created.status, 201);
+  assert.equal(created.body.data.restock_interval_days, 30);
+  assert.ok(Number.isFinite(Date.parse(created.body.data.last_purchased_at)));
+  for (const days of [0, 1.5, 3651]) {
+    assert.equal((await call('POST', '/pantry', { name: `Bad interval ${days}`, restock_interval_days: days })).status, 400);
+  }
 });
 
 test('POST /pantry: unbekannte Einheit wird normalisiert statt abgelehnt', async () => {
@@ -262,6 +274,21 @@ test('POST /pantry/import-shopping: nur abgehakte Artikel, gleiche Charge addier
   assert.equal(first.status, 200);
   assert.deepEqual(first.body.data, { added: 2, merged: 0, skipped: 1 });
 
+  const milkRow = db.prepare("SELECT * FROM pantry_items WHERE name = 'Milch'").get();
+  assert.ok(Number.isFinite(Date.parse(milkRow.last_purchased_at)), 'purchase is recorded as an ISO timestamp');
+  assert.equal(milkRow.restock_interval_days, 30, 'newly imported items get the default interval');
+  assert.equal(milkRow.restock_list_id, listId, 'the purchase list is remembered for future restock suggestions');
+  db.prepare(`
+    UPDATE pantry_items
+    SET restock_interval_days = 30, last_purchased_at = '2000-01-01T00:00:00.000Z',
+        restock_snoozed_until = '2099-01-01T00:00:00.000Z'
+    WHERE id = ?
+  `).run(milkRow.id);
+  db.prepare(`
+    INSERT INTO shopping_items (list_id, name, category, predicted_pantry_item_id)
+    VALUES (?, 'Milch', 'Sonstiges', ?)
+  `).run(listId, milkRow.id);
+
   // Zweiter Lauf mit identischer Charge (Name/Einheit/Ort/MHD) addiert auf.
   const second = await call('POST', '/pantry/import-shopping', {
     list_id: listId,
@@ -272,6 +299,11 @@ test('POST /pantry/import-shopping: nur abgehakte Artikel, gleiche Charge addier
   const rows = db.prepare(`SELECT quantity FROM pantry_items WHERE name = 'Milch'`).all();
   assert.equal(rows.length, 1);
   assert.equal(rows[0].quantity, 3);
+  const refilled = db.prepare("SELECT * FROM pantry_items WHERE name = 'Milch'").get();
+  assert.equal(refilled.restock_interval_days, 30);
+  assert.ok(Date.parse(refilled.last_purchased_at) > Date.parse('2000-01-01T00:00:00.000Z'));
+  assert.equal(refilled.restock_snoozed_until, null);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM shopping_items WHERE predicted_pantry_item_id = ?').get(milkRow.id).n, 0);
 });
 
 test('POST /pantry/import-shopping: abweichendes MHD ist eine eigene Charge', async () => {
@@ -293,6 +325,24 @@ test('POST /pantry/import-shopping: abweichendes MHD ist eine eigene Charge', as
 
   const rows = db.prepare(`SELECT expires_on FROM pantry_items WHERE name = 'Joghurt' ORDER BY expires_on`).all();
   assert.deepEqual(rows.map((r) => r.expires_on), ['2026-08-10', '2026-08-24']);
+});
+
+test('POST /pantry/import-shopping: neue MHD-Charge erbt das Einkaufsintervall', async () => {
+  db.prepare('DELETE FROM pantry_items').run();
+  const list = await call('POST', '/shopping', { name: 'Intervall' });
+  const item = await call('POST', `/shopping/${list.body.data.id}/items`, { name: 'Hafermilch' });
+  await call('PATCH', `/shopping/items/${item.body.data.id}`, { is_checked: 1 });
+  await call('POST', '/pantry/import-shopping', {
+    list_id: list.body.data.id,
+    items: [{ shopping_item_id: item.body.data.id, quantity: 1, expires_on: '2026-10-10' }],
+  });
+  db.prepare("UPDATE pantry_items SET restock_interval_days = 21 WHERE name = 'Hafermilch'").run();
+  await call('POST', '/pantry/import-shopping', {
+    list_id: list.body.data.id,
+    items: [{ shopping_item_id: item.body.data.id, quantity: 1, expires_on: '2026-10-25' }],
+  });
+  const rows = db.prepare("SELECT restock_interval_days FROM pantry_items WHERE name = 'Hafermilch' ORDER BY expires_on").all();
+  assert.deepEqual(rows.map((row) => row.restock_interval_days), [21, 21]);
 });
 
 test('POST /pantry/import-shopping: räumt die Einkaufsliste bewusst NICHT ab', async () => {
@@ -389,6 +439,91 @@ test('import-pantry: added_ids erlauben ein exaktes Zuruecknehmen', async () => 
   assert.equal(undo.body.data.removed, 2);
   const rest = db.prepare('SELECT name FROM shopping_items WHERE list_id = ?').all(listId);
   assert.deepEqual(rest.map((x) => x.name), ['Bleibt drin']);
+});
+
+test('predicted restock: snooze defers seven days and removes its linked shopping row', async () => {
+  const list = await call('POST', '/shopping', { name: 'Predictions' });
+  const pantry = await call('POST', '/pantry', { name: 'Coffee', restock_interval_days: 14 });
+  const pantryId = pantry.body.data.id;
+  db.prepare("UPDATE pantry_items SET last_purchased_at = '2026-08-01T00:00:00.000Z' WHERE id = ?").run(pantryId);
+  const prediction = db.prepare(`
+    INSERT INTO shopping_items (list_id, name, category, predicted_pantry_item_id)
+    VALUES (?, 'Coffee', 'Sonstiges', ?)
+  `).run(list.body.data.id, pantryId);
+
+  const result = await call('POST', `/shopping/items/${prediction.lastInsertRowid}/restock-action`, { action: 'snooze' });
+  assert.equal(result.status, 200);
+  assert.equal(result.body.data.action, 'snooze');
+  assert.ok(Date.parse(result.body.data.snoozed_until) > Date.now());
+  assert.equal(db.prepare('SELECT restock_snoozed_until FROM pantry_items WHERE id = ?').get(pantryId).restock_snoozed_until,
+    result.body.data.snoozed_until);
+  assert.equal(db.prepare('SELECT restock_interval_days FROM pantry_items WHERE id = ?').get(pantryId).restock_interval_days, 21);
+  assert.equal(db.prepare('SELECT 1 FROM shopping_items WHERE id = ?').get(prediction.lastInsertRowid), undefined);
+});
+
+test('predicted restock: skip advances to the next interval and ordinary items are refused', async () => {
+  const list = await call('POST', '/shopping', { name: 'Skip prediction' });
+  const pantry = await call('POST', '/pantry', { name: 'Tea', restock_interval_days: 7 });
+  const pantryId = pantry.body.data.id;
+  db.prepare("UPDATE pantry_items SET last_purchased_at = '2026-08-01T00:00:00.000Z' WHERE id = ?").run(pantryId);
+  const prediction = db.prepare(`
+    INSERT INTO shopping_items (list_id, name, category, predicted_pantry_item_id)
+    VALUES (?, 'Tea', 'Sonstiges', ?)
+  `).run(list.body.data.id, pantryId);
+  const result = await call('POST', `/shopping/items/${prediction.lastInsertRowid}/restock-action`, { action: 'skip' });
+  assert.equal(result.status, 200, JSON.stringify(result.body));
+  assert.ok(Date.parse(result.body.data.snoozed_until) > Date.now());
+  assert.equal(db.prepare('SELECT restock_interval_days FROM pantry_items WHERE id = ?').get(pantryId).restock_interval_days, 11);
+  assert.equal(db.prepare('SELECT 1 FROM shopping_items WHERE id = ?').get(prediction.lastInsertRowid), undefined);
+
+  const ordinary = await call('POST', `/shopping/${list.body.data.id}/items`, { name: 'Sugar' });
+  const refused = await call('POST', `/shopping/items/${ordinary.body.data.id}/restock-action`, { action: 'snooze' });
+  assert.equal(refused.status, 409);
+});
+
+test('predicted restock: deleting a prediction also increases the interval by 50%', async () => {
+  const list = await call('POST', '/shopping', { name: 'Delete prediction' });
+  const pantry = await call('POST', '/pantry', { name: 'Cocoa', restock_interval_days: 10 });
+  const pantryId = pantry.body.data.id;
+  db.prepare("UPDATE pantry_items SET last_purchased_at = '2026-08-01T00:00:00.000Z' WHERE id = ?").run(pantryId);
+  const prediction = db.prepare(`
+    INSERT INTO shopping_items (list_id, name, category, predicted_pantry_item_id)
+    VALUES (?, 'Cocoa', 'Sonstiges', ?)
+  `).run(list.body.data.id, pantryId);
+
+  const result = await call('DELETE', `/shopping/items/${prediction.lastInsertRowid}`);
+  assert.equal(result.status, 200);
+  assert.equal(db.prepare('SELECT restock_interval_days FROM pantry_items WHERE id = ?').get(pantryId).restock_interval_days, 15);
+});
+
+test('predicted restock: do not predict clears the interval and removes the list item', async () => {
+  const list = await call('POST', '/shopping', { name: 'Disable prediction' });
+  const pantry = await call('POST', '/pantry', { name: 'Nutmeg', restock_interval_days: 20 });
+  const pantryId = pantry.body.data.id;
+  const prediction = db.prepare(`
+    INSERT INTO shopping_items (list_id, name, category, predicted_pantry_item_id)
+    VALUES (?, 'Nutmeg', 'Sonstiges', ?)
+  `).run(list.body.data.id, pantryId);
+
+  const result = await call('POST', `/shopping/items/${prediction.lastInsertRowid}/restock-action`, { action: 'disable' });
+  assert.equal(result.status, 200);
+  assert.equal(result.body.data.action, 'disable');
+  const updated = db.prepare('SELECT restock_interval_days, restock_snoozed_until FROM pantry_items WHERE id = ?').get(pantryId);
+  assert.equal(updated.restock_interval_days, null);
+  assert.equal(updated.restock_snoozed_until, null);
+  assert.equal(db.prepare('SELECT 1 FROM shopping_items WHERE id = ?').get(prediction.lastInsertRowid), undefined);
+});
+
+test('manually adding a pantry item to a list recalibrates its interval from last purchase', async () => {
+  const list = await call('POST', '/shopping', { name: 'Manual restock' });
+  const pantry = await call('POST', '/pantry', { name: 'Cinnamon', restock_interval_days: 14 });
+  const pantryId = pantry.body.data.id;
+  const lastPurchasedAt = new Date(Date.now() - 45.5 * 24 * 60 * 60 * 1000).toISOString();
+  db.prepare('UPDATE pantry_items SET last_purchased_at = ? WHERE id = ?').run(lastPurchasedAt, pantryId);
+
+  const added = await call('POST', `/shopping/${list.body.data.id}/items`, { name: 'Cinnamon' });
+  assert.equal(added.status, 201);
+  assert.equal(db.prepare('SELECT restock_interval_days FROM pantry_items WHERE id = ?').get(pantryId).restock_interval_days, 45);
 });
 
 // Ein Undo, das an einem inzwischen von Hand geloeschten Artikel scheitert, waere

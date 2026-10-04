@@ -22,12 +22,16 @@ import { redrawList, collapseRow } from '/utils/list-motion.js';
 import { wireSwipeRows, maybeShowSwipeHint } from '/utils/swipe-row.js';
 import { amountPlaceholder, amountStep, amountIsSavable, smallestUnitLabel } from '/utils/money.js';
 import { maxUploadBytes, maxUploadMb } from '/utils/upload-limit.js';
-import { isNavModuleReadOnly } from '/permissions.js';
+import { canUseCapability, isNavModuleReadOnly } from '/permissions.js';
 import { pathAccess, mayWritePath } from '/utils/module-access.js';
 import { todayKey } from '/utils/date.js';
 import { displayTimeZone, zonedDateKey } from '/utils/timezone.js';
 import { USER_COLOR_DEFAULT } from '/utils/color.js';
+<<<<<<< HEAD
 import { renderPageColumns } from '/utils/page-layout.js';
+=======
+import { HOUSEKEEPING_CHILD_IDS } from '/settings/module-order.js';
+>>>>>>> 2b7868654 (My local changes)
 
 
 
@@ -76,7 +80,22 @@ let state = {
   staffLogMonth: todayKey().slice(0, 7),
   staffVisits: [],
   currency: 'EUR',
+  disabledModules: [],
 };
+
+const HOUSEKEEPING_TABS = [
+  { id: 'dashboard', icon: 'layout-dashboard', labelKey: 'housekeeping.dashboard', capability: 'housekeeping_dashboard', disabledId: HOUSEKEEPING_CHILD_IDS[0] },
+  { id: 'tasks', icon: 'list-checks', labelKey: 'housekeeping.tasks' },
+  { id: 'reports', icon: 'file-text', labelKey: 'housekeeping.reports', capability: 'housekeeping_reports', disabledId: HOUSEKEEPING_CHILD_IDS[1] },
+  { id: 'staff', icon: 'users-round', labelKey: 'housekeeping.staff', capability: 'housekeeping_staff', disabledId: HOUSEKEEPING_CHILD_IDS[2] },
+];
+
+function availableTabs() {
+  return HOUSEKEEPING_TABS.filter((tab) => (
+    (!tab.disabledId || !state.disabledModules.includes(tab.disabledId))
+    && (!tab.capability || canUseCapability(tab.capability, 'allow'))
+  ));
+}
 
 // --------------------------------------------------------
 // Nur-lesen (#467, #1265 P6)
@@ -224,7 +243,7 @@ function readFileAsDataUrl(file) {
 }
 
 async function loadStaffVisits(workerId = state.selectedStaffId, monthValue = state.staffLogMonth) {
-  if (!workerId) {
+  if (!availableTabs().some((tab) => tab.id === 'staff') || !workerId) {
     state.staffVisits = [];
     return;
   }
@@ -247,24 +266,35 @@ let loadDataSeq = 0;
 
 async function loadData() {
   const loadSeq = ++loadDataSeq;
+  const prefs = await api.get('/preferences');
+  state.disabledModules = Array.isArray(prefs.data?.disabled_modules) ? prefs.data.disabled_modules : [];
   const dayParams = localDayParams();
+  const dashboardAllowed = availableTabs().some((tab) => tab.id === 'dashboard');
+  const reportsAllowed = availableTabs().some((tab) => tab.id === 'reports');
+  const staffAllowed = availableTabs().some((tab) => tab.id === 'staff');
   // Waehrend dieses Neuladens kann jemand schon den naechsten Monat gewaehlt
   // haben (#1137): kommt dessen Bericht zuerst an, darf die Antwort hier ihn
   // nicht mit dem alten Monat ueberschreiben. Scheitert der Schritt dagegen,
   // bleibt dieses Neuladen der neueste Stand und gilt (#1174).
   const reportSeq = ++reportFetchSeq;
   const reportMonth = state.reportMonth;
-  const [dashboard, tasks, current, report, templates, workers, prefs] = await Promise.all([
-    api.get(`/housekeeping/dashboard?${dayParams.toString()}`),
+  const currentVisitsPath = dashboardAllowed
+    ? '/housekeeping/visits'
+    : reportsAllowed
+      ? reportVisitsPath(reportMonth || localDate().slice(0, 7))
+      : null;
+  const [dashboard, tasks, current, report, templates, workers] = await Promise.all([
+    dashboardAllowed ? api.get(`/housekeeping/dashboard?${dayParams.toString()}`) : Promise.resolve({ data: null }),
     api.get('/housekeeping/decay-tasks'),
-    api.get('/housekeeping/visits'),
+    currentVisitsPath ? api.get(currentVisitsPath) : Promise.resolve({ data: null }),
     // Der Berichte-Tab behaelt seinen Monat ueber jedes Neuladen (#1137). Jede
     // Aktion der Seite laedt hierueber nach; stuende der Monat nur im
     // Bedienelement, spraenge der Bericht nach dem ersten Bezahlen zurueck.
-    reportMonth ? api.get(reportVisitsPath(reportMonth)) : null,
+    dashboardAllowed && reportsAllowed && reportMonth ? api.get(reportVisitsPath(reportMonth)) : null,
     api.get('/housekeeping/task-templates'),
-    api.get(`/housekeeping/workers?${dayParams.toString()}`),
-    api.get('/preferences'),
+    dashboardAllowed || staffAllowed
+      ? api.get(`/housekeeping/workers?${dayParams.toString()}`)
+      : Promise.resolve({ data: [] }),
   ]);
   if (loadSeq !== loadDataSeq) return;
   state.dashboard = dashboard.data;
@@ -273,8 +303,8 @@ async function loadData() {
   state.currentMonth = currentReport.month || todayKey().slice(0, 7);
   // Die Uebersicht zeigt die juengsten Besuche, egal welchen Monat der
   // Berichte-Tab gerade offen hat.
-  state.recentVisits = currentReport.visits || [];
-  if (reportSeq > appliedReportSeq) {
+  state.recentVisits = dashboardAllowed ? currentReport.visits || [] : [];
+  if (reportsAllowed && reportSeq > appliedReportSeq) {
     applyVisitReport(report ? report.data : currentReport);
     appliedReportSeq = reportSeq;
     // Der Stepper rechnet vom angezeigten Monat aus. Ist ein Schritt inzwischen
@@ -283,6 +313,9 @@ async function loadData() {
     // ein spaeter gestarteter Schritt noch, gehoert der Monat ihm: er wendet
     // seinen Bericht an oder stellt beim Scheitern auf diesen hier zurueck.
     if (!(reportStepInFlight > reportSeq)) state.reportMonth = reportMonth;
+  } else if (!reportsAllowed) {
+    state.visitReport = null;
+    state.reports = [];
   }
   state.templates = templates.data || [];
   state.workers = workers.data || [];
@@ -336,6 +369,8 @@ function updateHousekeepingFab() {
 }
 
 function renderShell(container) {
+  const tabs = availableTabs();
+  if (!tabs.some((tab) => tab.id === state.tab)) state.tab = tabs[0]?.id || 'tasks';
   container.replaceChildren();
   // Kopf nach der Kopfregel (DESIGN.md): Zeile 1 Titel, Zeile 2 die Reiter -
   // auf jedem Reiter derselbe Kopf.
@@ -372,10 +407,14 @@ function renderShell(container) {
         <h1 class="page-toolbar__title" id="housekeeping-title">${esc(t('housekeeping.title'))}</h1>
         <div class="page-toolbar__actions"></div>
         <nav class="housekeeping-tabs page-toolbar__bar" role="tablist" aria-label="${esc(t('housekeeping.bottomNav'))}">
+<<<<<<< HEAD
           ${renderTabButton('dashboard', 'layout-dashboard', t('housekeeping.dashboard'))}
           ${renderTabButton('tasks', 'list-checks', t('housekeeping.tasks'))}
           ${renderTabButton('reports', 'file-text', t('housekeeping.reports'))}
           ${renderTabButton('staff', 'users-round', t('housekeeping.staffTitle'))}
+=======
+          ${tabs.map((tab) => renderTabButton(tab.id, tab.icon, t(tab.labelKey))).join('')}
+>>>>>>> 2b7868654 (My local changes)
         </nav>
       </header>
       <div class="housekeeping-period" id="housekeeping-period" hidden></div>
@@ -407,11 +446,16 @@ function renderShell(container) {
   renderCurrentTab(container);
 }
 
+<<<<<<< HEAD
 /* `direction` kommt nur vom Reiterwechsel (wireTablist): dann blendet der neue
  * Reiter in Schrittrichtung ein (utils/content-swap.js). Jeder andere Aufruf -
  * erster Aufbau, Auffrischen nach einer Handlung - tauscht ohne Blende; dort
  * traegt die betroffene Zeile die Bewegung (redrawList/collapseRow). */
 function renderCurrentTab(container, { direction = null } = {}) {
+=======
+function renderCurrentTab(container) {
+  if (!availableTabs().some((tab) => tab.id === state.tab)) state.tab = 'tasks';
+>>>>>>> 2b7868654 (My local changes)
   const content = container.querySelector('#housekeeping-content');
   if (!content) return;
   // Der Reiter steht an der Seite (Stil-Haken je Reiter). Das Mass folgt ihm
@@ -2560,6 +2604,7 @@ export const __test = {
   readOnlyLatch,
   READ_SAFE_CONTROLS,
   renderShell,
+  availableTabs,
   renderDashboard,
   renderWorkerSummary,
   renderTasks,

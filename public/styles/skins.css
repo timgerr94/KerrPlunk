@@ -1,0 +1,204 @@
+/* Optional visual skins layered over the independent light/dark mode. */
+@font-face {
+  font-family: "IM Fell English";
+  src: url("/fonts/IMFellEnglish-Regular.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "party-business-font-f2250";
+  src: url("/fonts/PartyBusiness-4B0K.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+
+:root[data-skin="middle-earth"] {
+  --_neutral-50: #FBF7E9;
+  --_neutral-100: #F5F3ED;
+  --_neutral-150: #EEE4CC;
+  --_neutral-200: #E1D4B8;
+  --_neutral-250: #D5C6A6;
+  --_neutral-300: #C7B894;
+  --_neutral-400: #A99A75;
+  --_neutral-500: #817555;
+  --_neutral-600: #62583F;
+  --_neutral-700: #4A412F;
+  --_neutral-800: #342D20;
+  --_neutral-900: #252014;
+  --_neutral-950: #17140E;
+
+  --_color-surface: #FFF9E9;
+  --_color-surface-3: #EEE4CC;
+  --_color-surface-elevated: #FBF7E9;
+  --_color-surface-hover: #EEE4CC;
+  --_color-surface-elevated-hover: #E1D4B8;
+  --_color-surface-work: #FFF9E9;
+  --_color-surface-raised: #FBF7E9;
+  --_color-surface-glass: rgba(255, 249, 233, 0.88);
+  --_sidebar-bg: #EEE4CC;
+
+  --_color-accent: #42613D;
+  --_color-accent-hover: #355332;
+  --_color-accent-light: #E8EFDF;
+  --_color-accent-subtle: #D9E5CC;
+  --_color-accent-secondary: #765A32;
+  --_color-btn-primary: #42613D;
+  --_color-btn-primary-hover: #355332;
+
+  --font-sans: "IM Fell English", Georgia, serif;
+  --font-heading: "party-business-font-f2250", "IM Fell English", Georgia, serif;
+  --skin-paper-fiber: rgba(102, 78, 39, 0.025);
+}
+
+:root[data-skin="middle-earth"] body {
+  background-image: repeating-linear-gradient(
+    92deg,
+    transparent 0 8px,
+    var(--skin-paper-fiber) 9px,
+    transparent 10px
+  );
+}
+
+:root[data-skin="middle-earth"] .app-content,
+:root[data-skin="middle-earth"] .app-loading {
+  background-image: repeating-linear-gradient(
+    92deg,
+    transparent 0 8px,
+    var(--skin-paper-fiber) 9px,
+    transparent 10px
+  );
+}
+
+:root[data-skin="middle-earth"] h1,
+:root[data-skin="middle-earth"] h2,
+:root[data-skin="middle-earth"] h3,
+:root[data-skin="middle-earth"] h4,
+:root[data-skin="middle-earth"] h5,
+:root[data-skin="middle-earth"] h6,
+:root[data-skin="middle-earth"] .page-toolbar__title,
+:root[data-skin="middle-earth"] .settings-section__title {
+  font-family: var(--font-heading);
+}
+
+:root[data-skin="middle-earth"] .u-hero,
+:root[data-skin="middle-earth"] .u-page-title,
+:root[data-skin="middle-earth"] .u-section-title,
+:root[data-skin="middle-earth"] .u-card-title,
+:root[data-skin="middle-earth"] .u-toolbar-title,
+:root[data-skin="middle-earth"] .page__title,
+:root[data-skin="middle-earth"] .settings-card__title,
+:root[data-skin="middle-earth"] .settings-leaf-header__title,
+:root[data-skin="middle-earth"] .settings-shell-header__title,
+:root[data-skin="middle-earth"] .page-toolbar__dock-title,
+:root[data-skin="middle-earth"] .panel-head__title,
+:root[data-skin="middle-earth"] .sub-tabs-bar__title,
+:root[data-skin="middle-earth"] .split-title {
+  font-family: var(--font-heading);
+}
+
+@media screen and (prefers-color-scheme: dark) {
+  :root[data-skin="middle-earth"]:not([data-theme="light"]) {
+    --_neutral-50: #17140F;
+    --_neutral-100: #191816;
+    --_neutral-150: #2B2822;
+    --_neutral-200: #373229;
+    --_neutral-250: #443D31;
+    --_neutral-300: #514938;
+    --_neutral-400: #6B624E;
+    --_neutral-500: #93896E;
+    --_neutral-600: #B9AE91;
+    --_neutral-700: #D0C6AA;
+    --_neutral-800: #E9E0C9;
+    --_neutral-900: #F5F0E3;
+    --_neutral-950: #FCF8EB;
+
+    --_color-surface: #2B2822;
+    --_color-surface-3: #373229;
+    --_color-surface-elevated: #373229;
+    --_color-surface-hover: #373229;
+    --_color-surface-elevated-hover: #443D31;
+    --_color-surface-work: #2B2822;
+    --_color-surface-raised: #373229;
+    --_color-surface-glass: rgba(43, 40, 34, 0.88);
+    --_sidebar-bg: #211F1A;
+
+    --_color-accent: #A9C393;
+    --_color-accent-hover: #BDD4A9;
+    --_color-accent-light: #253020;
+    --_color-accent-subtle: #1E281A;
+    --_color-accent-secondary: #D2B57C;
+    --_color-btn-primary: #527347;
+    --_color-btn-primary-hover: #42613D;
+    --_color-ink-on-vivid: #17140F;
+  }
+}
+
+:root[data-skin="middle-earth"][data-theme="dark"] {
+  --_neutral-50: #17140F;
+  --_neutral-100: #191816;
+  --_neutral-150: #2B2822;
+  --_neutral-200: #373229;
+  --_neutral-250: #443D31;
+  --_neutral-300: #514938;
+  --_neutral-400: #6B624E;
+  --_neutral-500: #93896E;
+  --_neutral-600: #B9AE91;
+  --_neutral-700: #D0C6AA;
+  --_neutral-800: #E9E0C9;
+  --_neutral-900: #F5F0E3;
+  --_neutral-950: #FCF8EB;
+
+  --_color-surface: #2B2822;
+  --_color-surface-3: #373229;
+  --_color-surface-elevated: #373229;
+  --_color-surface-hover: #373229;
+  --_color-surface-elevated-hover: #443D31;
+  --_color-surface-work: #2B2822;
+  --_color-surface-raised: #373229;
+  --_color-surface-glass: rgba(43, 40, 34, 0.88);
+  --_sidebar-bg: #211F1A;
+
+  --_color-accent: #A9C393;
+  --_color-accent-hover: #BDD4A9;
+  --_color-accent-light: #253020;
+  --_color-accent-subtle: #1E281A;
+  --_color-accent-secondary: #D2B57C;
+  --_color-btn-primary: #527347;
+  --_color-btn-primary-hover: #42613D;
+  --_color-ink-on-vivid: #17140F;
+}
+
+:root[data-skin="middle-earth"] {
+  --color-bg: #F5F3ED;
+  --color-surface: var(--_color-surface);
+  --color-border: var(--_neutral-200);
+  --color-text: var(--_neutral-900);
+  --color-text-secondary: var(--_neutral-600);
+  --color-accent: var(--_color-accent);
+  --color-ink-on-vivid: var(--_color-ink-on-vivid);
+}
+
+@media screen and (prefers-color-scheme: dark) {
+  :root[data-skin="middle-earth"]:not([data-theme="light"]) {
+    --color-bg: #191816;
+    --color-surface: var(--_color-surface);
+    --color-border: #514938;
+    --color-text: var(--_neutral-900);
+    --color-text-secondary: var(--_neutral-600);
+    --color-accent: var(--_color-accent);
+    --color-ink-on-vivid: var(--_color-ink-on-vivid);
+  }
+}
+
+:root[data-skin="middle-earth"][data-theme="dark"] {
+  --color-bg: #191816;
+  --color-surface: var(--_color-surface);
+  --color-border: #514938;
+  --color-text: var(--_neutral-900);
+  --color-text-secondary: var(--_neutral-600);
+  --color-accent: var(--_color-accent);
+  --color-ink-on-vivid: var(--_color-ink-on-vivid);
+}

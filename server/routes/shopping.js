@@ -23,10 +23,13 @@ import { isHouseholdMember } from '../services/household-members.js';
 import { buildShoppingListMail } from '../services/shopping-mail.js';
 import { householdTimeZone, utcToWall } from '../utils/timezone.js';
 import { mayReadModule, mayWriteModule } from '../permissions.js';
+import { householdDisabledModules } from '../services/household-modules.js';
 
 const log = createLogger('Shopping');
 
 const router  = express.Router();
+const DAY_MS = 24 * 60 * 60 * 1000;
+const MAX_RESTOCK_INTERVAL_DAYS = 3650;
 
 /**
  * Eigene Schranke fuer den Listenversand (#944). Der API-Limiter darueber
@@ -139,6 +142,35 @@ function withListChange(listId, write) {
   const before = listVersion(listId);
   const result = write();
   return { result, list_change: { list_id: Number(listId), before, after: listVersion(listId) } };
+}
+
+function nextRestockCycleDate(pantryItem, now = new Date()) {
+  const intervalMs = Number(pantryItem?.restock_interval_days) * DAY_MS;
+  const purchasedAt = Date.parse(pantryItem?.last_purchased_at);
+  if (!Number.isFinite(intervalMs) || intervalMs <= 0 || !Number.isFinite(purchasedAt)) return null;
+  const dueAt = purchasedAt + intervalMs;
+  const skippedCycles = Math.max(1, Math.floor((now.getTime() - dueAt) / intervalMs) + 1);
+  return new Date(dueAt + skippedCycles * intervalMs).toISOString();
+}
+
+function restockIntervalAfterAction(intervalDays, action) {
+  const current = Number(intervalDays);
+  const adjusted = action === 'snooze' ? current + 7 : Math.round(current * 1.5);
+  return Math.min(MAX_RESTOCK_INTERVAL_DAYS, adjusted);
+}
+
+function skippedRestock(pantryItem, now = new Date()) {
+  const restockIntervalDays = restockIntervalAfterAction(pantryItem.restock_interval_days, 'skip');
+  return {
+    restockIntervalDays,
+    snoozedUntil: nextRestockCycleDate({ ...pantryItem, restock_interval_days: restockIntervalDays }, now),
+  };
+}
+
+function daysSincePurchase(lastPurchasedAt, now = new Date()) {
+  const purchasedAt = Date.parse(lastPurchasedAt);
+  if (!Number.isFinite(purchasedAt)) return null;
+  return Math.min(MAX_RESTOCK_INTERVAL_DAYS, Math.max(1, Math.floor((now.getTime() - purchasedAt) / DAY_MS)));
 }
 
 // --------------------------------------------------------
@@ -691,6 +723,69 @@ router.post('/items/undo-transfer', (req, res) => {
 });
 
 // --------------------------------------------------------
+// POST /api/v1/shopping/items/:itemId/restock-action
+// Snooze or skip a predicted Pantry restock.
+// Body: { action: 'snooze' | 'skip' }
+// --------------------------------------------------------
+router.post('/items/:itemId/restock-action', (req, res) => {
+  try {
+    if (householdDisabledModules(db.get()).has('pantry')) {
+      return res.status(403).json({ error: 'The pantry is disabled for this household.', code: 403 });
+    }
+    if (!mayWriteModule(req, 'pantry')) {
+      return res.status(403).json({ error: 'Write access to the pantry is required.', code: 403 });
+    }
+    const item = db.get().prepare(`
+      SELECT id, list_id, predicted_pantry_item_id
+      FROM shopping_items WHERE id = ?
+    `).get(req.params.itemId);
+    if (!item) return res.status(404).json({ error: 'Item not found.', code: 404 });
+    if (item.predicted_pantry_item_id == null) {
+      return res.status(409).json({ error: 'Item is not a Pantry prediction.', code: 409 });
+    }
+
+    const action = oneOf(req.body.action, ['snooze', 'skip', 'disable'], 'action');
+    if (action.error) return res.status(400).json({ error: action.error, code: 400 });
+    const pantryItem = db.get().prepare(`
+      SELECT restock_interval_days, last_purchased_at
+      FROM pantry_items WHERE id = ?
+    `).get(item.predicted_pantry_item_id);
+    if (!pantryItem || (action.value !== 'disable' && (!pantryItem.restock_interval_days || !pantryItem.last_purchased_at))) {
+      return res.status(409).json({ error: 'Pantry restock rule no longer exists.', code: 409 });
+    }
+
+    const now = new Date();
+    let restockIntervalDays;
+    let snoozedUntil;
+    if (action.value === 'disable') {
+      restockIntervalDays = null;
+      snoozedUntil = null;
+    } else if (action.value === 'snooze') {
+      restockIntervalDays = restockIntervalAfterAction(pantryItem.restock_interval_days, 'snooze');
+      snoozedUntil = new Date(now.getTime() + 7 * DAY_MS);
+    } else {
+      const skipped = skippedRestock(pantryItem, now);
+      restockIntervalDays = skipped.restockIntervalDays;
+      snoozedUntil = new Date(skipped.snoozedUntil);
+    }
+
+    const { result, list_change } = withListChange(item.list_id, () => db.get().transaction(() => {
+      db.get().prepare(`
+        UPDATE pantry_items
+        SET restock_interval_days = ?, restock_snoozed_until = ?
+        WHERE id = ?
+      `).run(restockIntervalDays, snoozedUntil?.toISOString() ?? null, item.predicted_pantry_item_id);
+      return db.get().prepare('DELETE FROM shopping_items WHERE id = ?').run(item.id);
+    })());
+    if (!result.changes) return res.status(404).json({ error: 'Prediction not found.', code: 404 });
+    res.json({ data: { action: action.value, snoozed_until: snoozedUntil?.toISOString() ?? null }, list_change });
+  } catch (err) {
+    log.error('POST /items/:itemId/restock-action error:', err);
+    res.status(500).json({ error: 'Internal server error.', code: 500 });
+  }
+});
+
+// --------------------------------------------------------
 // DELETE /api/v1/shopping/items/:itemId
 // Einzelnen Artikel löschen.
 // Response: { ok: true }
@@ -698,13 +793,32 @@ router.post('/items/undo-transfer', (req, res) => {
 router.delete('/items/:itemId', (req, res) => {
   try {
     const item = db.get()
-      .prepare('SELECT id, list_id FROM shopping_items WHERE id = ?')
+      .prepare('SELECT id, list_id, predicted_pantry_item_id FROM shopping_items WHERE id = ?')
       .get(req.params.itemId);
     if (!item) return res.status(404).json({ error: 'Item not found.', code: 404 });
+    const pantryEnabled = !householdDisabledModules(db.get()).has('pantry');
+    if (pantryEnabled && item.predicted_pantry_item_id != null && !mayWriteModule(req, 'pantry')) {
+      return res.status(403).json({ error: 'Write access to the pantry is required.', code: 403 });
+    }
 
     const queued = queueTodoDeletions('shopping', mirroredItems('id = ?', req.params.itemId));
 
     const { list_change } = withListChange(item.list_id, () => {
+      if (pantryEnabled && item.predicted_pantry_item_id != null) {
+        const pantryItem = db.get().prepare(`
+          SELECT restock_interval_days, last_purchased_at FROM pantry_items WHERE id = ?
+        `).get(item.predicted_pantry_item_id);
+        if (pantryItem?.restock_interval_days && pantryItem.last_purchased_at) {
+          const skipped = skippedRestock(pantryItem);
+          if (skipped.snoozedUntil) {
+            db.get().prepare(`
+              UPDATE pantry_items
+              SET restock_interval_days = ?, restock_snoozed_until = ?
+              WHERE id = ?
+            `).run(skipped.restockIntervalDays, skipped.snoozedUntil, item.predicted_pantry_item_id);
+          }
+        }
+      }
       db.get().prepare('DELETE FROM shopping_items WHERE id = ?').run(item.id);
     });
     res.json({ ok: true, list_change });
@@ -1042,10 +1156,27 @@ router.post('/:listId/items', (req, res) => {
     const errors = collectErrors([vName, vQty, vCat, vNotes, vUrl]);
     if (errors.length) return res.status(400).json({ error: errors.join(' '), code: 400 });
 
-    const { result, list_change } = withListChange(req.params.listId, () => db.get().prepare(`
-      INSERT INTO shopping_items (list_id, name, quantity, category, notes, url)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(req.params.listId, vName.value, vQty.value, vCat.value || defaultCat, vNotes.value, vUrl.value));
+    const matchingPantryItems = householdDisabledModules(db.get()).has('pantry') ? [] : db.get().prepare(`
+      SELECT id, last_purchased_at FROM pantry_items
+      WHERE name = ? COLLATE NOCASE AND restock_interval_days IS NOT NULL
+    `).all(vName.value);
+    if (matchingPantryItems.length && !mayWriteModule(req, 'pantry')) {
+      return res.status(403).json({ error: 'Write access to the pantry is required.', code: 403 });
+    }
+    const purchaseCheckAt = new Date();
+
+    const { result, list_change } = withListChange(req.params.listId, () => db.get().transaction(() => {
+      const inserted = db.get().prepare(`
+        INSERT INTO shopping_items (list_id, name, quantity, category, notes, url)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(req.params.listId, vName.value, vQty.value, vCat.value || defaultCat, vNotes.value, vUrl.value);
+      const updateInterval = db.get().prepare('UPDATE pantry_items SET restock_interval_days = ? WHERE id = ?');
+      for (const pantryItem of matchingPantryItems) {
+        const intervalDays = daysSincePurchase(pantryItem.last_purchased_at, purchaseCheckAt);
+        if (intervalDays !== null) updateInterval.run(intervalDays, pantryItem.id);
+      }
+      return inserted;
+    })());
 
     const item = db.get()
       .prepare('SELECT * FROM shopping_items WHERE id = ?')
@@ -1358,12 +1489,42 @@ router.delete('/:listId/items/checked', (req, res) => {
     const scope = ids
       ? { where: `list_id = ? AND is_checked = 1 AND id IN (${ids.map(() => '?').join(',')})`, params: [req.params.listId, ...ids] }
       : { where: 'list_id = ? AND is_checked = 1', params: [req.params.listId] };
+    const predictionWhere = ids
+      ? `s.list_id = ? AND s.is_checked = 1 AND s.id IN (${ids.map(() => '?').join(',')})`
+      : 's.list_id = ? AND s.is_checked = 1';
+    const pantryEnabled = !householdDisabledModules(db.get()).has('pantry');
+    const hasPrediction = pantryEnabled && db.get().prepare(`
+      SELECT 1 FROM shopping_items s
+      WHERE ${predictionWhere} AND s.predicted_pantry_item_id IS NOT NULL
+      LIMIT 1
+    `).get(...scope.params);
+    if (hasPrediction && !mayWriteModule(req, 'pantry')) {
+      return res.status(403).json({ error: 'Write access to the pantry is required.', code: 403 });
+    }
 
     const queued = queueTodoDeletions('shopping', mirroredItems(scope.where, ...scope.params));
 
-    const { result, list_change } = withListChange(req.params.listId, () => db.get().prepare(`
-      DELETE FROM shopping_items WHERE ${scope.where}
-    `).run(...scope.params));
+    const { result, list_change } = withListChange(req.params.listId, () => db.get().transaction(() => {
+      const predictions = pantryEnabled ? db.get().prepare(`
+        SELECT s.predicted_pantry_item_id, p.restock_interval_days, p.last_purchased_at
+        FROM shopping_items s
+        JOIN pantry_items p ON p.id = s.predicted_pantry_item_id
+        WHERE ${predictionWhere} AND s.predicted_pantry_item_id IS NOT NULL
+      `).all(...scope.params) : [];
+      const updateSnooze = db.get().prepare(`
+        UPDATE pantry_items
+        SET restock_interval_days = ?, restock_snoozed_until = ?
+        WHERE id = ?
+      `);
+      for (const prediction of predictions) {
+        if (!prediction.restock_interval_days || !prediction.last_purchased_at) continue;
+        const skipped = skippedRestock(prediction);
+        if (skipped.snoozedUntil) {
+          updateSnooze.run(skipped.restockIntervalDays, skipped.snoozedUntil, prediction.predicted_pantry_item_id);
+        }
+      }
+      return db.get().prepare(`DELETE FROM shopping_items WHERE ${scope.where}`).run(...scope.params);
+    })());
     res.json({ deleted: result.changes, list_change });
 
     if (queued) pushToCalDAV('Löschung');

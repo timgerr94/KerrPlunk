@@ -39,6 +39,12 @@
     document.documentElement.removeAttribute('data-theme');
   }
 
+  if (localStorage.getItem('yuvomi-skin') === 'middle-earth') {
+    document.documentElement.setAttribute('data-skin', 'middle-earth');
+  } else {
+    document.documentElement.removeAttribute('data-skin');
+  }
+
   // DIE STATUSBAR GEHOERT ZUR THEME-ENTSCHEIDUNG, ALSO HIERHER.
   //
   // Beide `<meta name="theme-color">` tragen ein `media="(prefers-color-scheme:

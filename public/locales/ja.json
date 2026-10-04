@@ -805,10 +805,14 @@
         "saveAsRecipe": "レシピとして保存",
         "recipeScaleLabel": "材料の分量を調整",
         "deletedToast": "食事を削除しました。",
+<<<<<<< HEAD
         "recurrenceLabel": "毎週繰り返す",
         "recurrenceWeekly": "毎週",
         "cookLabel": "料理担当",
         "cookNamed": "料理担当: {{name}}",
+=======
+        "recurrenceLabel": "繰り返す",
+>>>>>>> 2b7868654 (My local changes)
         "recurrenceHint": "Yuvomi は今後の週でも同じ曜日にこの食事を自動で追加します。",
         "recurrenceUntilLabel": "繰り返しの終了日",
         "recurrenceUntilHint": "無期限に繰り返す場合は空のままにします。",
@@ -1822,6 +1826,7 @@
         "wallModeHint": "このデバイスのホームを、壁掛けタブレット向けの静かな表示に切り替えます。時刻、今日の予定、今日の担当、天気を、2メートル離れても読める大きさで、操作なしに表示します。22時から6時のあいだは暗くなります。適用されるのはこのデバイスだけで、家の他の端末には及びません。",
         "wallModeOn": "ウォールモードをオンにしました。{{page}} に表示されます。",
         "wallModeOff": "ウォールモードをオフにしました。",
+<<<<<<< HEAD
         "screensaverIdleLabel": "スクリーンセーバーを開始するまで",
         "screensaverIdleHint": "写真スクリーンセーバーが始まるまで、このデバイスに触れない状態が続く時間です。このデバイスにのみ適用され、世帯の他のデバイスには影響しません。管理者が Immich を接続すると有効になります。",
         "screensaverIdleSaved": "このデバイスのスクリーンセーバー待ち時間: {{delay}}",
@@ -1830,6 +1835,12 @@
         "screensaverCoverLabel": "写真を画面いっぱいに表示",
         "screensaverCoverHint": "写真を画面内に収める代わりに、画面全体に表示します。端が切り取られ、特に縦向きの写真で目立ちます。このデバイスにのみ適用されます。",
         "screensaverDeviceSaved": "このデバイスに保存しました。次にスクリーンセーバーが起動したときから適用されます。",
+=======
+        "themeDarkLabel": "ダークテーマ",
+        "visualSkinLabel": "ビジュアルスタイル",
+        "visualSkinDefault": "クラシック",
+        "visualSkinMiddleEarth": "中つ国",
+>>>>>>> 2b7868654 (My local changes)
         "changePassword": "パスワードを変更",
         "currentPasswordLabel": "現在のパスワード",
         "newPasswordLabel": "新しいパスワード",
@@ -5653,6 +5664,11 @@
         "locationLabel": "保管場所",
         "categoryLabel": "カテゴリー",
         "expiresLabel": "賞味期限",
+        "restockIntervalLabel": "通常はX日ごとに購入",
+        "predictedItem": "予測",
+        "skipRestock": "今回の周期をスキップ",
+        "snoozeRestock": "7日後に延期",
+        "disableRestock": "今後予測しない",
         "expiresHint": "期限のない品目は空欄のままにしてください。",
         "minQuantityLabel": "最低在庫",
         "minQuantityHint": "この数量以下になると残りわずかとして扱われます。",

@@ -133,6 +133,24 @@ export const PERMISSION_CAPABILITIES = Object.freeze([
     labelKey: 'health.fasting.permissionLabel',
     default: 'allow',
   },
+  {
+    key: 'housekeeping_dashboard',
+    module: 'housekeeping',
+    labelKey: 'housekeeping.dashboard',
+    default: 'allow',
+  },
+  {
+    key: 'housekeeping_reports',
+    module: 'housekeeping',
+    labelKey: 'housekeeping.reports',
+    default: 'allow',
+  },
+  {
+    key: 'housekeeping_staff',
+    module: 'housekeeping',
+    labelKey: 'housekeeping.staff',
+    default: 'allow',
+  },
 ]);
 
 export const MODULE_ACCESS_LEVELS = Object.freeze(['none', 'read', 'write']);

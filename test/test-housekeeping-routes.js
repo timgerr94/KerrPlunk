@@ -65,6 +65,55 @@ const MEM_READ = { id: MEMBER, role: 'member', moduleAccess: { housekeeping: 're
 // API-Token nur mit housekeeping:read, dessen Nutzer (Admin) sonst schreiben duerfte.
 const TOKEN_READ = { id: ADMIN, role: 'admin', authMethod: 'api_token', authScopes: ['housekeeping:read'] };
 
+test('GET Dashboard-, Reports- und Staff-Daten beachten die Housekeeping-Kapabilities', async () => {
+  const capabilityKeys = ['housekeeping_dashboard', 'housekeeping_reports', 'housekeeping_staff'];
+  const insert = db.prepare(`
+    INSERT INTO access_permissions (subject_type, subject_id, resource_type, resource_key, access)
+    VALUES ('user', ?, 'capability', ?, 'none')
+  `);
+  capabilityKeys.forEach((key) => insert.run(String(MEMBER), key));
+  try {
+    for (const path of [
+      '/dashboard', '/summary', '/visits', '/visits?month=2026-09',
+      '/visits?month=2026-09&worker_id=1', '/visits/1', '/workers', '/worker', '/work-sessions',
+    ]) {
+      const response = await call('GET', path, { as: MEM });
+      assert.equal(response.status, 403, `${path} must be denied when all Housekeeping views are disabled`);
+      assert.equal(response.body.reason, 'HOUSEKEEPING_VIEW_REFUSED');
+    }
+  } finally {
+    db.prepare("DELETE FROM access_permissions WHERE subject_type = 'user' AND subject_id = ? AND resource_type = 'capability' AND resource_key IN (?, ?, ?)")
+      .run(String(MEMBER), ...capabilityKeys);
+  }
+});
+
+test('household-disabled Housekeeping sections return 403, while Tasks remain available', async () => {
+  const key = 'disabled_modules';
+  const previous = db.prepare('SELECT value FROM sync_config WHERE key = ?').get(key);
+  db.prepare(`
+    INSERT INTO sync_config (key, value) VALUES (?, ?)
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value
+  `).run(key, JSON.stringify(['housekeeping-dashboard', 'housekeeping-reports', 'housekeeping-staff']));
+  try {
+    for (const path of ['/dashboard', '/visits?month=2026-09', '/workers']) {
+      const response = await call('GET', path, { as: ADM });
+      assert.equal(response.status, 403, `${path} must stay disabled, including for admins`);
+      assert.equal(response.body.reason, 'HOUSEKEEPING_VIEW_DISABLED');
+    }
+    assert.equal((await call('GET', '/decay-tasks', { as: ADM })).status, 200,
+      'the independent Tasks tab stays available');
+  } finally {
+    if (previous) {
+      db.prepare(`
+        INSERT INTO sync_config (key, value) VALUES (?, ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value
+      `).run(key, previous.value);
+    } else {
+      db.prepare('DELETE FROM sync_config WHERE key = ?').run(key);
+    }
+  }
+});
+
 // --------------------------------------------------------------------------
 // Worker-Anlage: Admin-Gate + Validierung
 // --------------------------------------------------------------------------

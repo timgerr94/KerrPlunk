@@ -870,10 +870,14 @@
         "saveAsRecipe": "Uložit jako recept",
         "recipeScaleLabel": "Upravit množství ingrediencí",
         "deletedToast": "Jídlo odstraněno.",
+<<<<<<< HEAD
         "recurrenceLabel": "Opakovat každý týden",
         "recurrenceWeekly": "Týdně",
         "cookLabel": "Vaří",
         "cookNamed": "Vaří: {{name}}",
+=======
+        "recurrenceLabel": "Opakovat",
+>>>>>>> 2b7868654 (My local changes)
         "recurrenceHint": "Yuvomi tuto večeři nebo jídlo automaticky vytvoří ve stejný den v dalších týdnech.",
         "recurrenceUntilLabel": "Opakovat do",
         "recurrenceUntilHint": "Nechte prázdné pro opakování bez konce.",
@@ -1946,6 +1950,7 @@
         "wallModeHint": "Promění domovskou stránku na tomto zařízení v klidný displej pro nástěnný tablet: čas, program dne, kdo je dnes na řadě a počasí - dost velké na čtení ze dvou metrů, bez ovládání. Mezi 22. a 6. hodinou ztlumí. Platí jen zde, ne pro ostatní zařízení v domácnosti.",
         "wallModeOn": "Nástěnný režim zapnut, uvidíte ho v {{page}}.",
         "wallModeOff": "Nástěnný režim vypnut.",
+<<<<<<< HEAD
         "screensaverIdleLabel": "Doba nečinnosti před spuštěním spořiče",
         "screensaverIdleHint": "Jak dlouho zůstane toto zařízení bez dotyku, než se spustí fotografický spořič obrazovky. Platí jen pro toto zařízení, ne pro zbytek domácnosti. Projeví se, jakmile správce připojí Immich.",
         "screensaverIdleSaved": "Prodleva spořiče na tomto zařízení: {{delay}}.",
@@ -1954,6 +1959,12 @@
         "screensaverCoverLabel": "Fotka přes celou obrazovku",
         "screensaverCoverHint": "Fotky vyplní celou obrazovku, místo aby se do ní vešly. Okraje se oříznou, nejvíc u fotek na výšku. Platí jen pro toto zařízení.",
         "screensaverDeviceSaved": "Uloženo pro toto zařízení. Projeví se při dalším spuštění spořiče.",
+=======
+        "themeDarkLabel": "Tmavý motiv",
+        "visualSkinLabel": "Vzhled aplikace",
+        "visualSkinDefault": "Klasický",
+        "visualSkinMiddleEarth": "Středozem",
+>>>>>>> 2b7868654 (My local changes)
         "changePassword": "Změnit heslo",
         "currentPasswordLabel": "Aktuální heslo",
         "newPasswordLabel": "Nové heslo",
@@ -5793,6 +5804,11 @@
         "locationLabel": "Místo uložení",
         "categoryLabel": "Kategorie",
         "expiresLabel": "Minimální trvanlivost do",
+        "restockIntervalLabel": "Obvykle koupit každých X dní",
+        "predictedItem": "Předpovězeno",
+        "skipRestock": "Přeskočit tento cyklus",
+        "snoozeRestock": "Odložit o 7 dní",
+        "disableRestock": "Už nepředpovídat",
         "expiresHint": "Nechte prázdné u položek, které nepodléhají zkáze.",
         "minQuantityLabel": "Minimální zásoba",
         "minQuantityHint": "Od tohoto množství se položka považuje za téměř došlou.",

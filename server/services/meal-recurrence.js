@@ -17,7 +17,13 @@ function datesForTemplateInRange(template, from, to) {
   const end = template.end_date && template.end_date < to ? template.end_date : to;
   const dates = [];
   for (let cursor = start; cursor <= end; cursor = addDays(cursor, 1)) {
-    if (mealWeekday(cursor) === template.weekday) dates.push(cursor);
+    if (mealWeekday(cursor) !== template.weekday) continue;
+    if (template.recurrence_frequency === 'monthly') {
+      const weekOfMonth = Math.ceil(Number(cursor.slice(-2)) / 7);
+      if (weekOfMonth === template.week_of_month) dates.push(cursor);
+    } else {
+      dates.push(cursor);
+    }
   }
   return dates;
 }

@@ -805,10 +805,14 @@
         "saveAsRecipe": "Tarif olarak kaydet",
         "recipeScaleLabel": "Malzemeleri ölçekle",
         "deletedToast": "Öğün silindi.",
+<<<<<<< HEAD
         "recurrenceLabel": "Haftalık tekrarla",
         "recurrenceWeekly": "Haftalık",
         "cookLabel": "Yemeği yapan",
         "cookNamed": "Yemeği yapan: {{name}}",
+=======
+        "recurrenceLabel": "Tekrarla",
+>>>>>>> 2b7868654 (My local changes)
         "recurrenceHint": "Yuvomi bu öğünü gelecek haftalarda aynı hafta gününde otomatik olarak ekler.",
         "recurrenceUntilLabel": "Şu tarihe kadar tekrarla",
         "recurrenceUntilHint": "Sınırsız tekrar için boş bırakın.",
@@ -1822,6 +1826,7 @@
         "wallModeHint": "Bu cihazdaki başlangıç ekranını duvar tableti için sakin bir gösterime dönüştürür: saat, günün programı, bugün kimin sırası olduğu ve hava durumu - iki metreden okunacak kadar büyük, dokunmadan. 22 ile 6 arasında kararır. Yalnızca bu cihaz için geçerlidir, evdeki diğer cihazlar için değil.",
         "wallModeOn": "Duvar modu açık, {{page}} sayfasında görünür.",
         "wallModeOff": "Duvar modu kapalı.",
+<<<<<<< HEAD
         "screensaverIdleLabel": "Ekran koruyucuyu başlatma süresi",
         "screensaverIdleHint": "Fotoğraf ekran koruyucusu başlamadan önce bu cihazın dokunulmadan kalacağı süre. Yalnızca bu cihaz için geçerlidir, hanenin geri kalanı için değil. Bir yönetici Immich'i bağladığında etkinleşir.",
         "screensaverIdleSaved": "Bu cihazda ekran koruyucu bekleme süresi: {{delay}}.",
@@ -1830,6 +1835,12 @@
         "screensaverCoverLabel": "Fotoğraf ekranı doldursun",
         "screensaverCoverHint": "Fotoğraflar ekrana sığdırılmak yerine tüm ekranı doldurur. Kenarlar kırpılır, en çok dikey fotoğraflarda. Yalnızca bu cihaz için geçerlidir.",
         "screensaverDeviceSaved": "Bu cihaz için kaydedildi. Ekran koruyucu bir sonraki başladığında geçerli olur.",
+=======
+        "themeDarkLabel": "Koyu mod",
+        "visualSkinLabel": "Görsel stil",
+        "visualSkinDefault": "Klasik",
+        "visualSkinMiddleEarth": "Orta Dünya",
+>>>>>>> 2b7868654 (My local changes)
         "changePassword": "Şifre değiştir",
         "currentPasswordLabel": "Mevcut şifre",
         "newPasswordLabel": "Yeni şifre",
@@ -5653,6 +5664,11 @@
         "locationLabel": "Saklama yeri",
         "categoryLabel": "Kategori",
         "expiresLabel": "Tavsiye edilen tüketim tarihi",
+        "restockIntervalLabel": "Genellikle her X günde bir satın al",
+        "predictedItem": "Tahmin",
+        "skipRestock": "Bu döngüyü atla",
+        "snoozeRestock": "7 gün ertele",
+        "disableRestock": "Bir daha tahmin etme",
         "expiresHint": "Bozulmayan ürünlerde boş bırakın.",
         "minQuantityLabel": "Asgari stok",
         "minQuantityHint": "Bu miktardan itibaren ürün neredeyse bitmiş sayılır.",

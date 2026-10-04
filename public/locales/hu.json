@@ -805,10 +805,14 @@
         "saveAsRecipe": "Mentés receptként",
         "recipeScaleLabel": "Hozzávalók arányosítása",
         "deletedToast": "Étkezés törölve.",
+<<<<<<< HEAD
         "recurrenceLabel": "Ismétlés hetente",
         "recurrenceWeekly": "Hetente",
         "cookLabel": "Ki főz",
         "cookNamed": "Főz: {{name}}",
+=======
+        "recurrenceLabel": "Ismétlés",
+>>>>>>> 2b7868654 (My local changes)
         "recurrenceHint": "A Yuvomi a következő hetekben automatikusan létrehozza ezt az ételt ugyanazon a hétköznapon.",
         "recurrenceUntilLabel": "Ismétlés eddig",
         "recurrenceUntilHint": "Hagyd üresen a végtelen ismétléshez.",
@@ -1839,6 +1843,7 @@
         "wallModeHint": "A kezdőlapot ezen az eszközön nyugodt kijelzővé alakítja fali táblagéphez: óra, napi program, hogy ma kin a sor, és az időjárás - két méterről is olvasható méretben, kezelnivaló nélkül. 22 és 6 óra között elhalványul. Csak erre az eszközre vonatkozik, a háztartás többi eszközére nem.",
         "wallModeOn": "Fali mód bekapcsolva, itt látszik: {{page}}.",
         "wallModeOff": "Fali mód kikapcsolva.",
+<<<<<<< HEAD
         "screensaverIdleLabel": "Képernyővédő indítása ennyi idő után",
         "screensaverIdleHint": "Ennyi ideig marad érintés nélkül ez az eszköz, mielőtt elindul a fényképes képernyővédő. Csak erre az eszközre vonatkozik, a háztartás többi tagjára nem. Akkor lép érvénybe, ha egy adminisztrátor csatlakoztatta az Immich-et.",
         "screensaverIdleSaved": "Képernyővédő várakozási ideje ezen az eszközön: {{delay}}.",
@@ -1847,6 +1852,12 @@
         "screensaverCoverLabel": "A fotó kitölti a képernyőt",
         "screensaverCoverHint": "A fotók a teljes képernyőt kitöltik ahelyett, hogy beleférnének. A szélek levágódnak, főleg az álló fotóknál. Csak erre az eszközre vonatkozik.",
         "screensaverDeviceSaved": "Mentve ehhez az eszközhöz. A képernyővédő következő indulásától érvényes.",
+=======
+        "themeDarkLabel": "Sötét mód",
+        "visualSkinLabel": "Megjelenés",
+        "visualSkinDefault": "Klasszikus",
+        "visualSkinMiddleEarth": "Középfölde",
+>>>>>>> 2b7868654 (My local changes)
         "changePassword": "Jelszó módosítása",
         "currentPasswordLabel": "Jelenlegi jelszó",
         "newPasswordLabel": "Új jelszó",
@@ -5653,6 +5664,11 @@
         "locationLabel": "Tárolási hely",
         "categoryLabel": "Kategória",
         "expiresLabel": "Minőségét megőrzi",
+        "restockIntervalLabel": "Általában X naponta vásároljuk",
+        "predictedItem": "Előrejelzett",
+        "skipRestock": "Ciklus kihagyása",
+        "snoozeRestock": "Elhalasztás 7 nappal",
+        "disableRestock": "Ne jelezze előre",
         "expiresHint": "Hagyd üresen a nem romlandó tételeknél.",
         "minQuantityLabel": "Minimális készlet",
         "minQuantityHint": "Ettől a mennyiségtől a tétel majdnem elfogyottnak számít.",

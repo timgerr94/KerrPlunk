@@ -1000,10 +1000,14 @@
         "saveAsRecipe": "الحفظ كوصفة",
         "recipeScaleLabel": "تعديل مقادير المكونات",
         "deletedToast": "تم حذف الوجبة.",
+<<<<<<< HEAD
         "recurrenceLabel": "كرر أسبوعياً",
         "recurrenceWeekly": "أسبوعيًا",
         "cookLabel": "من يطبخ",
         "cookNamed": "يطبخ: {{name}}",
+=======
+        "recurrenceLabel": "تكرار",
+>>>>>>> 2b7868654 (My local changes)
         "recurrenceHint": "ينشئ Yuvomi هذه الوجبة تلقائياً في نفس يوم الأسبوع في الأسابيع القادمة.",
         "recurrenceUntilLabel": "التكرار حتى",
         "recurrenceUntilHint": "اتركه فارغًا للتكرار بلا نهاية.",
@@ -2059,6 +2063,7 @@
         "wallModeHint": "يحوّل الصفحة الرئيسية على هذا الجهاز إلى شاشة هادئة للوح المثبت على الحائط: الوقت وبرنامج اليوم ومن عليه الدور اليوم والطقس، بحجم يمكن قراءته من مسافة مترين ودون أي تحكم. تخفت الشاشة بين الساعة 22 و6. ينطبق على هذا الجهاز فقط لا على بقية أجهزة المنزل.",
         "wallModeOn": "وضع الحائط مُفعَّل، ويظهر في {{page}}.",
         "wallModeOff": "وضع الحائط مُعطَّل.",
+<<<<<<< HEAD
         "screensaverIdleLabel": "بدء شاشة التوقف بعد",
         "screensaverIdleHint": "المدة التي يبقى فيها هذا الجهاز دون لمس قبل أن تبدأ شاشة توقف الصور. ينطبق على هذا الجهاز فقط، وليس على بقية أجهزة الأسرة. يسري بعد أن يربط المسؤول Immich.",
         "screensaverIdleSaved": "مدة انتظار شاشة التوقف على هذا الجهاز: {{delay}}.",
@@ -2067,6 +2072,12 @@
         "screensaverCoverLabel": "ملء الشاشة بالصورة",
         "screensaverCoverHint": "تملأ الصور الشاشة بالكامل بدلاً من أن تتسع داخلها. تُقص الحواف، خاصةً في الصور الطولية. ينطبق على هذا الجهاز فقط.",
         "screensaverDeviceSaved": "تم الحفظ لهذا الجهاز. يُطبَّق عند التشغيل التالي لشاشة التوقف.",
+=======
+        "themeDarkLabel": "المظهر الداكن",
+        "visualSkinLabel": "المظهر المرئي",
+        "visualSkinDefault": "الكلاسيكي",
+        "visualSkinMiddleEarth": "الأرض الوسطى",
+>>>>>>> 2b7868654 (My local changes)
         "changePassword": "تغيير كلمة المرور",
         "currentPasswordLabel": "كلمة المرور الحالية",
         "newPasswordLabel": "كلمة المرور الجديدة",
@@ -6062,6 +6073,11 @@
         "locationLabel": "مكان التخزين",
         "categoryLabel": "الفئة",
         "expiresLabel": "يُفضّل الاستهلاك قبل",
+        "restockIntervalLabel": "اشترِ عادةً كل X يومًا",
+        "predictedItem": "متوقّع",
+        "skipRestock": "تخطَّ هذه الدورة",
+        "snoozeRestock": "أجّل ٧ أيام",
+        "disableRestock": "عدم التنبؤ مجددًا",
         "expiresHint": "اتركه فارغًا للعناصر التي لا تنتهي صلاحيتها.",
         "minQuantityLabel": "الحد الأدنى للمخزون",
         "minQuantityHint": "عند هذه الكمية أو أقل يُعتبر العنصر شبه منتهٍ.",

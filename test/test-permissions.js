@@ -367,8 +367,16 @@ test('permissionCatalog liefert Module, Widgets, Rollen, Levels', () => {
   assert.ok(cat.capabilities.some((item) => item.key === 'notes_manage_household_categories'));
   assert.equal(cat.capabilities.find((item) => item.key === 'notes_manage_household_categories').default, 'none');
   assert.equal(cat.capabilities.find((item) => item.key === 'health_use_fasting').default, 'allow');
+  for (const key of ['housekeeping_dashboard', 'housekeeping_reports', 'housekeeping_staff']) {
+    const capability = cat.capabilities.find((item) => item.key === key);
+    assert.equal(capability.module, 'housekeeping');
+    assert.equal(capability.default, 'allow');
+  }
   assert.deepEqual(cat.capabilityAccessLevels, ['none', 'allow']);
-  assert.deepEqual(PERMISSION_CAPABILITIES.map((item) => item.key), ['notes_manage_household_categories', 'health_use_fasting']);
+  assert.deepEqual(PERMISSION_CAPABILITIES.map((item) => item.key), [
+    'notes_manage_household_categories', 'health_use_fasting',
+    'housekeeping_dashboard', 'housekeeping_reports', 'housekeeping_staff',
+  ]);
 });
 
 test('capability summary compares against each capability default', () => {

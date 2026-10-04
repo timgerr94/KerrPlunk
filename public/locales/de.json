@@ -819,10 +819,14 @@
         "saveAsRecipe": "Als Rezept speichern",
         "recipeScaleLabel": "Zutaten skalieren",
         "deletedToast": "Mahlzeit gelöscht.",
+<<<<<<< HEAD
         "recurrenceLabel": "Wöchentlich wiederholen",
         "recurrenceWeekly": "Wöchentlich",
         "cookLabel": "Kocht",
         "cookNamed": "Kocht: {{name}}",
+=======
+        "recurrenceLabel": "Wiederholen",
+>>>>>>> 2b7868654 (My local changes)
         "recurrenceHint": "Yuvomi legt diese Mahlzeit in zukünftigen Wochen automatisch am gleichen Wochentag an.",
         "recurrenceUntilLabel": "Wiederholen bis",
         "recurrenceUntilHint": "Leer lassen, damit die Serie unbegrenzt läuft.",
@@ -1880,6 +1884,7 @@
         "wallModeHint": "Zeigt die Startseite auf diesem Gerät als ruhige Anzeige fürs Wandtablet: Uhrzeit, Tagesprogramm, wer heute dran ist und das Wetter - groß genug für zwei Meter Abstand, ohne Bedienung. Zwischen 22 und 6 Uhr dunkelt sie ab. Gilt nur hier, nicht für die anderen Geräte im Haushalt.",
         "wallModeOn": "Wand-Modus an - sichtbar unter {{page}}.",
         "wallModeOff": "Wand-Modus aus.",
+<<<<<<< HEAD
         "screensaverIdleLabel": "Bildschirmschoner starten nach",
         "screensaverIdleHint": "So lange bleibt dieses Gerät unberührt, bevor der Foto-Bildschirmschoner startet. Gilt nur hier, nicht für die anderen Geräte im Haushalt. Wirkt erst, wenn ein Admin Immich verbunden hat.",
         "screensaverIdleSaved": "Wartezeit des Bildschirmschoners auf diesem Gerät: {{delay}}.",
@@ -1888,6 +1893,12 @@
         "screensaverCoverLabel": "Foto füllt den Bildschirm",
         "screensaverCoverHint": "Fotos füllen den ganzen Bildschirm, statt hineinzupassen. Die Ränder werden abgeschnitten, vor allem bei Fotos im Hochformat. Gilt nur für dieses Gerät.",
         "screensaverDeviceSaved": "Für dieses Gerät gespeichert. Gilt ab dem nächsten Start des Bildschirmschoners.",
+=======
+        "themeDarkLabel": "Dunkles Design",
+        "visualSkinLabel": "Visuelles Design",
+        "visualSkinDefault": "Klassisch",
+        "visualSkinMiddleEarth": "Mittelerde",
+>>>>>>> 2b7868654 (My local changes)
         "changePassword": "Passwort ändern",
         "currentPasswordLabel": "Aktuelles Passwort",
         "newPasswordLabel": "Neues Passwort",
@@ -5653,6 +5664,11 @@
         "locationLabel": "Lagerort",
         "categoryLabel": "Kategorie",
         "expiresLabel": "Mindestens haltbar bis",
+        "restockIntervalLabel": "Üblicherweise alle X Tage kaufen",
+        "predictedItem": "Vorgeschlagen",
+        "skipRestock": "Diesen Zyklus überspringen",
+        "snoozeRestock": "Um 7 Tage verschieben",
+        "disableRestock": "Nicht mehr vorhersagen",
         "expiresHint": "Leer lassen, wenn der Artikel unbegrenzt haltbar ist.",
         "minQuantityLabel": "Mindestbestand",
         "minQuantityHint": "Ab dieser Menge gilt der Artikel als fast leer.",

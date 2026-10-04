@@ -819,10 +819,14 @@
         "saveAsRecipe": "레시피로 저장",
         "recipeScaleLabel": "재료 비율 조절",
         "deletedToast": "식사가 삭제되었습니다.",
+<<<<<<< HEAD
         "recurrenceLabel": "매주 반복",
         "recurrenceWeekly": "매주",
         "cookLabel": "요리 담당",
         "cookNamed": "요리 담당: {{name}}",
+=======
+        "recurrenceLabel": "반복",
+>>>>>>> 2b7868654 (My local changes)
         "recurrenceHint": "Yuvomi가 이 식사를 앞으로의 주에도 같은 요일에 자동으로 추가합니다.",
         "recurrenceUntilLabel": "반복 종료일",
         "recurrenceUntilHint": "무기한 반복하려면 비워 두세요.",
@@ -1880,6 +1884,7 @@
         "wallModeHint": "이 기기의 홈을 벽걸이 태블릿용 조용한 화면으로 바꿉니다. 시각, 오늘 일정, 오늘 담당, 날씨를 2미터 밖에서도 읽을 수 있는 크기로, 조작 없이 보여 줍니다. 22시부터 6시까지는 어두워집니다. 이 기기에만 적용되며 집 안의 다른 기기에는 적용되지 않습니다.",
         "wallModeOn": "벽면 모드를 켰습니다. {{page}}에서 볼 수 있습니다.",
         "wallModeOff": "벽면 모드를 껐습니다.",
+<<<<<<< HEAD
         "screensaverIdleLabel": "화면 보호기 시작까지",
         "screensaverIdleHint": "사진 화면 보호기가 시작되기 전까지 이 기기를 만지지 않은 상태로 두는 시간입니다. 이 기기에만 적용되며 가족의 다른 기기에는 적용되지 않습니다. 관리자가 Immich를 연결하면 적용됩니다.",
         "screensaverIdleSaved": "이 기기의 화면 보호기 대기 시간: {{delay}}",
@@ -1888,6 +1893,12 @@
         "screensaverCoverLabel": "사진으로 화면 채우기",
         "screensaverCoverHint": "사진을 화면 안에 맞추는 대신 화면 전체를 채웁니다. 가장자리가 잘리며, 세로 사진에서 특히 그렇습니다. 이 기기에만 적용됩니다.",
         "screensaverDeviceSaved": "이 기기에 저장했습니다. 다음에 화면 보호기가 시작될 때부터 적용됩니다.",
+=======
+        "themeDarkLabel": "어두운 테마",
+        "visualSkinLabel": "시각 스타일",
+        "visualSkinDefault": "클래식",
+        "visualSkinMiddleEarth": "중간계",
+>>>>>>> 2b7868654 (My local changes)
         "changePassword": "비밀번호 변경",
         "currentPasswordLabel": "현재 비밀번호",
         "newPasswordLabel": "새 비밀번호",
@@ -5653,6 +5664,11 @@
         "locationLabel": "보관 장소",
         "categoryLabel": "카테고리",
         "expiresLabel": "유통기한",
+        "restockIntervalLabel": "보통 X일마다 구매",
+        "predictedItem": "예측됨",
+        "skipRestock": "이번 주기 건너뛰기",
+        "snoozeRestock": "7일 미루기",
+        "disableRestock": "다시 예측하지 않기",
         "expiresHint": "유통기한이 없는 항목은 비워 두세요.",
         "minQuantityLabel": "최소 재고",
         "minQuantityHint": "이 수량 이하가 되면 거의 소진된 것으로 표시됩니다.",

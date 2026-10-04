@@ -805,10 +805,14 @@
         "saveAsRecipe": "Opslaan als recept",
         "recipeScaleLabel": "Ingrediënten schalen",
         "deletedToast": "Maaltijd verwijderd.",
+<<<<<<< HEAD
         "recurrenceLabel": "Wekelijks herhalen",
         "recurrenceWeekly": "Wekelijks",
         "cookLabel": "Kookt",
         "cookNamed": "Kookt: {{name}}",
+=======
+        "recurrenceLabel": "Herhalen",
+>>>>>>> 2b7868654 (My local changes)
         "recurrenceHint": "Yuvomi voegt deze maaltijd in toekomstige weken automatisch op dezelfde weekdag toe.",
         "recurrenceUntilLabel": "Herhalen tot",
         "recurrenceUntilHint": "Laat leeg om onbeperkt te herhalen.",
@@ -1839,6 +1843,7 @@
         "wallModeHint": "Maakt van het startscherm op dit apparaat een rustig display voor een wandtablet: tijd, dagprogramma, wie vandaag aan de beurt is en het weer - groot genoeg om vanaf twee meter te lezen, zonder bediening. Tussen 22 en 6 uur dimt het. Geldt alleen hier, niet voor de andere apparaten in huis.",
         "wallModeOn": "Wandmodus aan, zichtbaar bij {{page}}.",
         "wallModeOff": "Wandmodus uit.",
+<<<<<<< HEAD
         "screensaverIdleLabel": "Schermbeveiliging starten na",
         "screensaverIdleHint": "Hoe lang dit apparaat onaangeroerd blijft voordat de fotoschermbeveiliging start. Geldt alleen voor dit apparaat, niet voor de rest van het huishouden. Werkt zodra een beheerder Immich heeft gekoppeld.",
         "screensaverIdleSaved": "Wachttijd schermbeveiliging op dit apparaat: {{delay}}.",
@@ -1847,6 +1852,12 @@
         "screensaverCoverLabel": "Foto vult het scherm",
         "screensaverCoverHint": "Foto's vullen het hele scherm in plaats van erin te passen. De randen worden bijgesneden, vooral bij staande foto's. Geldt alleen voor dit apparaat.",
         "screensaverDeviceSaved": "Opgeslagen voor dit apparaat. Geldt vanaf de volgende start van de schermbeveiliging.",
+=======
+        "themeDarkLabel": "Donkere modus",
+        "visualSkinLabel": "Visuele stijl",
+        "visualSkinDefault": "Klassiek",
+        "visualSkinMiddleEarth": "Midden-aarde",
+>>>>>>> 2b7868654 (My local changes)
         "changePassword": "Wachtwoord wijzigen",
         "currentPasswordLabel": "Huidig wachtwoord",
         "newPasswordLabel": "Nieuw wachtwoord",
@@ -5653,6 +5664,11 @@
         "locationLabel": "Bewaarplaats",
         "categoryLabel": "Categorie",
         "expiresLabel": "Ten minste houdbaar tot",
+        "restockIntervalLabel": "Gewoonlijk elke X dagen kopen",
+        "predictedItem": "Voorspeld",
+        "skipRestock": "Deze cyclus overslaan",
+        "snoozeRestock": "7 dagen uitstellen",
+        "disableRestock": "Niet meer voorspellen",
         "expiresHint": "Laat leeg voor artikelen die niet bederven.",
         "minQuantityLabel": "Minimumvoorraad",
         "minQuantityHint": "Vanaf deze hoeveelheid geldt het artikel als bijna op.",
