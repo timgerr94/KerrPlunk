@@ -27,6 +27,7 @@ import { setLeaveGuard } from '/utils/leave-guard.js';
 // Formular-Referenzen statt eines Flags: so bleibt erkennbar, ob der offene
 // Stand ueberhaupt noch im Dokument haengt.
 const dirtyForms = new Set();
+const initialFormStates = new WeakMap();
 // Blaetter ohne Formular: Knoten -> "ist etwas offen?". Der Knoten sagt, ob
 // die Quelle noch im Dokument steht; faellt er heraus, faellt sie mit.
 const dirtySources = new Map();
@@ -48,6 +49,23 @@ function savableForm(target) {
   const form = target.closest('form');
   if (!form) return null;
   return form.querySelector('button[type="submit"], input[type="submit"]') ? form : null;
+}
+
+function formState(form) {
+  const controls = Array.from(form.elements ?? []);
+  if (!controls.length) return null;
+  return JSON.stringify(controls.map((control) => ({
+    name: control.name ?? '',
+    type: control.type ?? '',
+    value: control.type === 'password' ? Boolean(control.value) : String(control.value ?? ''),
+    checked: typeof control.checked === 'boolean' ? control.checked : null,
+    selected: control.options
+      ? Array.from(control.options).filter((option) => option.selected).map((option) => option.value)
+      : null,
+    files: control.type === 'file'
+      ? Array.from(control.files ?? []).map((file) => [file.name, file.size, file.lastModified])
+      : null,
+  })));
 }
 
 // Verlaesst der Nutzer die Einstellungen, verschwindet die Shell aus dem
@@ -119,6 +137,10 @@ export function watchLeafForms(container) {
   // hasOpenEdits() ueber isConnected heraus.
   dirtyForms.clear();
   syncLeafEdits();
+  for (const form of container.querySelectorAll?.('form') ?? []) {
+    const state = formState(form);
+    if (state !== null) initialFormStates.set(form, state);
+  }
 
   const mark = (event) => {
     // Nur echte Eingaben: programmatisch gesetzte Werte (Daten aus der API,
@@ -126,7 +148,10 @@ export function watchLeafForms(container) {
     if (!event.isTrusted) return;
     const form = savableForm(event.target);
     if (form) {
-      dirtyForms.add(form);
+      const initial = initialFormStates.get(form);
+      const current = formState(form);
+      if (initial === undefined || current === null || current !== initial) dirtyForms.add(form);
+      else dirtyForms.delete(form);
       syncLeafEdits();
     }
   };

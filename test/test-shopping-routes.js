@@ -311,13 +311,45 @@ test('POST /:listId/items: Nicht-http(s)-URL → 400', async () => {
   assert.equal(r.status, 400);
 });
 
-test('POST /:listId/items: legt Artikel an, Default-Kategorie = Sonstiges (#548)', async () => {
+test('POST /:listId/items: legt Artikel an, unbekannter Name faellt auf Sonstiges (#548)', async () => {
   const list = await newList();
-  const r = await call('POST', `/${list}/items`, { name: 'Milch', quantity: '1 l', url: 'https://example.com' });
+  const r = await call('POST', `/${list}/items`, { name: 'Krimskrams', quantity: '1 l', url: 'https://example.com' });
   assert.equal(r.status, 201);
-  assert.equal(r.body.data.name, 'Milch');
+  assert.equal(r.body.data.name, 'Krimskrams');
   assert.equal(r.body.data.category, 'Sonstiges'); // die Sammelkategorie, nicht die erste (#548)
   assert.equal(r.body.data.url, 'https://example.com');
+});
+
+test('POST /:listId/items: Kategorie wird aus dem Namen geraten (Keyword-Tabelle aus dem Rezept-Import)', async () => {
+  const list = await newList();
+  const milk = await call('POST', `/${list}/items`, { name: 'Milch' });
+  assert.equal(milk.status, 201);
+  assert.equal(milk.body.data.category, 'Milchprodukte');
+  const apple = await call('POST', `/${list}/items`, { name: 'apple' });
+  assert.equal(apple.status, 201);
+  assert.equal(apple.body.data.category, 'Obst & Gemüse');
+});
+
+test('POST /:listId/items: ausdruecklich gewaehlte Kategorie bleibt, auch Sonstiges', async () => {
+  const list = await newList();
+  const dairy = await call('POST', `/${list}/items`, { name: 'Milch', category: 'Backwaren' });
+  assert.equal(dairy.status, 201);
+  assert.equal(dairy.body.data.category, 'Backwaren');
+  const misc = await call('POST', `/${list}/items`, { name: 'Milch', category: 'Sonstiges' });
+  assert.equal(misc.status, 201);
+  assert.equal(misc.body.data.category, 'Sonstiges');
+});
+
+test('POST /:listId/items: Rate-Ergebnis, das der Haushalt nicht fuehrt, faellt auf den Default zurueck', async () => {
+  // Haushalt ohne Milchprodukte: "Milch" duerfte sonst eine 400 werfen.
+  const cats = (await call('GET', '/categories')).body.data;
+  const dairy = cats.find((c) => c.name === 'Milchprodukte');
+  await call('PUT', `/categories/${dairy.id}`, { name: 'Milchwaren' });
+  const list = await newList();
+  const r = await call('POST', `/${list}/items`, { name: 'Milch' });
+  assert.equal(r.status, 201);
+  assert.equal(r.body.data.category, 'Sonstiges');
+  await call('PUT', `/categories/${dairy.id}`, { name: 'Milchprodukte' }); // geteilte DB: zurueckbenennen
 });
 
 test('POST /:listId/items: Default bleibt Sonstiges, auch wenn der Haushalt danach eine Kategorie anlegt (#1165)', async () => {
@@ -326,7 +358,7 @@ test('POST /:listId/items: Default bleibt Sonstiges, auch wenn der Haushalt dana
   // unzusammenhängende Artikel landeten im Baumarkt statt in der Sammelkategorie.
   const baumarkt = (await call('POST', '/categories', { name: 'Baumarkt' })).body.data;
   const list = await newList();
-  const r = await call('POST', `/${list}/items`, { name: 'Servietten' });
+  const r = await call('POST', `/${list}/items`, { name: 'Krimskrams' });
   assert.equal(r.status, 201);
   assert.equal(r.body.data.category, 'Sonstiges');
   await call('DELETE', `/categories/${baumarkt.id}`); // geteilte DB: aufräumen

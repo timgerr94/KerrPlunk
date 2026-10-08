@@ -32,9 +32,35 @@ const ALL_CACHES    = [SHELL_CACHE, PAGES_CACHE, LOCALES_CACHE, ASSETS_CACHE];
 
 // GET-API-Pfade (nach /api/v1), die für Read-only-Offline gecacht werden dürfen.
 // NUR Lese-Endpunkte — niemals /auth/* oder Mutationen. Prefix-Match.
-const API_CACHE_WHITELIST = ['/calendar', '/tasks', '/shopping', '/contacts', '/dashboard'];
+const API_CACHE_WHITELIST = ['/calendar', '/tasks', '/shopping', '/pantry', '/contacts', '/dashboard'];
 // Pfade UNTER einem Whitelist-Prefix, die trotzdem nie gecacht werden.
 const API_CACHE_EXCLUDE = ['/shopping/versions'];
+
+function isDefinitelyOffline() {
+  return self.navigator?.onLine === false;
+}
+
+function offlineResponse() {
+  return new Response('Keine Verbindung', {
+    status: 503,
+    headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+  });
+}
+
+async function offlineNavigationFallback(request, cache) {
+  const cached = await cache.match(request);
+  if (cached) return cached;
+
+  const shellUrl = self.location?.origin ? new URL('/index.html', self.location.origin).href : null;
+  const shell = await caches.match('/index.html')
+    || (shellUrl ? await caches.match(shellUrl) : null);
+  if (shell) return shell;
+
+  const offlineUrl = self.location?.origin ? new URL('/offline.html', self.location.origin).href : null;
+  const offline = await caches.match('/offline.html')
+    || (offlineUrl ? await caches.match(offlineUrl) : null);
+  return offline || offlineResponse();
+}
 
 // App-Shell: sofort benötigt für ersten Render
 const APP_SHELL = [
@@ -93,6 +119,7 @@ const APP_SHELL = [
   '/styles/skins.css',
   '/fonts/IMFellEnglish-Regular.ttf',
   '/fonts/PartyBusiness-4B0K.ttf',
+  '/fonts/RingbearerMedium-51mgZ.ttf',
   '/components/yuvomi-install-prompt.js',
   // Geteilte Module. Sie werden von Shell UND Seitenmodulen importiert und
   // müssen deshalb zusammen mit der Shell erneuert werden: der Browser bindet
@@ -163,6 +190,8 @@ const APP_SHELL = [
   '/utils/help.js',
   '/utils/household-zone-hint.js',
   '/utils/household.js',
+  '/utils/offline-session.js',
+  '/utils/offline-kitchen.js',
   '/utils/html-escape.js',
   '/utils/html.js',
   '/utils/ingredient-row.js',
@@ -237,6 +266,8 @@ const APP_SHELL = [
   '/utils/web-share.js',
   '/utils/week-strip.js',
   '/offline.html',
+  '/offline-diagnostics.html',
+  '/offline-diagnostics.js',
   // offline.html laedt theme-init.js, damit die Huelle dieselbe Farbwelt
   // trifft wie die App (gespeicherter Wunsch schlaegt Systemeinstellung).
   // Ohne Precache waere die Wahl genau dann wirkungslos, wenn die Seite
@@ -478,6 +509,7 @@ self.addEventListener('fetch', (event) => {
     if (request.method === 'GET' && isCacheableApiGet(url.pathname)) {
       event.respondWith(
         (_bypassInitDone ? Promise.resolve() : _bypassInit).then(() => {
+          if (isDefinitelyOffline()) return cachedApiResponse(request);
           // Im Bypass-Fenster (nach SW-Update) API-Requests nicht anfassen:
           // frisch ans Netz, weder aus Cache bedienen noch hineinschreiben.
           if (Date.now() < bypassCacheUntil) return fetch(request);
@@ -503,6 +535,31 @@ self.addEventListener('fetch', (event) => {
 });
 
 function dispatchFetch(request, url) {
+  if (isDefinitelyOffline()) {
+    if (request.mode === 'navigate') {
+      return caches.open(SHELL_CACHE).then((cache) => offlineNavigationFallback(request, cache));
+    }
+    if (url.pathname.startsWith('/locales/')) return networkFirst(request, LOCALES_CACHE);
+    if (
+      url.pathname.startsWith('/pages/')
+      || url.pathname.startsWith('/settings/')
+      || PAGE_MODULE_SET.has(url.pathname)
+    ) {
+      return networkFirst(request, PAGES_CACHE);
+    }
+    if (url.origin === self.location.origin && isMutableAppResource(url.pathname)) {
+      return networkFirst(request, SHELL_CACHE);
+    }
+    if (isAsset(url.pathname) && url.origin === self.location.origin) {
+      return caches.open(ASSETS_CACHE).then(async (cache) => (
+        (await cache.match(request)) || offlineResponse()
+      ));
+    }
+    return caches.open(SHELL_CACHE).then(async (cache) => (
+      (await cache.match(request)) || offlineResponse()
+    ));
+  }
+
   // Nach SW-Update: direkt vom Netz, kein SW-Cache, kein HTTP-Cache.
   // Gilt für ALLE Requests (JS, CSS, Images, HTML) im Bypass-Fenster.
   if (Date.now() < bypassCacheUntil) {
@@ -564,6 +621,11 @@ function dispatchFetch(request, url) {
 async function networkFirst(request, cacheName) {
   const cache = await caches.open(cacheName);
 
+  if (isDefinitelyOffline()) {
+    if (request.mode === 'navigate') return offlineNavigationFallback(request, cache);
+    return (await cache.match(request)) || offlineResponse();
+  }
+
   try {
     const response = await fetch(request);
     if (response.ok && response.type === 'basic') {
@@ -571,19 +633,8 @@ async function networkFirst(request, cacheName) {
     }
     return response;
   } catch {
-    const cached = await cache.match(request);
-    if (cached) return cached;
-
-    const shell = await cache.match('/index.html');
-    if (shell) return shell;
-
-    const offline = await caches.match('/offline.html');
-    if (offline) return offline;
-
-    return new Response('Keine Verbindung', {
-      status: 503,
-      headers: { 'Content-Type': 'text/plain; charset=utf-8' },
-    });
+    if (request.mode === 'navigate') return offlineNavigationFallback(request, cache);
+    return (await cache.match(request)) || offlineResponse();
   }
 }
 
@@ -610,14 +661,18 @@ async function networkFirstApi(request) {
     }
     return response;
   } catch {
-    const cache  = await caches.open(API_CACHE);
-    const cached = await cache.match(request);
-    if (cached) return cached;
-    return new Response(JSON.stringify({ error: 'offline' }), {
-      status: 503,
-      headers: { 'Content-Type': 'application/json; charset=utf-8' },
-    });
+    return cachedApiResponse(request);
   }
+}
+
+async function cachedApiResponse(request) {
+  const cache = await caches.open(API_CACHE);
+  const cached = await cache.match(request);
+  if (cached) return cached;
+  return new Response(JSON.stringify({ error: 'offline' }), {
+    status: 503,
+    headers: { 'Content-Type': 'application/json; charset=utf-8' },
+  });
 }
 
 // --------------------------------------------------------

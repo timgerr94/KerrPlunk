@@ -9812,111 +9812,50 @@ const MIGRATIONS = [
   {
     version: 228,
     description: 'Meals: support monthly weekday recurrence templates',
-    up: `
-      ALTER TABLE meal_recurrence_templates
-        ADD COLUMN recurrence_frequency TEXT NOT NULL DEFAULT 'weekly'
-        CHECK (recurrence_frequency IN ('weekly', 'monthly'));
-      ALTER TABLE meal_recurrence_templates ADD COLUMN week_of_month INTEGER
-        CHECK (week_of_month IS NULL OR week_of_month BETWEEN 1 AND 5);
-    `,
+    up(db) {
+      const columns = db.prepare('PRAGMA table_info(meal_recurrence_templates)').all().map((column) => column.name);
+      if (!columns.includes('recurrence_frequency')) {
+        db.exec(`
+          ALTER TABLE meal_recurrence_templates
+            ADD COLUMN recurrence_frequency TEXT NOT NULL DEFAULT 'weekly'
+            CHECK (recurrence_frequency IN ('weekly', 'monthly'));
+        `);
+      }
+      if (!columns.includes('week_of_month')) {
+        db.exec(`
+          ALTER TABLE meal_recurrence_templates ADD COLUMN week_of_month INTEGER
+            CHECK (week_of_month IS NULL OR week_of_month BETWEEN 1 AND 5);
+        `);
+      }
+    },
   },
   {
     version: 229,
     description: 'Pantry: track restock intervals and predicted shopping rows',
-    up: `
-      ALTER TABLE pantry_items ADD COLUMN restock_interval_days INTEGER
-        CHECK (restock_interval_days IS NULL OR restock_interval_days BETWEEN 1 AND 3650);
-      ALTER TABLE pantry_items ADD COLUMN last_purchased_at TEXT;
-      ALTER TABLE pantry_items ADD COLUMN restock_snoozed_until TEXT;
-      ALTER TABLE shopping_items ADD COLUMN predicted_pantry_item_id INTEGER
-        REFERENCES pantry_items(id) ON DELETE CASCADE;
-      CREATE UNIQUE INDEX idx_shopping_items_predicted_pantry_item
-        ON shopping_items(predicted_pantry_item_id)
-        WHERE predicted_pantry_item_id IS NOT NULL;
-      CREATE INDEX idx_pantry_items_restock
-        ON pantry_items(restock_interval_days, last_purchased_at);
-    `,
-  },
-  {
-    version: 229,
-    description: 'Budget: a series keeps its own start date (#1545)',
-    // DER STARTTAG WAR NOCH DAS DATUM DER ERSTEN BUCHUNG (#1545). v228 hat die
-    // Werte der Vorlage vom Anker getrennt, den Starttag aber dort gelassen:
-    // occurrenceDatesInMonth() leitet jedes spaetere Vorkommen (Tag im Monat,
-    // Wochentag, das "alle N"-Raster) aus ihm ab. Eine Korrektur NUR der ersten
-    // Buchung ("abgebucht wurde am 6., nicht am 5.") verschob deshalb das
-    // Raster jedes Vorkommens, das noch nicht angelegt war, und bei Wochen-
-    // oder "alle N"-Serien sogar, welche Tage es ueberhaupt gibt.
-    //
-    // Die Definition bekommt ihren eigenen Starttag. Gefuellt aus dem Datum des
-    // Ankers - das war bis hierher der Starttag, jede Serie behaelt also genau
-    // ihr Raster. Die Trigger aus v228 legen neue Definitionen an; sie werden
-    // hier mit derselben Bedingung neu angelegt und nehmen den Starttag aus
-    // der Buchung mit (DROP + CREATE, weil ein Trigger sich nicht aendern
-    // laesst). Ein kuenftiger Rebuild von budget_entries verliert sie weiter
-    // mit der Tabelle, siehe v228.
-    //
-    // NULL-faehig, weil ADD COLUMN ein NOT NULL nur mit Vorgabewert nimmt, und
-    // jeder Vorgabewert waere ein erfundener Starttag. Geschrieben wird die
-    // Spalte von dieser Migration, den Triggern und PUT /budget/:id/series;
-    // generateRecurringInstances() liest bei NULL das Datum des Ankers, also
-    // genau das Verhalten bis v228.
-    //
-    // GRID_FROM: ab welchem Tag das heutige Raster gilt. Eine Serien-Aenderung,
-    // die das Raster verschiebt (Starttag oder Rhythmus), raeumt nur ab heute
-    // ab; was davor liegt, ist gebucht und steht auf dem alten Raster. Der
-    // Monatsaufruf kennt das alte Raster nicht mehr und legte in einem schon
-    // gefuellten vergangenen Monat ein zweites Vorkommen daneben (Review-Befund
-    // in #1585). Vor grid_from erzeugt generateRecurringInstances() deshalb
-    // nichts. NULL = das Raster galt schon immer, keine Grenze - der Bestand
-    // bleibt, wie er ist.
-    //
-    // Idempotent: jede Spalte kommt nur dazu, wenn sie fehlt, und gefuellt
-    // wird nur, was noch keinen Starttag hat - ein zweiter Lauf ueberschreibt
-    // keinen inzwischen geaenderten.
     up(db) {
-      const columns = db.prepare('PRAGMA table_info(budget_series)').all().map((c) => c.name);
-      if (!columns.includes('start_date')) {
-        db.exec('ALTER TABLE budget_series ADD COLUMN start_date TEXT');
+      const pantryColumns = db.prepare('PRAGMA table_info(pantry_items)').all().map((column) => column.name);
+      if (!pantryColumns.includes('restock_interval_days')) {
+        db.exec(`
+          ALTER TABLE pantry_items ADD COLUMN restock_interval_days INTEGER
+            CHECK (restock_interval_days IS NULL OR restock_interval_days BETWEEN 1 AND 3650);
+        `);
       }
-      if (!columns.includes('grid_from')) {
-        db.exec('ALTER TABLE budget_series ADD COLUMN grid_from TEXT');
+      if (!pantryColumns.includes('last_purchased_at')) db.exec('ALTER TABLE pantry_items ADD COLUMN last_purchased_at TEXT');
+      if (!pantryColumns.includes('restock_snoozed_until')) db.exec('ALTER TABLE pantry_items ADD COLUMN restock_snoozed_until TEXT');
+
+      const shoppingColumns = db.prepare('PRAGMA table_info(shopping_items)').all().map((column) => column.name);
+      if (!shoppingColumns.includes('predicted_pantry_item_id')) {
+        db.exec(`
+          ALTER TABLE shopping_items ADD COLUMN predicted_pantry_item_id INTEGER
+            REFERENCES pantry_items(id) ON DELETE CASCADE;
+        `);
       }
-      // "Gibt es das Vorkommen an diesem Tag schon?" fragt occurrenceWriter()
-      // fuer jedes Vorkommen. Mit dem Index nur auf recurrence_parent_id las
-      // die Frage jede Buchung der Serie - beim Einfrieren der Vergangenheit
-      // vor einer Rasteraenderung (#1585) quadratisch: gemessen 290 s fuer
-      // eine Wochenserie ueber 100.000 Vorkommen. Ein kuenftiger Rebuild von
-      // budget_entries (wie v156) muss ihn mit anlegen.
-      db.exec('CREATE INDEX IF NOT EXISTS idx_budget_parent_date ON budget_entries(recurrence_parent_id, date)');
       db.exec(`
-        UPDATE budget_series
-           SET start_date = (SELECT e.date FROM budget_entries e WHERE e.id = budget_series.anchor_id)
-         WHERE start_date IS NULL;
-
-        DROP TRIGGER IF EXISTS trg_budget_series_on_insert;
-        CREATE TRIGGER trg_budget_series_on_insert
-          AFTER INSERT ON budget_entries
-          WHEN NEW.is_recurring = 1 AND NEW.recurrence_parent_id IS NULL
-        BEGIN
-          INSERT OR IGNORE INTO budget_series
-            (anchor_id, title, amount, full_amount, category, subcategory, account_id, visibility,
-             start_date)
-          VALUES (NEW.id, NEW.title, NEW.amount, NEW.recurrence_full_amount, NEW.category,
-                  NEW.subcategory, NEW.account_id, NEW.visibility, NEW.date);
-        END;
-
-        DROP TRIGGER IF EXISTS trg_budget_series_on_start;
-        CREATE TRIGGER trg_budget_series_on_start
-          AFTER UPDATE OF is_recurring ON budget_entries
-          WHEN OLD.is_recurring = 0 AND NEW.is_recurring = 1 AND NEW.recurrence_parent_id IS NULL
-        BEGIN
-          INSERT OR IGNORE INTO budget_series
-            (anchor_id, title, amount, full_amount, category, subcategory, account_id, visibility,
-             start_date)
-          VALUES (NEW.id, NEW.title, NEW.amount, NEW.recurrence_full_amount, NEW.category,
-                  NEW.subcategory, NEW.account_id, NEW.visibility, NEW.date);
-        END;
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_shopping_items_predicted_pantry_item
+          ON shopping_items(predicted_pantry_item_id)
+          WHERE predicted_pantry_item_id IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_pantry_items_restock
+          ON pantry_items(restock_interval_days, last_purchased_at);
       `);
     },
   },
@@ -9992,9 +9931,248 @@ const MIGRATIONS = [
   {
     version: 231,
     description: 'Pantry: remember the shopping list used for purchases',
+    up(db) {
+      const columns = db.prepare('PRAGMA table_info(pantry_items)').all().map((column) => column.name);
+      if (!columns.includes('restock_list_id')) {
+        db.exec(`
+          ALTER TABLE pantry_items ADD COLUMN restock_list_id INTEGER
+            REFERENCES shopping_lists(id) ON DELETE SET NULL;
+        `);
+      }
+    },
+  },
+  {
+    version: 232,
+    description: 'Budget: a series keeps its own definition, the first booking is an ordinary entry (#1035)',
     up: `
-      ALTER TABLE pantry_items ADD COLUMN restock_list_id INTEGER
-        REFERENCES shopping_lists(id) ON DELETE SET NULL;
+      CREATE TABLE IF NOT EXISTS budget_series (
+        anchor_id   INTEGER PRIMARY KEY REFERENCES budget_entries(id) ON DELETE CASCADE,
+        title       TEXT    NOT NULL,
+        amount      REAL    NOT NULL,
+        full_amount REAL,
+        category    TEXT    NOT NULL,
+        subcategory TEXT    NOT NULL DEFAULT '',
+        account_id  INTEGER REFERENCES budget_accounts(id) ON DELETE SET NULL,
+        visibility  TEXT    NOT NULL DEFAULT 'shared'
+                            CHECK (visibility IN ('private', 'shared', 'shared_amount')),
+        created_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+        updated_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_budget_series_account ON budget_series(account_id);
+
+      CREATE TABLE IF NOT EXISTS budget_series_responsibles (
+        anchor_id INTEGER NOT NULL REFERENCES budget_series(anchor_id) ON DELETE CASCADE,
+        user_id   INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        PRIMARY KEY (anchor_id, user_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_budget_series_responsibles_user
+        ON budget_series_responsibles(user_id);
+
+      DROP TABLE IF EXISTS temp._v232_anchors;
+      CREATE TEMP TABLE _v232_anchors AS
+        SELECT id FROM budget_entries
+         WHERE is_recurring = 1 AND recurrence_parent_id IS NULL
+           AND id NOT IN (SELECT anchor_id FROM budget_series);
+
+      INSERT INTO budget_series
+        (anchor_id, title, amount, full_amount, category, subcategory, account_id, visibility)
+      SELECT e.id, e.title, e.amount, e.recurrence_full_amount, e.category, e.subcategory,
+             e.account_id, e.visibility
+        FROM budget_entries e JOIN _v232_anchors n ON n.id = e.id;
+
+      INSERT OR IGNORE INTO budget_series_responsibles (anchor_id, user_id)
+      SELECT r.entry_id, r.user_id
+        FROM budget_entry_responsibles r JOIN _v232_anchors n ON n.id = r.entry_id;
+
+      DROP TABLE _v232_anchors;
+
+      CREATE TRIGGER IF NOT EXISTS trg_budget_series_on_insert
+        AFTER INSERT ON budget_entries
+        WHEN NEW.is_recurring = 1 AND NEW.recurrence_parent_id IS NULL
+      BEGIN
+        INSERT OR IGNORE INTO budget_series
+          (anchor_id, title, amount, full_amount, category, subcategory, account_id, visibility)
+        VALUES (NEW.id, NEW.title, NEW.amount, NEW.recurrence_full_amount, NEW.category,
+                NEW.subcategory, NEW.account_id, NEW.visibility);
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS trg_budget_series_on_start
+        AFTER UPDATE OF is_recurring ON budget_entries
+        WHEN OLD.is_recurring = 0 AND NEW.is_recurring = 1 AND NEW.recurrence_parent_id IS NULL
+      BEGIN
+        INSERT OR IGNORE INTO budget_series
+          (anchor_id, title, amount, full_amount, category, subcategory, account_id, visibility)
+        VALUES (NEW.id, NEW.title, NEW.amount, NEW.recurrence_full_amount, NEW.category,
+                NEW.subcategory, NEW.account_id, NEW.visibility);
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS trg_budget_series_on_stop
+        AFTER UPDATE OF is_recurring ON budget_entries
+        WHEN OLD.is_recurring = 1 AND NEW.is_recurring = 0
+      BEGIN
+        DELETE FROM budget_series WHERE anchor_id = NEW.id;
+      END;
+    `,
+  },
+  {
+    version: 233,
+    description: 'Budget: a series keeps its own start date (#1545)',
+    up(db) {
+      const columns = db.prepare('PRAGMA table_info(budget_series)').all().map((column) => column.name);
+      if (!columns.includes('start_date')) db.exec('ALTER TABLE budget_series ADD COLUMN start_date TEXT');
+      if (!columns.includes('grid_from')) db.exec('ALTER TABLE budget_series ADD COLUMN grid_from TEXT');
+
+      db.exec('CREATE INDEX IF NOT EXISTS idx_budget_parent_date ON budget_entries(recurrence_parent_id, date)');
+      db.exec(`
+        UPDATE budget_series
+           SET start_date = (SELECT e.date FROM budget_entries e WHERE e.id = budget_series.anchor_id)
+         WHERE start_date IS NULL;
+
+        DROP TRIGGER IF EXISTS trg_budget_series_on_insert;
+        CREATE TRIGGER trg_budget_series_on_insert
+          AFTER INSERT ON budget_entries
+          WHEN NEW.is_recurring = 1 AND NEW.recurrence_parent_id IS NULL
+        BEGIN
+          INSERT OR IGNORE INTO budget_series
+            (anchor_id, title, amount, full_amount, category, subcategory, account_id, visibility,
+             start_date)
+          VALUES (NEW.id, NEW.title, NEW.amount, NEW.recurrence_full_amount, NEW.category,
+                  NEW.subcategory, NEW.account_id, NEW.visibility, NEW.date);
+        END;
+
+        DROP TRIGGER IF EXISTS trg_budget_series_on_start;
+        CREATE TRIGGER trg_budget_series_on_start
+          AFTER UPDATE OF is_recurring ON budget_entries
+          WHEN OLD.is_recurring = 0 AND NEW.is_recurring = 1 AND NEW.recurrence_parent_id IS NULL
+        BEGIN
+          INSERT OR IGNORE INTO budget_series
+            (anchor_id, title, amount, full_amount, category, subcategory, account_id, visibility,
+             start_date)
+          VALUES (NEW.id, NEW.title, NEW.amount, NEW.recurrence_full_amount, NEW.category,
+                  NEW.subcategory, NEW.account_id, NEW.visibility, NEW.date);
+        END;
+      `);
+    },
+  },
+  {
+    version: 234,
+    description: 'Meals: ensure monthly weekday recurrence columns exist',
+    up(db) {
+      const columns = db.prepare('PRAGMA table_info(meal_recurrence_templates)').all().map((column) => column.name);
+      if (!columns.includes('recurrence_frequency')) {
+        db.exec(`
+          ALTER TABLE meal_recurrence_templates
+            ADD COLUMN recurrence_frequency TEXT NOT NULL DEFAULT 'weekly'
+            CHECK (recurrence_frequency IN ('weekly', 'monthly'));
+        `);
+      }
+      if (!columns.includes('week_of_month')) {
+        db.exec(`
+          ALTER TABLE meal_recurrence_templates ADD COLUMN week_of_month INTEGER
+            CHECK (week_of_month IS NULL OR week_of_month BETWEEN 1 AND 5);
+        `);
+      }
+    },
+  },
+  {
+    version: 235,
+    description: 'Pantry: ensure restock tracking columns exist',
+    up(db) {
+      const pantryColumns = db.prepare('PRAGMA table_info(pantry_items)').all().map((column) => column.name);
+      if (!pantryColumns.includes('restock_interval_days')) {
+        db.exec(`
+          ALTER TABLE pantry_items ADD COLUMN restock_interval_days INTEGER
+            CHECK (restock_interval_days IS NULL OR restock_interval_days BETWEEN 1 AND 3650);
+        `);
+      }
+      if (!pantryColumns.includes('last_purchased_at')) db.exec('ALTER TABLE pantry_items ADD COLUMN last_purchased_at TEXT');
+      if (!pantryColumns.includes('restock_snoozed_until')) db.exec('ALTER TABLE pantry_items ADD COLUMN restock_snoozed_until TEXT');
+
+      const shoppingColumns = db.prepare('PRAGMA table_info(shopping_items)').all().map((column) => column.name);
+      if (!shoppingColumns.includes('predicted_pantry_item_id')) {
+        db.exec(`
+          ALTER TABLE shopping_items ADD COLUMN predicted_pantry_item_id INTEGER
+            REFERENCES pantry_items(id) ON DELETE CASCADE;
+        `);
+      }
+      db.exec(`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_shopping_items_predicted_pantry_item
+          ON shopping_items(predicted_pantry_item_id)
+          WHERE predicted_pantry_item_id IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_pantry_items_restock
+          ON pantry_items(restock_interval_days, last_purchased_at);
+      `);
+    },
+  },
+  {
+    version: 236,
+    description: 'Pantry: enforce seven-day restock minimum and preserve transfer undo state',
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS shopping_pantry_transfer_undo (
+          shopping_item_id INTEGER PRIMARY KEY REFERENCES shopping_items(id) ON DELETE CASCADE,
+          pantry_item_id INTEGER REFERENCES pantry_items(id) ON DELETE SET NULL,
+          quantity_before REAL NOT NULL,
+          interval_before INTEGER,
+          quantity_after REAL NOT NULL,
+          interval_after INTEGER
+        );
+
+        UPDATE pantry_items
+           SET restock_interval_days = 7
+         WHERE restock_interval_days BETWEEN 1 AND 6;
+
+        CREATE INDEX IF NOT EXISTS idx_shopping_pantry_transfer_undo_pantry_item
+          ON shopping_pantry_transfer_undo(pantry_item_id);
+
+        CREATE TRIGGER IF NOT EXISTS trg_pantry_restock_interval_min_insert
+        BEFORE INSERT ON pantry_items
+        WHEN NEW.restock_interval_days IS NOT NULL AND NEW.restock_interval_days < 7
+        BEGIN
+          SELECT RAISE(ABORT, 'pantry restock interval must be at least 7 days');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS trg_pantry_restock_interval_min_update
+        BEFORE UPDATE OF restock_interval_days ON pantry_items
+        WHEN NEW.restock_interval_days IS NOT NULL AND NEW.restock_interval_days < 7
+        BEGIN
+          SELECT RAISE(ABORT, 'pantry restock interval must be at least 7 days');
+        END;
+      `);
+    },
+  },
+  {
+    version: 237,
+    description: 'Recipe ingredients: separate free-text unit next to the quantity',
+    up: `
+      -- FREITEXT, KEIN ENUM. recipe_ingredients.quantity ist bereits ein
+      -- Anzeigetext ("500 g", "2 cloves", "nach Geschmack"), und die Einheit
+      -- kommt aus demselben unstrukturierten Feld. Ein Enum muesste den
+      -- bestehenden Bestand erst nachtraeglich erraten - genau die Ableitung,
+      -- die dieses Modul sonst vermeidet. NULL (Altbestand) und '' sind
+      -- gleichbedeutend "keine Einheit genannt".
+      --
+      -- Nur der Anzeigetext bleibt quantity: beim Uebertrag in die Einkaufsliste
+      -- werden quantity und unit weiterhin zu EINER Zeile zusammengezogen
+      -- (routes/recipes.js#to-shopping-list), damit shopping_items unveraendert
+      -- bleibt und seine parseQuantity-Regex nicht zwei Einheiten sieht.
+      ALTER TABLE recipe_ingredients ADD COLUMN unit TEXT;
+    `,
+  },
+  {
+    version: 238,
+    description: 'Meal ingredients: separate free-text unit, matching recipe ingredients',
+    up: `
+      -- Dieselbe Spalte wie v237 auf recipe_ingredients, aus demselben Grund: das
+      -- Mahlzeiten-Modal bekommt sein Einheiten-Feld neben der Menge, damit der
+      -- Weg Rezept <-> Mahlzeit verlustfrei ist. Beide Tabellen, weil eine
+      -- wiederkehrende Mahlzeit ihre Zutaten in meal_recurrence_ingredients haelt
+      -- und materializeRecurringMeals() von dort in meal_ingredients kopiert -
+      -- ohne die zweite Spalte fiele die Einheit bei jeder Wiederholung weg.
+      --
+      -- Freitext und NULL/'' = "keine Einheit genannt", genau wie v237.
+      ALTER TABLE meal_ingredients ADD COLUMN unit TEXT;
+      ALTER TABLE meal_recurrence_ingredients ADD COLUMN unit TEXT;
     `,
   },
 ];
@@ -10088,7 +10266,9 @@ function migrate(database = db, migrations = MIGRATIONS) {
     database.prepare('SELECT version FROM schema_migrations').all().map((r) => r.version)
   );
 
-  const pending = migrations.filter((m) => !applied.has(m.version));
+  const pending = migrations
+    .filter((m) => !applied.has(m.version))
+    .sort((a, b) => a.version - b.version);
 
   if (pending.length === 0) return;
 

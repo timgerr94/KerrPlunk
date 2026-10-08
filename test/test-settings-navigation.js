@@ -835,6 +835,39 @@ test('Einstellungen: ein Sofort-Schalter im Formular hinterlaesst keinen offenen
   });
 });
 
+test('Einstellungen: zurueckgesetzte Formularwerte hinterlassen keinen offenen Stand', async () => {
+  await withGuardEnv(async ({ guard, leave }) => {
+    const control = { name: 'name', type: 'text', value: 'original', checked: false };
+    const form = {
+      isConnected: true,
+      elements: [control],
+      querySelector: (selector) => (/type="submit"/.test(selector) ? {} : null),
+    };
+    const container = {
+      isConnected: true,
+      on: {},
+      querySelectorAll: () => [form],
+      addEventListener(type, fn) { (this.on[type] ??= []).push(fn); },
+    };
+    const target = { closest: (selector) => (selector === 'form' ? form : null) };
+    const fireInput = () => {
+      for (const fn of container.on.input ?? []) fn({ target, isTrusted: true });
+    };
+
+    guard.watchLeafForms(container);
+    fireInput();
+    assert.equal(leave.hasLeaveGuard(), false, 'unveraenderte Werte sind sauber');
+
+    control.value = 'changed';
+    fireInput();
+    assert.equal(leave.hasLeaveGuard(), true, 'abweichende Werte sind offen');
+
+    control.value = 'original';
+    fireInput();
+    assert.equal(leave.hasLeaveGuard(), false, 'zurueckgesetzte Werte sind wieder sauber');
+  });
+});
+
 test('Einstellungen: ein Blatt ohne Formular (Rechte-Matrix) meldet seinen Entwurf selbst an (R15 A7 P1-1)', async () => {
   await withGuardEnv(async ({ guard, leave, gefragt }) => {
     const { container } = guardFakes();
@@ -2216,6 +2249,7 @@ test('Standard-Erinnerungsliste: ohne freigegebene Liste sagt der Abschnitt, war
   await withTasksDefaults({ syncTargets: [] }, async ({ render, navigations }) => {
     const asAdmin = tasksDefaultsSheet();
     await render(asAdmin, { user: admin });
+    assert.match(asAdmin.html, /id="tasks-split-view"/, 'die persoenliche Wahl fuer die Detailspalte steht im Aufgabenblatt');
     assert.doesNotMatch(asAdmin.html, /id="tasks-default-target"/, 'kein Dropdown mit der einzigen Option "nur lokal"');
     assert.match(asAdmin.html, /settings\.tasksDefaultTargetEmpty\b/, 'der Leerzustand steht da');
     assert.ok(asAdmin.html.includes(`href="${releaseHref}"`), `der Admin bekommt den Weg zur Freigabe: ${asAdmin.html}`);
@@ -2225,6 +2259,7 @@ test('Standard-Erinnerungsliste: ohne freigegebene Liste sagt der Abschnitt, war
 
     const asMember = tasksDefaultsSheet();
     await render(asMember, { user: member });
+    assert.match(asMember.html, /id="tasks-split-view"/, 'auch Mitglieder koennen ihre Darstellung waehlen');
     assert.match(asMember.html, /settings\.tasksDefaultTargetEmpty\b/);
     assert.ok(!asMember.html.includes('section=sync-reminders'), 'kein Link auf einen Abschnitt, den das Mitglied nicht sieht');
   });

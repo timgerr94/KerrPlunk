@@ -4,7 +4,7 @@ export function mealsPaths() {
   return {
     '/api/v1/meals': {
       get: op({ summary: 'List meal plan entries', tag: 'Meals' }),
-      post: op({ summary: 'Create meal plan entry', tag: 'Meals', stateChanging: true, requestBody: jsonBody(null) }),
+      post: op({ summary: 'Create meal plan entry', tag: 'Meals', stateChanging: true, requestBody: jsonBody(null), description: 'Body: `{ date, meal_type, title, notes?, recipe_url?, recipe_id?, ingredients?, repeat_frequency?, repeat_until? }`. Each ingredient is `{ name, quantity?, unit?, category? }`; `quantity` and `unit` are free text stored separately, the same shape recipe ingredients use, so a meal and a recipe can be saved from one another without losing the unit.' }),
     },
     '/api/v1/meals/suggestions': { get: op({ summary: 'Get meal suggestions', tag: 'Meals' }) },
     '/api/v1/meals/{id}': {
@@ -12,10 +12,10 @@ export function mealsPaths() {
       delete: op({ summary: 'Delete meal plan entry', tag: 'Meals', params: [idParam()], stateChanging: true }),
     },
     '/api/v1/meals/{id}/ingredients': {
-      post: op({ summary: 'Add meal ingredient', tag: 'Meals', params: [idParam()], stateChanging: true, requestBody: jsonBody(null) }),
+      post: op({ summary: 'Add meal ingredient', tag: 'Meals', params: [idParam()], stateChanging: true, requestBody: jsonBody(null), description: 'Body: `{ name, quantity?, unit?, category? }`.' }),
     },
     '/api/v1/meals/ingredients/{ingId}': {
-      patch: op({ summary: 'Update meal ingredient', tag: 'Meals', params: [idParam('ingId', 'Ingredient ID')], stateChanging: true, requestBody: jsonBody(null) }),
+      patch: op({ summary: 'Update meal ingredient', tag: 'Meals', params: [idParam('ingId', 'Ingredient ID')], stateChanging: true, requestBody: jsonBody(null), description: 'Body: `{ name?, quantity?, unit?, category?, on_shopping_list? }`. An absent field is left alone; `quantity` and `unit` are separate free-text fields.' }),
       delete: op({ summary: 'Delete meal ingredient', tag: 'Meals', params: [idParam('ingId', 'Ingredient ID')], stateChanging: true }),
     },
     // Der Pfad sagt `meals`, geschrieben wird in den Einkauf - also steht auch
@@ -24,7 +24,7 @@ export function mealsPaths() {
       post: op({
         summary: 'Transfer meal ingredients to shopping list',
         tag: 'Meals',
-        description: 'Creates shopping items, so it requires write access to the `shopping` module in addition to `meals` - a credential scoped to the meal plan alone is refused with 403.',
+        description: 'Creates shopping items, so it requires write access to the `shopping` module in addition to `meals` - a credential scoped to the meal plan alone is refused with 403. Each ingredient\'s `quantity` and `unit` are joined into the shopping item\'s single `quantity` text ("500" + "g" becomes "500 g"); the unit is not a separate field there.',
         params: [idParam()],
         stateChanging: true,
         requestBody: jsonBody(null),
@@ -40,7 +40,7 @@ export function mealsPaths() {
       post: op({
         summary: 'Transfer weekly meal ingredients to shopping list',
         tag: 'Meals',
-        description: 'Creates shopping items, so it requires write access to the `shopping` module in addition to `meals` - a credential scoped to the meal plan alone is refused with 403.',
+        description: 'Creates shopping items, so it requires write access to the `shopping` module in addition to `meals` - a credential scoped to the meal plan alone is refused with 403. Each ingredient\'s `quantity` and `unit` are joined into the shopping item\'s single `quantity` text, the same rule as the single-meal transfer.',
         stateChanging: true,
         requestBody: jsonBody(null),
         responses: {

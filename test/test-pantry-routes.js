@@ -127,14 +127,21 @@ test('POST /pantry: ohne Menge → 1, Default-Einheit pcs und Einkaufsintervall 
   assert.equal(r.body.data.created_by, USER);
 });
 
-test('POST /pantry: restock interval starts a purchase cycle and rejects invalid days', async () => {
+test('POST /pantry: restock interval starts a purchase cycle and enforces the seven-day minimum', async () => {
   const created = await call('POST', '/pantry', { name: 'Rice', restock_interval_days: 30 });
   assert.equal(created.status, 201);
   assert.equal(created.body.data.restock_interval_days, 30);
   assert.ok(Number.isFinite(Date.parse(created.body.data.last_purchased_at)));
-  for (const days of [0, 1.5, 3651]) {
+  const minimum = await call('POST', '/pantry', { name: 'Minimum interval', restock_interval_days: 7 });
+  assert.equal(minimum.status, 201);
+  for (const days of [0, 1, 6, 1.5, 3651]) {
     assert.equal((await call('POST', '/pantry', { name: `Bad interval ${days}`, restock_interval_days: days })).status, 400);
   }
+  const patchTarget = await call('POST', '/pantry', { name: 'Patch interval' });
+  assert.equal((await call('PATCH', `/pantry/${patchTarget.body.data.id}`, { restock_interval_days: 6 })).status, 400);
+  assert.throws(() => db.prepare(
+    'UPDATE pantry_items SET restock_interval_days = 6 WHERE id = ?',
+  ).run(created.body.data.id), /pantry restock interval must be at least 7 days/);
 });
 
 test('POST /pantry: unbekannte Einheit wird normalisiert statt abgelehnt', async () => {
@@ -213,6 +220,28 @@ test('PATCH /pantry/:id: Teil-Update rührt andere Felder nicht an', async () =>
   assert.equal(r.body.data.min_quantity, 1);
 });
 
+test('PATCH /pantry/:id: Offline-Mengenänderung erkennt fremde Änderung und erlaubt sichere Wiederholung', async () => {
+  const created = await call('POST', '/pantry', { name: 'Konfliktmenge', quantity: 2 });
+  const id = created.body.data.id;
+
+  const changedElsewhere = await call('PATCH', `/pantry/${id}`, { quantity: 3 });
+  assert.equal(changedElsewhere.status, 200);
+
+  const conflict = await call('PATCH', `/pantry/${id}`, {
+    quantity: 4,
+    expected_quantity: 2,
+  });
+  assert.equal(conflict.status, 409);
+  assert.equal(conflict.body.current_quantity, 3);
+
+  const retry = await call('PATCH', `/pantry/${id}`, {
+    quantity: 3,
+    expected_quantity: 2,
+  });
+  assert.equal(retry.status, 200, 'already-applied values are safe to retry');
+  assert.equal(retry.body.data.quantity, 3);
+});
+
 test('PATCH /pantry/:id: leerer Body lässt den Artikel unverändert', async () => {
   const created = await call('POST', '/pantry', { name: 'Unberührt', quantity: 4 });
   const r = await call('PATCH', `/pantry/${created.body.data.id}`, {});
@@ -271,6 +300,27 @@ test('POST /pantry/import-shopping: nur abgehakte Artikel, gleiche Charge addier
       { shopping_item_id: open.body.data.id, quantity: 1 },  // nicht abgehakt → übersprungen
     ],
   });
+
+  test('POST /pantry/import-shopping: client_ref bekommt die aufgelöste Vorrats-ID zurück', async () => {
+    const list = await call('POST', '/shopping', { name: 'Offline-Transfer' });
+    const shoppingItem = await call('POST', `/shopping/${list.body.data.id}/items`, { name: 'Offline-Hafermilch' });
+    await call('PATCH', `/shopping/items/${shoppingItem.body.data.id}`, { is_checked: 1 });
+
+    const response = await call('POST', '/pantry/import-shopping', {
+      list_id: list.body.data.id,
+      items: [{
+        shopping_item_id: shoppingItem.body.data.id,
+        quantity: 2,
+        unit: 'l',
+        client_ref: 'offline-client-ref',
+      }],
+    });
+
+    assert.equal(response.status, 200);
+    assert.equal(response.body.data.transfers[0].client_ref, 'offline-client-ref');
+    assert.equal(response.body.data.transfers[0].shopping_item_id, shoppingItem.body.data.id);
+    assert.equal(response.body.data.transfers[0].pantry_item_id, itemRow(response.body.data.transfers[0].pantry_item_id).id);
+  });
   assert.equal(first.status, 200);
   assert.deepEqual(first.body.data, { added: 2, merged: 0, skipped: 1 });
 
@@ -327,6 +377,48 @@ test('POST /pantry/import-shopping: abweichendes MHD ist eine eigene Charge', as
   assert.deepEqual(rows.map((r) => r.expires_on), ['2026-08-10', '2026-08-24']);
 });
 
+test('POST /pantry/import-shopping: same name/category merges across locations; different categories stay separate', async () => {
+  db.prepare('DELETE FROM pantry_items').run();
+  const locations = await call('GET', '/pantry/locations');
+  const fridge = locations.body.data.find((location) => location.name === 'Kühlschrank').id;
+  const cupboard = locations.body.data.find((location) => location.name === 'Vorratsschrank').id;
+  const pantryItem = await call('POST', '/pantry', {
+    name: 'Hafermilch', quantity: 1, unit: 'l', category: 'Milchprodukte',
+    location_id: fridge, expires_on: '2027-01-01',
+  });
+  const list = await call('POST', '/shopping', { name: 'Kategorien' });
+  const sameCategory = await call('POST', `/shopping/${list.body.data.id}/items`, {
+    name: 'Hafermilch', category: 'Milchprodukte',
+  });
+  const otherCategory = await call('POST', `/shopping/${list.body.data.id}/items`, {
+    name: 'Hafermilch', category: 'Sonstiges',
+  });
+  await call('PATCH', `/shopping/items/${sameCategory.body.data.id}`, { is_checked: 1 });
+  await call('PATCH', `/shopping/items/${otherCategory.body.data.id}`, { is_checked: 1 });
+
+  const importedSameCategory = await call('POST', '/pantry/import-shopping', {
+    list_id: list.body.data.id,
+    items: [{ shopping_item_id: sameCategory.body.data.id, quantity: 2, unit: 'l', location_id: cupboard }],
+  });
+  assert.deepEqual(importedSameCategory.body.data, { added: 0, merged: 1, skipped: 0 });
+  const merged = itemRow(pantryItem.body.data.id);
+  assert.equal(merged.quantity, 3);
+  assert.equal(merged.location_id, fridge, 'merge keeps existing pantry location');
+  assert.equal(merged.category, 'Milchprodukte', 'shopping category is preserved');
+  assert.equal(merged.expires_on, '2027-01-01', 'an import without a date keeps the existing batch date');
+
+  const importedOtherCategory = await call('POST', '/pantry/import-shopping', {
+    list_id: list.body.data.id,
+    items: [{ shopping_item_id: otherCategory.body.data.id, quantity: 1, unit: 'l', location_id: cupboard }],
+  });
+  assert.deepEqual(importedOtherCategory.body.data, { added: 1, merged: 0, skipped: 0 });
+  const rows = db.prepare("SELECT category, location_id FROM pantry_items WHERE name = 'Hafermilch' ORDER BY category").all();
+  assert.deepEqual(rows, [
+    { category: 'Milchprodukte', location_id: fridge },
+    { category: 'Sonstiges', location_id: cupboard },
+  ]);
+});
+
 test('POST /pantry/import-shopping: neue MHD-Charge erbt das Einkaufsintervall', async () => {
   db.prepare('DELETE FROM pantry_items').run();
   const list = await call('POST', '/shopping', { name: 'Intervall' });
@@ -376,9 +468,11 @@ test('POST /shopping/:listId/import-pantry: übernimmt Name und Kategorie, Menge
   const list = await call('POST', '/shopping', { name: 'Nachschub' });
   const listId = list.body.data.id;
 
-  const flour = await call('POST', '/pantry', { name: 'Mehl', quantity: 0, unit: 'kg', category: 'Backwaren', min_quantity: 2 });
+  const flour = await call('POST', '/pantry', {
+    name: 'Mehl', quantity: 2, unit: 'kg', category: 'Backwaren', min_quantity: 2, restock_interval_days: 14,
+  });
   const r = await call('POST', `/shopping/${listId}/import-pantry`, {
-    items: [{ pantry_item_id: flour.body.data.id, quantity: '2 kg' }],
+    items: [{ pantry_item_id: flour.body.data.id, quantity: '2 kg', client_ref: 'offline-shopping-ref' }],
   });
   assert.equal(r.status, 200);
   assert.equal(r.body.data.added, 1);
@@ -393,6 +487,17 @@ test('POST /shopping/:listId/import-pantry: übernimmt Name und Kategorie, Menge
   // tatsaechlich erzeugte Zeile benennen, nicht nur deren Anzahl - sonst loescht
   // das Zuruecknehmen die falschen Artikel.
   assert.deepEqual(r.body.data.added_ids, [row.id]);
+  assert.deepEqual(r.body.data.added_items, [{
+    client_ref: 'offline-shopping-ref',
+    pantry_item_id: flour.body.data.id,
+    shopping_item_id: row.id,
+  }]);
+  assert.deepEqual(r.body.data.pantry_updates, [{
+    id: flour.body.data.id, quantity: 1, restock_interval_days: 7,
+  }]);
+  const updated = itemRow(flour.body.data.id);
+  assert.equal(updated.quantity, 1);
+  assert.equal(updated.restock_interval_days, 7);
 });
 
 test('POST /shopping/:listId/import-pantry: gleicher Name unabgehakt → übersprungen statt dupliziert', async () => {
@@ -404,8 +509,10 @@ test('POST /shopping/:listId/import-pantry: gleicher Name unabgehakt → übersp
   const r = await call('POST', `/shopping/${listId}/import-pantry`, {
     items: [{ pantry_item_id: sugar.body.data.id }],
   });
-  assert.deepEqual(r.body.data, { added: 0, skipped: 1, added_ids: [] });
+  assert.deepEqual(r.body.data, { added: 0, skipped: 1, added_ids: [], pantry_updates: [] });
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM shopping_items WHERE list_id = ?').get(listId).n, 1);
+  assert.equal(itemRow(sugar.body.data.id).quantity, 0);
+  assert.equal(itemRow(sugar.body.data.id).restock_interval_days, 30);
 });
 
 test('POST /shopping/:listId/import-pantry: unbekannter Vorratsartikel → skipped, unbekannte Liste → 404', async () => {
@@ -413,8 +520,36 @@ test('POST /shopping/:listId/import-pantry: unbekannter Vorratsartikel → skipp
   const r = await call('POST', `/shopping/${list.body.data.id}/import-pantry`, {
     items: [{ pantry_item_id: 999999 }],
   });
-  assert.deepEqual(r.body.data, { added: 0, skipped: 1, added_ids: [] });
+  assert.deepEqual(r.body.data, { added: 0, skipped: 1, added_ids: [], pantry_updates: [] });
   assert.equal((await call('POST', '/shopping/999999/import-pantry', { items: [] })).status, 404);
+});
+
+test('import-pantry: a zero-quantity item stays at zero and a null interval stays disabled', async () => {
+  const list = await call('POST', '/shopping', { name: 'Zero stock' });
+  const pantry = await call('POST', '/pantry', { name: 'Pepper', quantity: 0 });
+  await call('PATCH', `/pantry/${pantry.body.data.id}`, { restock_interval_days: null });
+  const minimumInterval = await call('POST', '/pantry', { name: 'Salt', quantity: 0, restock_interval_days: 7 });
+  const imported = await call('POST', `/shopping/${list.body.data.id}/import-pantry`, {
+    items: [
+      { pantry_item_id: pantry.body.data.id },
+      { pantry_item_id: minimumInterval.body.data.id },
+    ],
+  });
+  assert.equal(imported.body.data.added, 2);
+  assert.equal(itemRow(pantry.body.data.id).quantity, 0);
+  assert.equal(itemRow(pantry.body.data.id).restock_interval_days, null);
+  assert.equal(itemRow(minimumInterval.body.data.id).quantity, 0);
+  assert.equal(itemRow(minimumInterval.body.data.id).restock_interval_days, 7);
+});
+
+test('manual shopping entry cannot recalibrate a pantry interval below seven days', async () => {
+  const list = await call('POST', '/shopping', { name: 'Recalibration floor' });
+  const pantry = await call('POST', '/pantry', { name: 'Same day item', restock_interval_days: 30 });
+  db.prepare('UPDATE pantry_items SET last_purchased_at = ? WHERE id = ?')
+    .run(new Date().toISOString(), pantry.body.data.id);
+  const entry = await call('POST', `/shopping/${list.body.data.id}/items`, { name: 'Same day item' });
+  assert.equal(entry.status, 201);
+  assert.equal(itemRow(pantry.body.data.id).restock_interval_days, 7);
 });
 
 // Das Undo des Warenkorbs nimmt genau den Uebertrag zurueck und nichts sonst.
@@ -425,20 +560,32 @@ test('import-pantry: added_ids erlauben ein exaktes Zuruecknehmen', async () => 
   // Ein Fremdartikel, den das Undo nicht anfassen darf.
   await call('POST', `/shopping/${listId}/items`, { name: 'Bleibt drin' });
 
-  const a = await call('POST', '/pantry', { name: 'Reis', quantity: 0, min_quantity: 1 });
-  const bItem = await call('POST', '/pantry', { name: 'Linsen', quantity: 0, min_quantity: 1 });
+  const a = await call('POST', '/pantry', {
+    name: 'Reis', quantity: 2, min_quantity: 3, restock_interval_days: 14,
+  });
+  const bItem = await call('POST', '/pantry', {
+    name: 'Linsen', quantity: 0, min_quantity: 1, restock_interval_days: 7,
+  });
   const r = await call('POST', `/shopping/${listId}/import-pantry`, {
     items: [{ pantry_item_id: a.body.data.id }, { pantry_item_id: bItem.body.data.id }],
   });
   assert.equal(r.body.data.added, 2);
   assert.equal(r.body.data.added_ids.length, 2);
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM shopping_items WHERE list_id = ?').get(listId).n, 3);
+  assert.equal(itemRow(a.body.data.id).quantity, 1);
+  assert.equal(itemRow(a.body.data.id).restock_interval_days, 7);
+  assert.equal(itemRow(bItem.body.data.id).quantity, 0);
+  assert.equal(itemRow(bItem.body.data.id).restock_interval_days, 7);
 
   const undo = await call('POST', '/shopping/items/undo-transfer', { ids: r.body.data.added_ids });
   assert.equal(undo.status, 200);
   assert.equal(undo.body.data.removed, 2);
   const rest = db.prepare('SELECT name FROM shopping_items WHERE list_id = ?').all(listId);
   assert.deepEqual(rest.map((x) => x.name), ['Bleibt drin']);
+  assert.equal(itemRow(a.body.data.id).quantity, 2);
+  assert.equal(itemRow(a.body.data.id).restock_interval_days, 14);
+  assert.equal(itemRow(bItem.body.data.id).quantity, 0);
+  assert.equal(itemRow(bItem.body.data.id).restock_interval_days, 7);
 });
 
 test('predicted restock: snooze defers seven days and removes its linked shopping row', async () => {

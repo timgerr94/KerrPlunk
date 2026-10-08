@@ -5,7 +5,9 @@
  */
 
 import { api, auth } from '/api.js';
-import { canAccessNavModule, navModuleAccess, setExtensionNavMap } from '/permissions.js';
+import {
+  canAccessNavModule, navModuleAccess, setExtensionNavMap, getPermissions, setPermissions,
+} from '/permissions.js';
 import { setExtensionModules, selectThirdPartyModuleList } from '/utils/extension-widgets.js';
 import { initExtensionI18n, moduleDisplayLabel, reloadExtensionLocales } from '/utils/extension-i18n.js';
 import { clearApiCache } from '/sw-register.js';
@@ -55,6 +57,8 @@ import {
   scrollPositionFor,
   forgetScrollPositions,
 } from '/utils/scroll-restore.js';
+import { readOfflineSession, rememberOfflineSession, forgetOfflineSession } from '/utils/offline-session.js';
+import { getHouseholdSize, setHouseholdSize, setOtherReaders, getOtherReaders } from '/utils/household.js';
 import { openModal, confirmModal } from '/components/modal.js';
 import { installPopoverMenus } from '/utils/popover-menu.js';
 import { prefersInkText } from '/utils/contrast.js';
@@ -441,6 +445,7 @@ let _renderedModule = null;
 let _pageController = null;
 let _renderedModuleName = null;
 let _preferencesLoaded = false;
+let _offlineSessionActive = false;
 let _disabledModules = new Set();
 // Persoenlich ausgeblendete Module (#673). Bewusst eine ZWEITE Menge neben
 // `_disabledModules` und nicht mit ihr vereinigt: die haushaltweite Abschaltung
@@ -458,6 +463,37 @@ let _moduleRefreshTimer = null;
 let _pendingLoginRedirect = false;
 // First-Run: true wenn noch kein Account existiert (aus /version beim Boot).
 let _setupRequired = false;
+
+function rememberCurrentOfflineSession() {
+  if (!currentUser) return;
+  rememberOfflineSession({
+    user: currentUser,
+    permissions: getPermissions(),
+    householdSize: getHouseholdSize(),
+    othersCanRead: getOtherReaders(),
+    preferences: {
+      disabled_modules: [..._disabledModules],
+      hidden_modules: [..._hiddenModules],
+      module_order: _moduleOrder,
+      mobile_nav_order: _mobileNavOrder,
+    },
+  });
+}
+
+function restoreOfflineSession(snapshot) {
+  _offlineSessionActive = true;
+  currentUser = snapshot.user;
+  setPermissions(snapshot.permissions);
+  setHouseholdSize(snapshot.householdSize);
+  setOtherReaders(snapshot.othersCanRead);
+
+  const preferences = snapshot.preferences;
+  _disabledModules = new Set(Array.isArray(preferences.disabled_modules) ? preferences.disabled_modules : []);
+  _hiddenModules = new Set(Array.isArray(preferences.hidden_modules) ? preferences.hidden_modules : []);
+  _moduleOrder = Array.isArray(preferences.module_order) ? preferences.module_order : [];
+  _mobileNavOrder = Array.isArray(preferences.mobile_nav_order) ? preferences.mobile_nav_order : [];
+  _preferencesLoaded = true;
+}
 
 // --------------------------------------------------------
 // Router
@@ -664,8 +700,10 @@ async function navigate(path, userOrPushState = true, pushState = true) {
     // Überlastung: navigate(path, user) nach Login vs navigate(path, false) beim Init
     if (typeof userOrPushState === 'object' && userOrPushState !== null) {
       currentUser = userOrPushState;
+      _offlineSessionActive = false;
       _setupRequired = false;
       await syncPreferencesOnce();
+      rememberCurrentOfflineSession();
       startThirdPartyModulePolling();
       // currentUser kann während des await oben auf null gesetzt worden sein
       // (auth:expired bei 401 von /preferences), daher Guard gegen null.
@@ -741,9 +779,25 @@ async function navigate(path, userOrPushState = true, pushState = true) {
 
     // Auth-Guard
     if (route.requiresAuth && !currentUser) {
+      if (navigator.onLine === false) {
+        const offlineSession = readOfflineSession();
+        if (offlineSession) {
+          restoreOfflineSession(offlineSession);
+        } else {
+          currentPath = null;
+          isNavigating = false;
+          _pendingLoginRedirect = false;
+          navigate('/login');
+          return;
+        }
+      }
+    }
+
+    if (route.requiresAuth && !currentUser) {
       try {
         const result = await auth.me();
         currentUser = result.user;
+        _offlineSessionActive = false;
         await syncPreferencesOnce();
         startThirdPartyModulePolling();
         // currentUser kann während des await oben auf null gesetzt worden sein
@@ -753,16 +807,43 @@ async function navigate(path, userOrPushState = true, pushState = true) {
           initReminders();
           initPush();
         }
-      } catch {
-        currentPath = null; // Reset damit navigate('/login') nicht geblockt wird
+      } catch (err) {
+        // A remembered iPhone can enter the read-only modules when the server
+        // cannot be reached. A real 401/403 or server error must still fail closed.
+        const networkFailure = err?.status === 0 || err instanceof TypeError;
+        const offlineSession = networkFailure ? readOfflineSession() : null;
+        if (offlineSession) {
+          restoreOfflineSession(offlineSession);
+        } else {
+          currentPath = null; // Reset damit navigate('/login') nicht geblockt wird
+          isNavigating = false;
+          // _pendingLoginRedirect leeren: der catch ruft navigate('/login') direkt auf,
+          // der finally soll keinen zweiten Aufruf starten (würde isNavigating=true setzen,
+          // während die Login-Seite rendert, und so post-login navigate blockieren).
+          _pendingLoginRedirect = false;
+          navigate(_setupRequired ? '/setup' : '/login');
+          return;
+        }
+      }
+      if (currentUser && _preferencesLoaded) rememberCurrentOfflineSession();
+    }
+
+    if (_offlineSessionActive && !['/shopping', '/pantry'].includes(basePath)) {
+      const offlineRoute = ['/shopping', '/pantry'].find((candidate) => {
+        const module = candidate.slice(1);
+        return !_disabledModules.has(module) && canAccessNavModule(module);
+      });
+      if (offlineRoute) {
+        currentPath = null;
         isNavigating = false;
-        // _pendingLoginRedirect leeren: der catch ruft navigate('/login') direkt auf,
-        // der finally soll keinen zweiten Aufruf starten (würde isNavigating=true setzen,
-        // während die Login-Seite rendert, und so post-login navigate blockieren).
-        _pendingLoginRedirect = false;
-        navigate(_setupRequired ? '/setup' : '/login');
+        navigate(offlineRoute);
         return;
       }
+      forgetSessionState();
+      currentPath = null;
+      isNavigating = false;
+      navigate('/login');
+      return;
     }
 
     route = allRoutes().find((r) => r.path === basePath) ?? route;
@@ -4713,6 +4794,8 @@ window.addEventListener('popstate', (e) => {
  * Fenster, in dem eine abgeschaltete Route wieder erreichbar waere. */
 function forgetSessionState() {
   currentUser = null;
+  _offlineSessionActive = false;
+  forgetOfflineSession();
   _preferencesLoaded = false;
   forgetZonePrefs();
   _hiddenModules = new Set();
@@ -5044,13 +5127,17 @@ if (/iPhone|iPad|iPod/.test(navigator.userAgent)) {
 
     await initI18n();
     initExtensionI18n();
-    try {
-      const v = await api.get('/version');
-      _setupRequired = v?.setup_required === true;
-      if (v?.version) setAppVersion(v.version);
-      if (v?.app_name) setAppName(v.app_name);
-    } catch {
-      _setupRequired = false; // Fail-safe: kein Setup erzwingen
+    if (navigator.onLine !== false) {
+      try {
+        const v = await api.get('/version');
+        _setupRequired = v?.setup_required === true;
+        if (v?.version) setAppVersion(v.version);
+        if (v?.app_name) setAppName(v.app_name);
+      } catch {
+        _setupRequired = false; // Fail-safe: kein Setup erzwingen
+      }
+    } else {
+      _setupRequired = false;
     }
     navigate(location.pathname, false);
   } catch (err) {

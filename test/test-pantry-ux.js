@@ -83,12 +83,110 @@ function resetPantry() {
   __test.state.items = [];
   __test.state.locations = [];
   __test.state.categories = [];
+  __test.state.lists = null;
+  __test.state.shoppingNames = new Set();
   __test.state.filter = 'all';
+  __test.state.groupBy = 'category';
   __test.state.query = '';
   __test.setContainerForTest(null);
   __test.setQuantityDebounceMsForTest(null);
   delete globalThis.__apiStub;
 }
+
+test('pantry can load its last cached snapshot offline without replacing fresher data', async () => {
+  resetPantry();
+  globalThis.__apiStub = {
+    getWithSource: async () => ({
+      data: { data: [rice(4)], locations: [], categories: [] },
+      fromCache: true,
+    }),
+  };
+  await __test.loadPantry();
+  assert.equal(__test.state.items[0].quantity, 4, 'first offline load uses the cached pantry');
+
+  globalThis.__apiStub.getWithSource = async () => ({
+    data: { data: [rice(7)], locations: [], categories: [] },
+    fromCache: false,
+  });
+  await __test.loadPantry();
+  globalThis.__apiStub.getWithSource = async () => ({
+    data: { data: [rice(4)], locations: [], categories: [] },
+    fromCache: true,
+  });
+  await __test.loadPantry();
+  assert.equal(__test.state.items[0].quantity, 7, 'cached data cannot roll a network response back');
+});
+
+test('every pantry row offers the cart unless its name is on an open shopping list', () => {
+  resetPantry();
+  __test.state.shoppingNames = new Set();
+
+  const available = __test.rowEl(rice(8));
+  const availableCart = available.children[1].children[0].children[0];
+  assert.equal(availableCart.dataset.action, 'to-shopping');
+
+  __test.state.shoppingNames.add('reis');
+  const listed = __test.rowEl(rice(8));
+  const actions = listed.children[1];
+  assert.equal(actions.children[0].children.length, 0, 'no cart for an item already on a list');
+  const meta = listed.children[0].children[1];
+  assert.equal(meta.children[1].textContent, ' · pantry.onShoppingList');
+});
+
+test('shopping membership includes unchecked items from every list only', async () => {
+  resetPantry();
+  globalThis.__apiStub = {
+    get: async (path) => {
+      if (path === '/shopping') return { data: [{ id: 1 }, { id: 2 }] };
+      if (path === '/shopping/1/items') {
+        return { data: [{ name: 'Reis', is_checked: 0 }, { name: 'Brot', is_checked: 1 }] };
+      }
+      if (path === '/shopping/2/items') return { data: [{ name: 'Milch', is_checked: 0 }] };
+      throw new Error(`Unexpected path: ${path}`);
+    },
+  };
+
+  await __test.loadShoppingMembership();
+  assert.deepEqual([...__test.state.shoppingNames].sort(), ['milch', 'reis']);
+});
+
+test('pantry groups by category by default and can group by storage location', () => {
+  resetPantry();
+  __test.state.categories = [{ name: 'Produce' }, { name: 'Dairy' }];
+  __test.state.locations = [
+    { id: 1, name: 'Fridge', icon: 'snowflake' },
+    { id: 2, name: 'Cupboard', icon: 'archive' },
+  ];
+  const items = [
+    rice(2, { id: 1, name: 'Pear', category: 'Produce', location_id: 2 }),
+    rice(1, { id: 2, name: 'Milk', category: 'Dairy', location_id: 1 }),
+    rice(3, { id: 3, name: 'Apple', category: 'Produce', location_id: 1 }),
+    rice(1, { id: 4, name: 'Rice', category: 'Dairy', location_id: null }),
+  ];
+
+  const byCategory = __test.groupedItems(items);
+  assert.deepEqual(byCategory.map((group) => [group.label, group.items.map((item) => item.name)]), [
+    ['Produce', ['Apple', 'Pear']],
+    ['Dairy', ['Milk', 'Rice']],
+  ]);
+
+  __test.state.groupBy = 'location';
+  const byLocation = __test.groupedItems(items);
+  assert.deepEqual(byLocation.map((group) => [group.label, group.items.map((item) => item.name)]), [
+    ['Fridge', ['Milk', 'Apple']],
+    ['Cupboard', ['Pear']],
+    ['pantry.unlocated', ['Rice']],
+  ]);
+
+  __test.state.groupBy = 'category';
+  __test.state.filter = 'low';
+  const lowItems = items.map((item) => ({ ...item, min_quantity: Number(item.quantity) + 1 }));
+  const filteredByCategory = __test.groupedItems(lowItems);
+  assert.deepEqual(filteredByCategory.map((group) => group.items.map((item) => item.name)), [
+    ['Pear', 'Apple'],
+    ['Milk', 'Rice'],
+  ], 'filter urgency sorting remains within each group');
+});
 
 /** Wartet, bis der entprellte PATCH gefeuert und abgearbeitet ist. */
 const settled = () => new Promise((resolve) => setTimeout(resolve, 25));
@@ -453,10 +551,8 @@ test('renderList() laesst die Chipreihe als erstes Kind des Ports stehen', () =>
 // Nebenpanel „Braucht Aufmerksamkeit" (Re-Critique 2026-09-27, A4 P1 / R10 L4)
 // --------------------------------------------------------
 
-// Am Desktop standen die Lagerort-Gruppen auf 252-972, rechts 436px leer. Das
-// Panel fuellt die Flaeche mit den drei Fragen der Filterchips - und muss
-// dieselbe Zuordnung sprechen, sonst stuende ein Artikel im Panel unter
-// „Fast leer", den der gleichnamige Chip nicht findet.
+// Das Panel muss dieselbe Zuordnung wie die Filterchips sprechen, damit
+// abgelaufene, bald ablaufende und nachzubestellende Artikel dort auftauchen.
 const WATCH_TODAY = '2026-09-27';
 const watchItems = () => [
   rice(5, { id: 1, name: 'Reis' }),                                                  // ruhig
@@ -467,11 +563,7 @@ const watchItems = () => [
   rice(0, { id: 6, name: 'Zucker' }),                                                  // leer
 ];
 
-// NUR ZEITKRITISCHES (Re-Critique 2026-09-28, P7 / A4 P2-6): "Fast leer"
-// stand dreifach da - Zeilen-Badge, Chip mit Zaehler und hier; 14 von 21
-// Artikeln standen rechts ein zweites Mal. Die Frist ist die Frage, die nicht
-// warten kann; "Fast leer" bleibt Chip und Warenkorb an der Zeile.
-test('das Panel ordnet wie die Filterchips, aber nur, was eine Frist hat: abgelaufen, bald', async () => {
+test('das Panel ordnet abgelaufene, bald ablaufende und niedrige Bestände wie die Filterchips', async () => {
   resetPantry();
   assert.equal(typeof __test.pantryWatchGroups, 'function', 'pantryWatchGroups fehlt im __test-Export');
   const { matchesPantryFilter } = await import('../public/utils/pantry-status.js');
@@ -479,6 +571,7 @@ test('das Panel ordnet wie die Filterchips, aber nur, was eine Frist hat: abgela
   assert.deepEqual(groups.map((g) => [g.key, g.items.map((i) => i.name)]), [
     ['expired', ['Milch']],
     ['soon', ['Eier', 'Joghurt']],
+    ['low', ['Zucker', 'Mehl']],
   ]);
   for (const g of groups) {
     const chip = watchItems().filter((i) => matchesPantryFilter(i, g.key, WATCH_TODAY)).map((i) => i.id).sort();
@@ -508,7 +601,10 @@ test('renderList zeichnet das Panel mit - unabhaengig von Suche und aktivem Filt
     global.document.createTextNode = zuvor;
   }
   assert.equal(watch.hidden, false, 'mit Artikeln steht das Panel');
-  assert.equal(watch.children.length, 2, 'zwei Abschnitte (abgelaufen, bald), obwohl die Liste nur „Mehl" unter „Fast leer" zeigt');
+  assert.equal(watch.children.length, 3, 'das Panel zeigt auch Bestände, obwohl die Liste nur „Mehl" unter „Fast leer" zeigt');
+  const stockRows = watch.children[2].children[1].children;
+  assert.equal(stockRows[0].children[0].children[1].children[0].textContent, 'pantry.badgeOut');
+  assert.equal(stockRows[1].children[0].children[1].children[0].textContent, 'pantry.badgeLow');
   // Ohne jeden Artikel: kein Panel (der Leerzustand der Liste spricht).
   __test.state.items = [];
   __test.renderWatch();

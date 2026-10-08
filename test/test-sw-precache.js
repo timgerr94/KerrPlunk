@@ -204,6 +204,11 @@ test('jeder precachte Pfad existiert (addAll ist All-or-Nothing)', () => {
   assert.deepEqual(missing, [], `Precache verweist auf nicht existierende Dateien: ${missing.join(', ')}`);
 });
 
+test('offline diagnostics page and script are included in the app shell', () => {
+  assert.ok(APP_SHELL.includes('/offline-diagnostics.html'));
+  assert.ok(APP_SHELL.includes('/offline-diagnostics.js'));
+});
+
 test('der transitive Modulgraph ist vollständig precacht (#616)', () => {
   const roots = [...APP_SHELL, ...PAGE_MODULES].filter((p) => p.endsWith('.js') || p.endsWith('.mjs'));
   const seen = new Set(roots);

@@ -13,6 +13,7 @@ import * as db from '../db.js';
 import { str, oneOf, url, date, collectErrors, MAX_TITLE, MAX_SHORT, MAX_TEXT } from '../middleware/validate.js';
 import { aggregateMealIngredients } from '../services/shopping-import.js';
 import { loadItemTagsFor } from '../utils/task-tags.js';
+import { normalizePantryQuantity } from '../../public/utils/pantry-units.js';
 import {
   flushOutbound, markTodoOutbound, queueTodoDeletions,
 } from '../services/caldav-todo-outbound.js';
@@ -21,9 +22,11 @@ import { emailService as defaultEmailService } from '../services/email.js';
 import { memberEmail, listEmailableMembers } from '../services/member-email.js';
 import { isHouseholdMember } from '../services/household-members.js';
 import { buildShoppingListMail } from '../services/shopping-mail.js';
-import { householdTimeZone, utcToWall } from '../utils/timezone.js';
+import { householdTimeZone, utcToWall, todayKey as householdToday } from '../utils/timezone.js';
 import { mayReadModule, mayWriteModule } from '../permissions.js';
 import { householdDisabledModules } from '../services/household-modules.js';
+import { categorizeIngredient } from '../services/recipe-providers/categorize.js';
+import { syncPantryExpiryReminder, resolvePantryAccess } from '../services/pantry-reminders.js';
 
 const log = createLogger('Shopping');
 
@@ -156,7 +159,7 @@ function nextRestockCycleDate(pantryItem, now = new Date()) {
 function restockIntervalAfterAction(intervalDays, action) {
   const current = Number(intervalDays);
   const adjusted = action === 'snooze' ? current + 7 : Math.round(current * 1.5);
-  return Math.min(MAX_RESTOCK_INTERVAL_DAYS, adjusted);
+  return Math.min(MAX_RESTOCK_INTERVAL_DAYS, Math.max(7, adjusted));
 }
 
 function skippedRestock(pantryItem, now = new Date()) {
@@ -170,7 +173,7 @@ function skippedRestock(pantryItem, now = new Date()) {
 function daysSincePurchase(lastPurchasedAt, now = new Date()) {
   const purchasedAt = Date.parse(lastPurchasedAt);
   if (!Number.isFinite(purchasedAt)) return null;
-  return Math.min(MAX_RESTOCK_INTERVAL_DAYS, Math.max(1, Math.floor((now.getTime() - purchasedAt) / DAY_MS)));
+  return Math.min(MAX_RESTOCK_INTERVAL_DAYS, Math.max(7, Math.floor((now.getTime() - purchasedAt) / DAY_MS)));
 }
 
 // --------------------------------------------------------
@@ -662,6 +665,9 @@ router.patch('/items/:itemId', (req, res) => {
 //      Wer nur die Einkaufsartikel löscht, lässt die Zutaten für immer als „schon
 //      übertragen" zurück - weder auf der Liste noch erneut übertragbar. Das Flag
 //      gehört zum Übertrag und muss mit ihm zurück (Audit 2026-07-30, P1-B).
+//   3. Der Vorrat-Pfad hält den Vorher-/Nachher-Stand separat fest. Undo stellt
+//      ein Feld nur zurück, wenn es seit dem Transfer unverändert blieb, und
+//      synchronisiert danach die Ablauf-Erinnerung.
 //
 // Zugeordnet wird über `added_from_meal` + Name: der Übertrag hat genau die
 // offenen Zutaten dieser Mahlzeit eingefügt, der Name ist innerhalb einer
@@ -689,25 +695,66 @@ router.post('/items/undo-transfer', (req, res) => {
     //
     // Je ID eine Abfrage statt eines `IN (...)`: die Liste kommt vom Client
     // und ist unbegrenzt, die Platzhalter-Grenze von SQLite dagegen nicht.
-    const findSource = db.get().prepare('SELECT added_from_meal FROM shopping_items WHERE id = ?');
-    const touchesMealPlan = ids.some((id) => findSource.get(id)?.added_from_meal);
+    const findSource = db.get().prepare(`
+      SELECT si.added_from_meal, undo.pantry_item_id
+      FROM shopping_items si
+      LEFT JOIN shopping_pantry_transfer_undo undo ON undo.shopping_item_id = si.id
+      WHERE si.id = ?
+    `);
+    const sources = ids.map((id) => findSource.get(id)).filter(Boolean);
+    const touchesMealPlan = sources.some((item) => item.added_from_meal);
+    const touchesPantry = sources.some((item) => item.pantry_item_id != null);
     if (touchesMealPlan && !mayWriteModule(req, 'meals')) {
       return res.status(403).json({ error: 'Write access to the meal plan is required.', code: 403 });
     }
+    if (touchesPantry && !mayWriteModule(req, 'pantry')) {
+      return res.status(403).json({ error: 'Write access to the pantry is required.', code: 403 });
+    }
 
+    const pantryAccess = touchesPantry ? resolvePantryAccess(db.get()) : null;
+    const today = touchesPantry ? householdToday(db.get()) : null;
     const removed = db.get().transaction(() => {
-      const findItem = db.get()
-        .prepare('SELECT id, name, added_from_meal FROM shopping_items WHERE id = ?');
+      const findItem = db.get().prepare(`
+        SELECT si.id, si.name, si.added_from_meal,
+               undo.pantry_item_id, undo.quantity_before, undo.interval_before,
+               undo.quantity_after, undo.interval_after
+        FROM shopping_items si
+        LEFT JOIN shopping_pantry_transfer_undo undo ON undo.shopping_item_id = si.id
+        WHERE si.id = ?
+      `);
       const deleteItem = db.get().prepare('DELETE FROM shopping_items WHERE id = ?');
       const unmarkIngredient = db.get().prepare(`
         UPDATE meal_ingredients SET on_shopping_list = 0
         WHERE meal_id = ? AND name = ? AND on_shopping_list = 1
       `);
+      const restorePantry = db.get().prepare(`
+        UPDATE pantry_items
+        SET quantity = CASE WHEN quantity IS ? THEN ? ELSE quantity END,
+            restock_interval_days = CASE
+              WHEN restock_interval_days IS ? THEN ? ELSE restock_interval_days
+            END
+        WHERE id = ?
+      `);
+      const getPantryItem = db.get().prepare('SELECT * FROM pantry_items WHERE id = ?');
 
       let count = 0;
       for (const id of ids) {
         const item = findItem.get(id);
         if (!item) continue;
+        if (item.pantry_item_id != null) {
+          restorePantry.run(
+            item.quantity_after, item.quantity_before,
+            item.interval_after, item.interval_before,
+            item.pantry_item_id,
+          );
+          const pantryItem = getPantryItem.get(item.pantry_item_id);
+          if (pantryItem) {
+            syncPantryExpiryReminder(db.get(), pantryItem, new Date(), pantryAccess, {
+              clampToNextMorning: true,
+              today,
+            });
+          }
+        }
         deleteItem.run(id);
         if (item.added_from_meal) unmarkIngredient.run(item.added_from_meal, item.name);
         count += 1;
@@ -1144,9 +1191,23 @@ router.post('/:listId/items', (req, res) => {
     // Absicht von #548. Der Quick-Add-Client schickt die Kategorie ohnehin
     // immer explizit mit; dieser Rueckfall greift nur, wenn sie fehlt (z.B.
     // direkter API-Aufruf).
+    // Fehlt die Kategorie oder steht sie noch auf dem Sammel-Default (Quick-Add
+    // fasst das <select> nicht an), wird die Keyword-Zuordnung aus dem
+    // Rezept-Import (categorizeIngredient) versucht - "Milch" landet so in
+    // "Milchprodukte" statt in "Sonstiges". Eine ausdruecklich gewaehlte
+    // Kategorie bleibt unangetastet; ein Rate-Ergebnis, das der Haushalt nicht
+    // (mehr) fuehrt, faellt auf den Default zurueck statt eine 400 zu werfen.
     const validNames = validCategoryNames();
     const defaultCat = (validNames.includes('Sonstiges') ? 'Sonstiges' : validNames.at(-1)) ?? 'Sonstiges';
-    const requestedCat = req.body.category || defaultCat;
+    const rawName = String(req.body.name || '');
+    const suppliedRaw = req.body.category === undefined || req.body.category === null
+      ? ''
+      : String(req.body.category).trim();
+    let requestedCat = suppliedRaw || defaultCat;
+    if (!suppliedRaw || suppliedRaw === defaultCat) {
+      const guessed = categorizeIngredient({ foodName: rawName });
+      if (guessed !== defaultCat && validNames.includes(guessed)) requestedCat = guessed;
+    }
 
     const vName  = str(req.body.name, 'Name', { max: MAX_TITLE });
     const vQty   = str(req.body.quantity, 'Menge', { max: MAX_SHORT, required: false });
@@ -1385,7 +1446,7 @@ router.post('/:listId/import-meal-plan', (req, res) => {
 
 // --------------------------------------------------------
 // POST /api/v1/shopping/:listId/import-pantry
-// Setzt Vorratsartikel auf die Einkaufsliste (leer oder unter Mindestbestand).
+// Setzt Vorratsartikel auf die Einkaufsliste und bucht eine Einheit aus.
 // Body: { items: [{ pantry_item_id, quantity? }] }
 //
 // Die Mengen-Angabe kommt als fertiger Anzeigetext vom Client: shopping_items.quantity
@@ -1394,7 +1455,7 @@ router.post('/:listId/import-meal-plan', (req, res) => {
 //
 // Liegt derselbe Name bereits unabgehakt auf der Liste, wird übersprungen statt
 // dupliziert - zweimal "Milch" hilft im Supermarkt niemandem.
-// Response: { data: { added: number, skipped: number, added_ids: number[] } }
+// Response: { data: { added, skipped, added_ids, pantry_updates } }
 //
 // `added_ids` traegt das Undo im Client: der Warenkorb in einer Vorratszeile war
 // die einzige Aktion des Kuechenmoduls, die etwas erzeugt und dafuer kein
@@ -1404,13 +1465,17 @@ router.post('/:listId/import-meal-plan', (req, res) => {
 // der Server kennt (Duplikate werden hier uebersprungen). Deshalb echtes Undo:
 // sofort einfuegen, IDs zurueckgeben, auf Wunsch genau diese wieder loeschen.
 //
-// LESEN BRAUCHT DAS LESERECHT DER QUELLE. Der Pfad-Guard misst diese Route als
-// `shopping`; Name und Kategorie der Vorratszeilen stehen danach auf der
-// Liste. Deshalb fragt die Route selbst nach `pantry: read` (beide Achsen),
-// vor der Listensuche wie die Uebertraege darueber.
+// Der Pfad-Guard misst diese Route als `shopping`. Sie liest und veraendert
+// aber auch den Vorrat, deshalb braucht sie pantry: write vor der Listensuche.
 // --------------------------------------------------------
 router.post('/:listId/import-pantry', (req, res) => {
   try {
+    if (householdDisabledModules(db.get()).has('pantry')) {
+      return res.status(403).json({ error: 'The pantry is disabled for this household.', code: 403 });
+    }
+    if (!mayWriteModule(req, 'pantry')) {
+      return res.status(403).json({ error: 'Write access to the pantry is required.', code: 403 });
+    }
     if (!mayReadModule(req, 'pantry')) {
       return res.status(403).json({ error: 'Read access to the pantry is required.', code: 403 });
     }
@@ -1421,16 +1486,22 @@ router.post('/:listId/import-pantry', (req, res) => {
     if (!list) return res.status(404).json({ error: 'List not found.', code: 404 });
 
     const entries = Array.isArray(req.body.items) ? req.body.items : [];
-    if (!entries.length) return res.json({ data: { added: 0, skipped: 0, added_ids: [] } });
+    if (!entries.length) return res.json({ data: { added: 0, skipped: 0, added_ids: [], pantry_updates: [] } });
 
     const validNames = validCategoryNames();
     // Gleiche Standard-Regel wie beim Artikel-POST oben: "Sonstiges" solange
     // es die Kategorie gibt, sonst die letzte nach Gang-Reihenfolge - die
     // beiden Routen sollen nicht auseinanderlaufen.
     const defaultCat = (validNames.includes('Sonstiges') ? 'Sonstiges' : validNames.at(-1)) ?? 'Sonstiges';
+    const pantryAccess = resolvePantryAccess(db.get());
+    const today = householdToday(db.get());
 
     const result = db.get().transaction(() => {
-      const findPantryItem = db.get().prepare('SELECT name, category FROM pantry_items WHERE id = ?');
+      const findPantryItem = db.get().prepare(`
+        SELECT id, name, category, quantity, restock_interval_days, expires_on,
+               created_by, location_id, unit, min_quantity, notes
+        FROM pantry_items WHERE id = ?
+      `);
       const findDuplicate = db.get().prepare(`
         SELECT id FROM shopping_items
         WHERE list_id = ? AND is_checked = 0 AND name = ? COLLATE NOCASE
@@ -1439,22 +1510,75 @@ router.post('/:listId/import-pantry', (req, res) => {
       const insertItem = db.get().prepare(`
         INSERT INTO shopping_items (list_id, name, quantity, category) VALUES (?, ?, ?, ?)
       `);
+      const saveUndo = db.get().prepare(`
+        INSERT INTO shopping_pantry_transfer_undo
+          (shopping_item_id, pantry_item_id, quantity_before, interval_before, quantity_after, interval_after)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `);
+      const updatePantryItem = db.get().prepare(`
+        UPDATE pantry_items
+        SET quantity = ?, restock_interval_days = ?
+        WHERE id = ?
+      `);
+      const getPantryItem = db.get().prepare('SELECT * FROM pantry_items WHERE id = ?');
 
       let skipped = 0;
       const addedIds = [];
+      const addedItems = [];
+      const pantryUpdates = [];
 
       for (const entry of entries) {
         const pantryItem = findPantryItem.get(Number(entry?.pantry_item_id));
         if (!pantryItem) { skipped += 1; continue; }
-        if (findDuplicate.get(req.params.listId, pantryItem.name)) { skipped += 1; continue; }
+        const duplicate = findDuplicate.get(req.params.listId, pantryItem.name);
+        if (duplicate) {
+          skipped += 1;
+          addedItems.push({
+            client_ref: typeof entry.client_ref === 'string' ? entry.client_ref : null,
+            pantry_item_id: pantryItem.id,
+            shopping_item_id: duplicate.id,
+            duplicate: true,
+          });
+          continue;
+        }
 
         const vQty = str(entry.quantity, 'Menge', { max: MAX_SHORT, required: false });
         const category = validNames.includes(pantryItem.category) ? pantryItem.category : defaultCat;
         const info = insertItem.run(req.params.listId, pantryItem.name, vQty.value, category);
-        addedIds.push(Number(info.lastInsertRowid));
+        const shoppingItemId = Number(info.lastInsertRowid);
+        const quantityBefore = Number(pantryItem.quantity);
+        const intervalBefore = pantryItem.restock_interval_days;
+        const quantityAfter = normalizePantryQuantity(Math.max(0, quantityBefore - 1), { fallback: 0 });
+        const intervalAfter = intervalBefore == null ? null : Math.max(7, intervalBefore - 7);
+        saveUndo.run(
+          shoppingItemId, pantryItem.id, quantityBefore, intervalBefore, quantityAfter, intervalAfter,
+        );
+        updatePantryItem.run(quantityAfter, intervalAfter, pantryItem.id);
+        const updatedPantryItem = getPantryItem.get(pantryItem.id);
+        syncPantryExpiryReminder(db.get(), updatedPantryItem, new Date(), pantryAccess, {
+          clampToNextMorning: true,
+          today,
+        });
+        addedIds.push(shoppingItemId);
+        addedItems.push({
+          client_ref: typeof entry.client_ref === 'string' ? entry.client_ref : null,
+          pantry_item_id: pantryItem.id,
+          shopping_item_id: shoppingItemId,
+        });
+        pantryUpdates.push({
+          id: pantryItem.id,
+          quantity: updatedPantryItem.quantity,
+          restock_interval_days: updatedPantryItem.restock_interval_days,
+        });
       }
 
-      return { added: addedIds.length, skipped, added_ids: addedIds };
+      return {
+        added: addedIds.length,
+        skipped,
+        added_ids: addedIds,
+        ...(entries.some((entry) => typeof entry?.client_ref === 'string') ? { added_items: addedItems } : {}),
+        pantry_updates: pantryUpdates,
+      };
     })();
 
     res.json({ data: result });

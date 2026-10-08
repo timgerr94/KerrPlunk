@@ -15,17 +15,21 @@ import { DEFAULT_CATEGORY_NAME, categoryLabel } from '/utils/shopping-categories
  * @param {object} opts
  * @param {string} [opts.name]       Zutatenname
  * @param {string} [opts.quantity]   Menge
+ * @param {string} [opts.unit]       Einheit (nur Rezepte; ohne Angabe bleibt das Feld weg)
  * @param {number|string|null} [opts.id]  Bestehende Zutaten-ID (für Update-Sync)
  * @param {string} [opts.category]   Wunsch-Kategorie
  * @param {Array<{name:string}>} [opts.categories]  Verfügbare Kategorien (bereits gefiltert)
+ * @param {boolean} [opts.withUnit]  Einheiten-Feld rendern (Rezept-Modal: true, Mahlzeiten: nein)
  * @returns {string} HTML-String einer `.ingredient-row`
  */
 export function ingredientRowHTML({
   name = '',
   quantity = '',
+  unit = '',
   id = null,
   category = DEFAULT_CATEGORY_NAME,
   categories = [],
+  withUnit = false,
 } = {}) {
   const resolvedCategory = categories.some((c) => c.name === category)
     ? category
@@ -37,10 +41,18 @@ export function ingredientRowHTML({
       ).join('')
     : `<option value="${DEFAULT_CATEGORY_NAME}" selected>${t('meals.ingredientCategoryDefault')}</option>`;
 
+  // Einheiten-Feld nur, wenn der Aufrufer es will: Mahlzeiten teilen sich diese
+  // Zeile und kennen keine eigene Einheit (Option A - nur Rezepte). Das Markup
+  // bleibt fuer sie unveraendert, inklusive Raster.
+  const unitInput = withUnit
+    ? `<input type="text" class="form-input ingredient-row__unit" placeholder="${t('meals.ingredientUnitPlaceholder')}" value="${esc(unit)}">`
+    : '';
+
   return `
-    <div class="ingredient-row" data-ing-id="${id ?? ''}">
+    <div class="ingredient-row${withUnit ? ' ingredient-row--with-unit' : ''}" data-ing-id="${id ?? ''}">
       <input type="text" class="form-input ingredient-row__name" placeholder="${t('meals.ingredientNamePlaceholder')}" value="${esc(name)}">
       <input type="text" class="form-input ingredient-row__qty" placeholder="${t('meals.ingredientQtyPlaceholder')}" value="${esc(quantity)}">
+      ${unitInput}
       <select class="form-input ingredient-row__cat" aria-label="${t('meals.ingredientCategoryLabel')}">${catOptions}</select>
       ${rowActionHtml({
         icon: 'x',

@@ -129,6 +129,11 @@ async function syncAccount(account) {
   `);
   const updUrl = conn.prepare('UPDATE recipes SET recipe_url = ? WHERE id = ?');
   const delIngredients = conn.prepare('DELETE FROM recipe_ingredients WHERE recipe_id = ?');
+  // `unit` (v237) bleibt hier bewusst ausgespart: die Adapter ziehen Menge und
+  // Einheit schon im formatQuantity() zu EINEM quantity-Text zusammen ("500 g"),
+  // weil Mealie/Tandoor ihre Einheit nicht als freien Text liefern, den die
+  // Rezept-Anzeige einzeln zeigen koennte. Der Import setzt keine Einheit, statt
+  // eine zu raten - NULL heisst hier "die Menge traegt sie schon".
   const insIngredient = conn.prepare(`
     INSERT INTO recipe_ingredients (recipe_id, name, quantity, category) VALUES (?, ?, ?, ?)
   `);

@@ -22,6 +22,7 @@
  */
 
 import * as v from '../middleware/validate.js';
+import { categorizeIngredient } from '../services/recipe-providers/categorize.js';
 import { readFileSync } from 'node:fs';
 import { buildOpenApiSpec } from '../openapi.js';
 import { tokenAllows } from '../scopes.js';
@@ -179,10 +180,23 @@ function addShoppingItem(db, actorId, args) {
       : 'No shopping list exists yet. Create one in the app first.');
   }
 
+  // Wie POST /:listId/items: fehlende Kategorie wird geraten (Keyword-Tabelle
+  // aus dem Rezept-Import), sonst Fallback 'Sonstiges' - aber nie eine
+  // Kategorie, die der Haushalt nicht (mehr) fuehrt.
+  const categoryNames = db.prepare('SELECT name FROM shopping_categories ORDER BY sort_order ASC')
+    .all().map((row) => row.name);
+  const defaultCategory = categoryNames.includes('Sonstiges') ? 'Sonstiges' : categoryNames.at(-1) ?? 'Sonstiges';
+  const supplied = (category.value || '').trim();
+  let resolved = supplied || defaultCategory;
+  if (!supplied || supplied === defaultCategory) {
+    const guessed = categorizeIngredient({ foodName: name.value });
+    if (guessed !== defaultCategory && categoryNames.includes(guessed)) resolved = guessed;
+  }
+
   const result = db.prepare(`
     INSERT INTO shopping_items (list_id, name, quantity, category)
     VALUES (?, ?, ?, ?)
-  `).run(list.id, name.value, quantity.value, category.value || 'Sonstiges');
+  `).run(list.id, name.value, quantity.value, resolved);
 
   return db.prepare(`
     SELECT si.id, si.name, si.quantity, si.category, si.is_checked, sl.name AS list

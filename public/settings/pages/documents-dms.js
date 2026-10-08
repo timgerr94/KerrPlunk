@@ -32,7 +32,7 @@ function buildAddForm(container) {
     </div>
     <div class="form-group">
       <label class="form-label" for="dms-url">${t('settings.dmsBaseUrl')}</label>
-      <input class="form-input" type="url" id="dms-url" required placeholder="https://..." />
+      <input class="form-input" type="url" id="dms-url" name="base_url" autocomplete="url" required placeholder="https://..." />
     </div>
     <div class="form-group" id="dms-org-group" hidden>
       <label class="form-label" for="dms-org-id">${t('settings.dmsOrgId')}</label>
@@ -40,7 +40,7 @@ function buildAddForm(container) {
     </div>
     <div class="form-group">
       <label class="form-label" for="dms-token">${t('settings.dmsToken')}</label>
-      <input class="form-input" type="password" id="dms-token" required autocomplete="current-password" />
+      <input class="form-input" type="password" id="dms-token" name="api_token" required autocomplete="new-password" />
     </div>
     <div id="dms-form-error-host"></div>
     <div class="settings-form-actions">

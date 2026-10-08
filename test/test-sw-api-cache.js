@@ -61,6 +61,7 @@ class MockResponse {
     });
   }
   async blob() { return this._body; }
+  async text() { return String(this._body); }
   async json() { return typeof this._body === 'string' ? JSON.parse(this._body) : this._body; }
 }
 
@@ -69,9 +70,11 @@ class MockRequest {
     if (input instanceof MockRequest) {
       this.url = input.url;
       this.method = init.method || input.method;
+      this.mode = init.mode || input.mode;
     } else {
       this.url = String(input);
       this.method = init.method || 'GET';
+      this.mode = init.mode || 'cors';
     }
   }
 }
@@ -108,12 +111,14 @@ function loadSw({ fetchImpl } = {}) {
   const cacheStorage = new MockCacheStorage();
   const ctl = { fetchImpl: fetchImpl || (async () => new MockResponse('{}', { status: 200 })) };
   const listeners = {};
+  const network = { online: true };
   const self = {
     addEventListener(type, fn) { (listeners[type] ||= []).push(fn); },
     skipWaiting() { return Promise.resolve(); },
     clients: { claim() { return Promise.resolve(); }, matchAll() { return Promise.resolve([]); } },
     registration: { showNotification() { return Promise.resolve(); } },
     location: { origin: ORIGIN },
+    get navigator() { return { onLine: network.online }; },
   };
   const sandbox = {
     self, caches: cacheStorage,
@@ -127,6 +132,7 @@ function loadSw({ fetchImpl } = {}) {
   return {
     listeners, caches: cacheStorage,
     setFetch: (f) => { ctl.fetchImpl = f; },
+    setOnline: (online) => { network.online = online; },
   };
 }
 
@@ -258,6 +264,94 @@ test('die Laufnummern-Abfrage /shopping/versions wird durchgereicht, /shopping/:
   const cache = await env.caches.open(await apiCacheName(env));
   assert.ok(await cache.match(items), 'die Artikel-Antwort liegt im API-Cache');
   assert.equal(await cache.match(versions), undefined, 'die Laufnummern liegen nicht daneben');
+});
+
+test('shopping lists and pantry GETs fall back to their cached snapshots offline', async () => {
+  const env = loadSw({
+    fetchImpl: async (request) => {
+      const url = new URL(request.url);
+      if (url.pathname === '/api/v1/shopping') {
+        return new MockResponse(JSON.stringify({ data: [{ id: 1, name: 'Groceries' }] }));
+      }
+      if (url.pathname === '/api/v1/shopping/1/items') {
+        return new MockResponse(JSON.stringify({ data: [{ id: 2, name: 'Apples' }] }));
+      }
+      if (url.pathname === '/api/v1/pantry') {
+        return new MockResponse(JSON.stringify({
+          data: [{ id: 3, name: 'Rice', quantity: 2 }],
+          locations: [{ id: 1, name: 'Cupboard' }],
+          categories: [{ id: 1, name: 'Staples' }],
+        }));
+      }
+      throw new Error(`Unexpected API path: ${url.pathname}`);
+    },
+  });
+  const requests = ['/shopping', '/shopping/1/items', '/pantry']
+    .map((path) => new MockRequest(apiUrl(path), { method: 'GET' }));
+
+  for (const request of requests) {
+    const { responded, result } = dispatchFetch(env, request);
+    assert.ok(responded, `${request.url} must use the offline API cache`);
+    assert.equal((await result).status, 200);
+  }
+
+  env.setFetch(async () => { throw new TypeError('Failed to fetch'); });
+  for (const request of requests) {
+    const { responded, result } = dispatchFetch(env, request);
+    assert.ok(responded, `${request.url} must remain readable offline`);
+    const response = await result;
+    assert.equal(response.status, 200);
+    assert.ok(response.headers.get('x-cached-at'), 'offline response is identified as cached');
+  }
+  const pantry = await (await dispatchFetch(env, requests[2]).result).json();
+  assert.equal(pantry.data[0].name, 'Rice');
+  assert.equal(pantry.locations[0].name, 'Cupboard');
+  assert.equal(pantry.categories[0].name, 'Staples');
+});
+
+test('when offline is reported, cached API data is served without attempting the network', async () => {
+  let networkCalls = 0;
+  const env = loadSw({
+    fetchImpl: async () => {
+      networkCalls += 1;
+      return new MockResponse(JSON.stringify({
+        data: [{ id: 4, name: 'Beans' }],
+        locations: [],
+        categories: [],
+      }));
+    },
+  });
+  const pantry = new MockRequest(apiUrl('/pantry'), { method: 'GET' });
+  await dispatchFetch(env, pantry).result;
+  const callsOnline = networkCalls;
+
+  env.setOnline(false);
+  const { result } = dispatchFetch(env, pantry);
+  const response = await result;
+  assert.equal(response.status, 200);
+  assert.equal(networkCalls, callsOnline, 'offline cache hit should not wait for a failed network request');
+  assert.equal((await response.json()).data[0].name, 'Beans');
+});
+
+test('offline navigation immediately falls back to the cached application shell', async () => {
+  let networkCalls = 0;
+  const env = loadSw({
+    fetchImpl: async () => {
+      networkCalls += 1;
+      return new MockResponse('<!doctype html><title>Yuvomi</title>');
+    },
+  });
+  const route = new MockRequest(`${ORIGIN}/shopping`, { mode: 'navigate' });
+  const shell = new MockRequest(`${ORIGIN}/index.html`, { mode: 'navigate' });
+  await dispatchFetch(env, shell).result;
+  const callsOnline = networkCalls;
+
+  env.setOnline(false);
+  const { result } = dispatchFetch(env, route);
+  const response = await result;
+  assert.equal(response.status, 200);
+  assert.equal(networkCalls, callsOnline, 'offline navigation should not wait for network timeout');
+  assert.match(await response.text(), /Yuvomi/);
 });
 
 test('CLEAR_API_CACHE leert den API-Cache (Nutzerwechsel-Leak-Schutz)', async () => {

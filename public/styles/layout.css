@@ -6485,6 +6485,15 @@ textarea::placeholder {
   border-radius: var(--radius-glass-inner);
 }
 
+/* Rezept-Modal: Menge und Einheit stehen als ZWEI Felder nebeneinander, die
+ * Kategorie rutscht dahinter. Ohne diese Variante bliebe die Zeile exakt die
+ * Mahlzeiten-Zeile (ein Mengenfeld, das die Einheit schon im Text traegt) -
+ * siehe ingredient-row.js#withUnit. */
+.ingredient-row--with-unit {
+  grid-template-columns: minmax(0, 2fr) minmax(0, 2fr) minmax(0, 2fr) auto;
+  grid-template-areas: "name name name remove" "qty unit cat .";
+}
+
 .ingredient-row__name {
   grid-area: name;
   min-width: 0;
@@ -6493,6 +6502,12 @@ textarea::placeholder {
 .ingredient-row__qty {
   grid-area: qty;
   min-width: 0;
+}
+
+.ingredient-row__unit {
+  grid-area: unit;
+  min-width: 0;
+  font-size: var(--type-body);
 }
 
 .ingredient-row__cat {

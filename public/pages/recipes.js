@@ -1062,7 +1062,11 @@ function ingredientsSectionEl(recipe) {
     item.className = 'recipe-detail__ingredient';
     const label = document.createElement('span');
     label.className = 'recipe-detail__ingredient-name';
-    label.textContent = ing.quantity ? `${ing.quantity} · ${ing.name}` : ing.name;
+    // Menge und Einheit stehen getrennt gespeichert (v237), aber zusammen
+    // gelesen wie bisher: "500 g · Mehl". Fehlt die Menge und nur die Einheit
+    // ist gesetzt, bleibt die Einheit sichtbar statt zu verschwinden.
+    const amount = [ing.quantity, ing.unit].filter(Boolean).join(' ');
+    label.textContent = amount ? `${amount} · ${ing.name}` : ing.name;
     item.appendChild(label);
     item.appendChild(pantryMatchEl(recipe, ing));
     ul.appendChild(item);
@@ -1284,7 +1288,7 @@ async function openPantryBulkMatchModal(recipe) {
   const options = items.map((item) => `<option value="${esc(String(item.id))}">${esc(pantryOptionLabel(item))}</option>`).join('');
   const fields = open.map((ing, i) => `
         <div class="form-group">
-          <label class="form-label" for="pantry-bulk-match-${i}">${esc(ing.quantity ? `${ing.quantity} · ${ing.name}` : ing.name)}</label>
+          <label class="form-label" for="pantry-bulk-match-${i}">${esc([ing.quantity, ing.unit].filter(Boolean).join(' ') ? `${[ing.quantity, ing.unit].filter(Boolean).join(' ')} · ${ing.name}` : ing.name)}</label>
           <select id="pantry-bulk-match-${i}" class="form-input" data-ingredient-index="${i}">
             <option value="">${esc(t('recipes.ingredientMatchNone'))}</option>
             ${options}
@@ -1515,13 +1519,15 @@ function openRecipeModal(mode, recipe = null) {
         ingList.insertAdjacentHTML('beforeend', recipe.ingredients.map((i) => ingredientRowHTML({
           name: i.name,
           quantity: i.quantity ?? '',
+          unit: i.unit ?? '',
           category: i.category ?? DEFAULT_CATEGORY_NAME,
           categories: mealCategories(),
+          withUnit: true,
         })).join(''));
       }
 
       panel.querySelector('#recipe-add-ingredient')?.addEventListener('click', () => {
-        ingList.insertAdjacentHTML('beforeend', ingredientRowHTML({ categories: mealCategories() }));
+        ingList.insertAdjacentHTML('beforeend', ingredientRowHTML({ categories: mealCategories(), withUnit: true }));
         if (window.lucide) window.lucide.createIcons({ el: ingList });
       });
 
@@ -1566,8 +1572,9 @@ async function saveRecipe(panel, mode, recipe) {
   panel.querySelectorAll('.ingredient-row').forEach((row) => {
     const name = row.querySelector('.ingredient-row__name')?.value.trim() || '';
     const quantity = row.querySelector('.ingredient-row__qty')?.value.trim() || null;
+    const unit = row.querySelector('.ingredient-row__unit')?.value.trim() || null;
     const category = row.querySelector('.ingredient-row__cat')?.value || DEFAULT_CATEGORY_NAME;
-    if (name) ingredients.push({ name, quantity, category });
+    if (name) ingredients.push({ name, quantity, unit, category });
   });
 
   // Nur mitschicken, wenn der Nutzer das Bild angefasst hat: ein fehlendes Feld

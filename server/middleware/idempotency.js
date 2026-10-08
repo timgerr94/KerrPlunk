@@ -33,9 +33,10 @@ import * as db from '../db.js';
 
 const HEADER = 'idempotency-key';
 const MAX_KEY_LENGTH = 255;
+const DURABLE_PREFIX = 'offline-kitchen:';
 
-/** Lebensdauer eines Schlüssels. Danach ist er wieder frei - dieselbe Frist,
- *  die auch Stripe seinen Aufrufern zusagt. */
+/** Lebensdauer normaler Schlüssel; Offline-Küchen-Schlüssel werden nicht
+ *  abgeräumt, damit lange Offline-Zeiten keine Dubletten erzeugen. */
 const TTL_HOURS = 24;
 
 /** Nach dieser Frist gilt ein Vorgang ohne Antwort als abgebrochen (Prozess
@@ -82,7 +83,9 @@ function fingerprint(req) {
  */
 function purgeExpired(conn) {
   conn.prepare(
-    `DELETE FROM idempotency_keys WHERE created_at < datetime('now', ?)`,
+    `DELETE FROM idempotency_keys
+      WHERE created_at < datetime('now', ?)
+        AND key NOT GLOB 'offline-kitchen:*'`,
   ).run(`-${TTL_HOURS} hours`);
 }
 
@@ -109,6 +112,7 @@ function idempotencyMiddleware(req, res, next) {
 
   const conn = db.get();
   const hash = fingerprint(req);
+  const durable = trimmed.startsWith(DURABLE_PREFIX);
   let recordId = null;
 
   try {
@@ -148,6 +152,12 @@ function idempotencyMiddleware(req, res, next) {
         if (!stale?.stale) {
           return res.status(409).json({
             error: 'A request with this Idempotency-Key is still in progress.',
+            code: 409,
+          });
+        }
+        if (durable) {
+          return res.status(409).json({
+            error: 'The outcome of this offline request is uncertain and needs review.',
             code: 409,
           });
         }

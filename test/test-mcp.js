@@ -302,14 +302,22 @@ test('tools/call list_tasks: ein unsinniger tag-Filter wird abgewiesen', async (
 // ── Shopping ─────────────────────────────────────────────────────────────────
 
 test('tools/call add_shopping_item: fügt Artikel zur Standardliste hinzu', async () => {
-  const res = await toolCall('add_shopping_item', { name: 'Milch', quantity: '2' });
+  const res = await toolCall('add_shopping_item', { name: 'Krimskrams', quantity: '2' });
   assert.equal(res.result.isError, false);
   const item = parseContent(res);
-  assert.equal(item.name, 'Milch');
+  assert.equal(item.name, 'Krimskrams');
   assert.equal(item.quantity, '2');
+  assert.equal(item.category, 'Sonstiges');
 
   const row = db.prepare('SELECT name, list_id FROM shopping_items WHERE id = ?').get(item.id);
   assert.equal(row.list_id, listId, 'muss der ersten Liste zugeordnet sein');
+});
+
+test('tools/call add_shopping_item: Kategorie wird geraten, ausdrueckliche bleibt', async () => {
+  const guessed = parseContent(await toolCall('add_shopping_item', { name: 'Milch' }));
+  assert.equal(guessed.category, 'Milchprodukte');
+  const explicit = parseContent(await toolCall('add_shopping_item', { name: 'Milch', category: 'Backwaren' }));
+  assert.equal(explicit.category, 'Backwaren');
 });
 
 test('tools/call add_shopping_item: unbekannte Liste → isError', async () => {

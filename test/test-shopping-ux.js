@@ -479,6 +479,50 @@ test('pantryTransferEntries: uses parsed quantities and the default location', (
   ]);
 });
 
+test('pantryTransferEntries: matching pantry item keeps its location and the selected unit', () => {
+  resetShoppingState();
+  const existingPantry = [
+    { name: 'Milk', unit: 'l', location_id: 2, category: 'Milchprodukte' },
+    { name: 'Rice', unit: 'kg', location_id: null, category: 'Sonstiges' },
+  ];
+
+  assert.deepEqual(__test.pantryTransferEntries([
+    { id: 21, name: 'milk', category: 'Milchprodukte', quantity: 2, unit: 'l' },
+    { id: 22, name: 'Rice', category: 'Sonstiges', quantity: 1, unit: 'kg' },
+    { id: 23, name: 'Bread', category: 'Backwaren', quantity: '2 pcs' },
+  ], 4, existingPantry), [
+    { shopping_item_id: 21, quantity: 2, unit: 'l', location_id: 2 },
+    { shopping_item_id: 22, quantity: 1, unit: 'kg', location_id: null },
+    { shopping_item_id: 23, quantity: 2, unit: 'pcs', location_id: 4 },
+  ]);
+
+  assert.equal(
+    __test.pantryTransferEntries([{ id: 21, name: 'Milk', category: 'Milchprodukte', quantity: '2 l' }], 4, existingPantry, false)[0].location_id,
+    4,
+    'an explicitly selected location overrides existing-item defaults',
+  );
+
+  const ambiguousPantry = [
+    { name: 'Milk', unit: 'l', location_id: 2, category: 'Milchprodukte' },
+    { name: 'Milk', unit: 'l', location_id: 3, category: 'Sonstiges' },
+  ];
+  assert.equal(
+    __test.pantryTransferEntries([
+      { id: 24, name: 'Milk', category: 'Milchprodukte', quantity: '2 l' },
+    ], 4, ambiguousPantry)[0].location_id,
+    4,
+    'same-name items in different categories and locations do not choose an arbitrary location',
+  );
+
+  assert.equal(
+    __test.pantryTransferEntries([
+      { id: 25, name: 'Milk', category: 'Backwaren', quantity: '2 l' },
+    ], 4, existingPantry)[0].location_id,
+    4,
+    'a category mismatch does not inherit a pantry location',
+  );
+});
+
 test('parseShoppingQuantity: der Dezimaltrenner kommt aus der Region, nicht aus dem Quelltext', () => {
   // In de trennt das Komma. Das konnte die alte Fassung auch - sie hatte den
   // Trenner nur fest verdrahtet und lag damit ueberall sonst falsch.

@@ -31,7 +31,18 @@ import { todayKey } from '/utils/date.js';
 import { DEFAULT_CATEGORY_NAME, categoryLabel } from '/utils/shopping-categories.js';
 import { locationLabel } from '/utils/pantry-locations.js';
 import { setBulkPill, clearBulkPill } from '/utils/bulk-pill.js';
+import { pathAccess } from '/utils/module-access.js';
 import { PANTRY_UNITS, normalizePantryQuantity, pantryUnitStep, pantryQuantityLabel } from '/utils/pantry-units.js';
+import {
+  enqueueKitchenOperation,
+  createKitchenClientId,
+  clearKitchenConflict,
+  projectPantryOperations,
+  isOfflineWriteError,
+  isBrowserOffline,
+  canQueueOffline,
+  startKitchenOutbox,
+} from '/utils/offline-kitchen.js';
 import {
   PANTRY_FILTERS,
   daysUntil,
@@ -47,13 +58,16 @@ let _container = null;
 let _search = null;
 
 const state = {
+  currentUserId: null,
   items: [],
   locations: [],
   categories: [],
-  /** Einkaufslisten - erst beim ersten „Auf die Einkaufsliste" nachgeladen. */
+  /** Einkaufslisten und offene Artikel zum Abgleich mit dem Vorrat. */
   lists: null,
+  shoppingNames: null,
   query: '',
   filter: 'all',
+  groupBy: 'category',
   /** Einmal pro Render eingefroren: sonst könnte ein über Mitternacht offener
    *  Tab Zeilen unterschiedlich bewerten, je nachdem wann sie gezeichnet wurden. */
   todayKey: todayKey(),
@@ -81,13 +95,16 @@ const state = {
  *     vorher losgeschickt wurde, ihn nicht zurueckdreht.
  */
 const intents = new Map();
+const transferLocks = new Set();
+let _kitchenOutboxBound = false;
 let QUANTITY_DEBOUNCE_MS_OVERRIDE = null; // nur fuer Tests, siehe __test unten
 const QUANTITY_DEBOUNCE_MS = 450;
 /** Monotone Folgenummer, die überholte PATCH-Antworten erkennbar macht. */
 let _quantitySeq = 0;
 /** Monotone Nummer je Ladevorgang, und wann ein Artikel zuletzt bestaetigt wurde. */
 let _pantryLoadSeq = 0;
-let _pantryAppliedLoad = 0;
+let _pantryAppliedNetworkLoad = 0;
+let _pantryHasAppliedLoad = false;
 const settledAt = new Map();
 
 /** Die Menge, die die Zeile ZEIGT: die Absicht, sonst der Serverstand. */
@@ -174,13 +191,20 @@ function stockBadge(item) {
 
 async function loadPantry() {
   const startedAt = ++_pantryLoadSeq;
-  const res = await api.get('/pantry');
-  // Wer aelter ist als das, was schon steht, fasst den Stand nicht mehr an.
-  if (startedAt < _pantryAppliedLoad) return;
-  _pantryAppliedLoad = startedAt;
-  // Anders als der Einkauf liest der Vorrat mit `api.get`: `/pantry` steht
-  // NICHT in `API_CACHE_WHITELIST` (sw.js), es gibt hier also keine Antwort aus
-  // dem Cache. Haelt der Guard in `test-frontend-audit.js` fest.
+  const { data: res, fromCache } = await api.getWithSource('/pantry');
+  // Ein Offline-Schnappschuss kann die zuerst verfuegbare Antwort sein, darf
+  // aber keinen bereits geladenen Stand (oder eine spaeter eingetroffene
+  // Netzantwort) zurueckdrehen.
+  if (fromCache && _pantryHasAppliedLoad) {
+    state.items = await projectPantryOperations(state.items, state.currentUserId);
+    return;
+  }
+  if (!fromCache && startedAt < _pantryAppliedNetworkLoad) {
+    state.items = await projectPantryOperations(state.items, state.currentUserId);
+    return;
+  }
+  _pantryHasAppliedLoad = true;
+  if (!fromCache) _pantryAppliedNetworkLoad = startedAt;
 
   // EIN BESTAETIGTER ARTIKEL WIRD VON EINER AELTEREN ANTWORT NICHT
   // ZURUECKGEDREHT - alles andere an ihr wird gebraucht und landet.
@@ -193,17 +217,55 @@ async function loadPantry() {
       if (alt) item.quantity = alt.quantity;
     }
   }
-  state.items = frisch;
+  state.items = await projectPantryOperations(frisch, state.currentUserId);
   state.locations = res.locations ?? [];
   state.categories = res.categories ?? [];
 }
 
-/** Einkaufslisten nachladen (erst wenn eine Übergabe ansteht). */
+/** Einkaufslisten nachladen (für Statusanzeige und Übergabe). */
 async function ensureLists() {
   if (state.lists) return state.lists;
   const res = await api.get('/shopping');
   state.lists = res.data ?? [];
   return state.lists;
+}
+
+function shoppingNameKey(name) {
+  return String(name ?? '').trim().toLowerCase();
+}
+
+async function loadShoppingMembership() {
+  if (pathAccess('/shopping') === 'none') {
+    state.shoppingNames = new Set();
+    return;
+  }
+
+  const lists = await ensureLists();
+  const responses = await Promise.all(
+    lists.map((list) => api.get(`/shopping/${list.id}/items`)),
+  );
+  state.shoppingNames = new Set(
+    responses
+      .flatMap((response) => response.data ?? [])
+      .filter((item) => Number(item.is_checked) === 0)
+      .map((item) => shoppingNameKey(item.name))
+      .filter(Boolean),
+  );
+}
+
+function isOnShoppingList(item) {
+  const name = shoppingNameKey(item.name);
+  return Boolean(name && state.shoppingNames?.has(name));
+}
+
+async function refreshShoppingMembership() {
+  try {
+    await loadShoppingMembership();
+    renderList();
+  } catch (err) {
+    console.error('[Pantry] Einkaufslistenstatus konnte nicht aktualisiert werden:', err);
+    window.yuvomi?.showToast(err.data?.error ?? t('common.errorGeneric'), 'danger');
+  }
 }
 
 // --------------------------------------------------------
@@ -223,48 +285,91 @@ function visibleItems() {
   });
 }
 
-/**
- * Ohne Filter nach Lagerort gruppiert („wo liegt was?"). Sobald ein Filter
- * aktiv ist, ist der Ort nicht mehr die Frage - dann ist eine flache, nach
- * Dringlichkeit sortierte Liste die ehrlichere Antwort. Der Ort wandert in
- * die Meta-Zeile und geht dabei nicht verloren.
- */
+/** Gruppiert nach Kategorie (Standard) oder Lagerort. */
 function groupedItems(items) {
-  if (state.filter !== 'all') {
-    const flat = [...items];
-    if (state.filter === 'expired' || state.filter === 'soon') {
-      flat.sort((a, b) => String(a.expires_on).localeCompare(String(b.expires_on)));
-    } else {
-      flat.sort((a, b) => Number(a.quantity) - Number(b.quantity));
-    }
-    return [{ key: 'flat', label: null, items: flat }];
-  }
-
-  const byLocation = new Map();
+  const byGroup = new Map();
+  const categoryMode = state.groupBy === 'category';
   for (const item of items) {
-    const key = item.location_id ?? 'none';
-    if (!byLocation.has(key)) byLocation.set(key, []);
-    byLocation.get(key).push(item);
+    const key = categoryMode ? (item.category || DEFAULT_CATEGORY_NAME) : (item.location_id ?? 'none');
+    if (!byGroup.has(key)) byGroup.set(key, []);
+    byGroup.get(key).push(item);
   }
 
   const groups = [];
-  for (const loc of state.locations) {
-    const rows = byLocation.get(loc.id);
-    if (rows?.length) groups.push({ key: loc.id, label: locationLabel(loc.name), icon: loc.icon, items: rows });
+  const descriptors = categoryMode
+    ? state.categories.map((category) => ({
+        key: category.name,
+        label: categoryLabel(category.name),
+        icon: category.icon || 'tag',
+      }))
+    : state.locations.map((location) => ({
+        key: location.id,
+        label: locationLabel(location.name),
+        icon: location.icon,
+      }));
+
+  if (!categoryMode) {
+    descriptors.push({ key: 'none', label: t('pantry.unlocated'), icon: 'package' });
   }
-  const orphans = byLocation.get('none');
-  if (orphans?.length) {
-    groups.push({ key: 'none', label: t('pantry.unlocated'), icon: 'package', items: orphans });
+
+  const included = new Set();
+  for (const descriptor of descriptors) {
+    const rows = byGroup.get(descriptor.key);
+    if (!rows?.length) continue;
+    included.add(descriptor.key);
+    groups.push({ ...descriptor, items: sortGroupRows(rows) });
   }
+
+  for (const [key, rows] of byGroup) {
+    if (included.has(key)) continue;
+    groups.push({
+      key,
+      label: categoryMode ? categoryLabel(key) : t('pantry.unlocated'),
+      icon: categoryMode ? 'tag' : 'package',
+      items: sortGroupRows(rows),
+    });
+  }
+
   return groups;
+}
+
+function sortGroupRows(items) {
+  const rows = [...items];
+  if (state.filter === 'expired' || state.filter === 'soon') {
+    rows.sort((a, b) => String(a.expires_on).localeCompare(String(b.expires_on)));
+  } else if (state.filter === 'low') {
+    rows.sort((a, b) => Number(a.quantity) - Number(b.quantity));
+  } else if (state.groupBy === 'category') {
+    rows.sort((a, b) => String(a.name).localeCompare(String(b.name), undefined, { sensitivity: 'base' }));
+  }
+  return rows;
 }
 
 // --------------------------------------------------------
 // Render
 // --------------------------------------------------------
 
-export async function render(container) {
+export async function render(container, { user } = {}) {
   _container = container;
+  state.currentUserId = user?.id ?? null;
+  startKitchenOutbox(state.currentUserId, (method, path, body, headers) =>
+    api.request(method, path, body, { headers }));
+  if (!_kitchenOutboxBound) {
+    window.addEventListener('kitchen:outbox-changed', (event) => {
+      if (Number(event.detail?.ownerId) !== Number(state.currentUserId)) return;
+      loadPantry().then(() => renderList()).catch((error) => {
+        console.error('[Pantry] Could not refresh the offline queue projection:', error);
+      });
+    });
+    window.addEventListener('kitchen:outbox-error', (event) => {
+      if (Number(event.detail?.ownerId) === Number(state.currentUserId)) {
+        window.yuvomi?.showToast(event.detail.error?.data?.error ?? t('common.syncNeedsReview'), 'danger');
+      }
+    });
+    _kitchenOutboxBound = true;
+  }
+  state.lists = null;
+  state.shoppingNames = null;
   state.todayKey = todayKey();
   // Frische Seite: die Chip-Leiste darf beim ersten Zeichnen wieder scrollen.
   _scrolledFilter = null;
@@ -292,7 +397,7 @@ export async function render(container) {
   live.setAttribute('aria-live', 'polite');
 
   // Kanonischer Kopf, Gruppen-Variante (siehe .page-toolbar--in-group in
-  // layout.css): Suche im __center-Slot, Lagerort-Verwaltung im __actions-Slot -
+  // layout.css): Suche im __center-Slot, Anzeigeoptionen im __actions-Slot -
   // dieselbe Slot-Ordnung wie in den drei Geschwister-Tabs.
   const toolbar = document.createElement('div');
   // Kein --narrow (Re-Critique 2026-09-27, D3): der Kuechenkopf gehoert der
@@ -315,6 +420,13 @@ export async function render(container) {
       className: 'pantry-search page-toolbar__center',
     })}
     <div class="page-toolbar__actions">
+      <label class="pantry-group-control" for="pantry-group-by">
+        <span>${esc(t('pantry.groupByLabel'))}</span>
+        <select class="form-input" id="pantry-group-by">
+          <option value="category"${state.groupBy === 'category' ? ' selected' : ''}>${esc(t('pantry.groupByCategory'))}</option>
+          <option value="location"${state.groupBy === 'location' ? ' selected' : ''}>${esc(t('pantry.groupByLocation'))}</option>
+        </select>
+      </label>
       ${pageToolsMenuHtml({
         id: 'pantry-tools-menu',
         label: t('common.moreActions'),
@@ -395,6 +507,10 @@ export async function render(container) {
   });
 
   installPopoverMenus(toolbar);
+  toolbar.querySelector('#pantry-group-by').addEventListener('change', (event) => {
+    state.groupBy = event.target.value === 'location' ? 'location' : 'category';
+    renderList();
+  });
   toolbar.querySelector('[data-action="manage-locations"]').addEventListener('click', openLocationManager);
   fab.addEventListener('click', () => openItemModal('create'));
 
@@ -414,6 +530,14 @@ export async function render(container) {
   } catch (err) {
     renderLoadError(list, err);
     return;
+  }
+
+  try {
+    await loadShoppingMembership();
+  } catch (err) {
+    state.shoppingNames = new Set();
+    console.error('[Pantry] Einkaufslistenstatus konnte nicht geladen werden:', err);
+    window.yuvomi?.showToast(err.data?.error ?? t('common.errorGeneric'), 'danger');
   }
 
   renderFilters();
@@ -646,18 +770,16 @@ function renderList() {
 // Nebenpanel „Im Blick" (Desktop)
 // --------------------------------------------------------
 
-// NUR ZEITKRITISCHES (Re-Critique 2026-09-28, P7 / A4 P2-6). Hier stand auch
-// "Fast leer": dieselbe Aussage stand damit dreimal da (Zeilen-Badge, Chip mit
-// Zaehler, Panel), 14 von 21 Artikeln rechts ein zweites Mal, und "Fast leer
-// 10" uebertoente die Fristen. Das Panel beantwortet jetzt nur, was nicht
-// warten kann; "Fast leer" bleibt Chip plus Warenkorb an der Zeile.
+// Das Panel zeigt dieselben Statusgruppen wie die Filterchips. So stehen
+// abgelaufene, bald ablaufende und nachzubestellende Artikel gemeinsam im Blick.
 const WATCH_SECTIONS = [
   { key: 'expired', label: 'pantry.filterExpired', icon: 'circle-alert', tone: 'danger' },
   { key: 'soon', label: 'pantry.filterSoon', icon: 'clock', tone: 'warning' },
+  { key: 'low', label: 'pantry.filterLow', icon: 'package-open', tone: 'warning' },
 ];
 
 /**
- * Die drei Abschnitte des Panels, mit genau der Zuordnung der Filterchips
+ * Die Abschnitte des Panels, mit genau der Zuordnung der Filterchips
  * (`matchesPantryFilter`) - ein Artikel steht im Panel, wenn und weil ihn der
  * gleichnamige Chip traefe. Unabhaengig von Suche und aktivem Filter: das
  * Panel beantwortet „was braucht Aufmerksamkeit", nicht „was zeigt die Liste".
@@ -666,7 +788,16 @@ const WATCH_SECTIONS = [
 function pantryWatchGroups(items, today) {
   return WATCH_SECTIONS.map((section) => {
     const rows = items.filter((item) => matchesPantryFilter(item, section.key, today));
-    rows.sort((a, b) => String(a.expires_on).localeCompare(String(b.expires_on)));
+    if (section.key === 'low') {
+      rows.sort((a, b) => {
+        const aStatus = pantryItemStatus(a, today);
+        const bStatus = pantryItemStatus(b, today);
+        return Number(bStatus.out) - Number(aStatus.out)
+          || Number(a.quantity) - Number(b.quantity);
+      });
+    } else {
+      rows.sort((a, b) => String(a.expires_on).localeCompare(String(b.expires_on)));
+    }
     return { ...section, items: rows };
   }).filter((section) => section.items.length);
 }
@@ -683,11 +814,12 @@ function watchRowEl(item, section) {
   name.textContent = item.name;
   const meta = document.createElement('span');
   meta.className = 'list-row__meta';
-  // Der Satz der Zeile („Laeuft morgen ab"), in der Tinte seiner Dringlichkeit.
-  const expiry = expiryBadge(item);
+  // Ablaufgruppen sprechen das Datum; die Bestandsgruppe spricht den
+  // Nachbestellstatus (einschliesslich „Ausverkauft“).
+  const statusBadge = section.key === 'low' ? stockBadge(item) : expiryBadge(item);
   const lead = document.createElement('span');
-  lead.className = `pantry-watch__due pantry-watch__due--${expiry ? expiry.tone : section.tone}`;
-  lead.textContent = expiry ? expiry.text : quantityText(item);
+  lead.className = `pantry-watch__due pantry-watch__due--${statusBadge ? statusBadge.tone : section.tone}`;
+  lead.textContent = statusBadge ? statusBadge.text : quantityText(item);
   meta.appendChild(lead);
   if (item.location_name) meta.append(` · ${locationLabel(item.location_name)}`);
   main.append(name, meta);
@@ -824,6 +956,13 @@ function rowEl(item) {
   name.className = 'list-row__name';
   name.textContent = item.name;
   headline.appendChild(name);
+  if (item.pending_sync) {
+    const syncStatus = document.createElement('span');
+    syncStatus.className = 'offline-sync-status';
+    syncStatus.dataset.status = item.sync_status === 'conflict' ? 'conflict' : 'pending';
+    syncStatus.textContent = t(item.sync_status === 'conflict' ? 'common.syncNeedsReview' : 'common.pendingSync');
+    headline.appendChild(syncStatus);
+  }
 
   // DIE BADGES SIND EIN PAAR, ALSO EIN KNOTEN (Critique 2026-08-13).
   // Ohne ihn entscheidet die Restbreite, WIE VIELE von ihnen umbrechen: gemessen
@@ -877,6 +1016,12 @@ function rowEl(item) {
   quantity.className = 'pantry-row__quantity';
   quantity.textContent = quantityText(item);
   meta.appendChild(quantity);
+  if (isOnShoppingList(item)) {
+    const onList = document.createElement('span');
+    onList.className = 'pantry-row__on-list';
+    onList.textContent = ` · ${t('pantry.onShoppingList')}`;
+    meta.appendChild(onList);
+  }
 
   /* MHD und Lagerort sind EIGENE Knoten, keine zusammengefügte Zeichenkette.
    *
@@ -894,9 +1039,9 @@ function rowEl(item) {
     expiry.textContent = ` · ${t('pantry.bestBefore', { date: formatDate(item.expires_on) })}`;
     meta.appendChild(expiry);
   }
-  // Im gefilterten (flachen) Modus trägt die Meta-Zeile den Lagerort, den sonst
-  // die Gruppen-Überschrift zeigt.
-  if (state.filter !== 'all') {
+  // Bei Kategorie-Gruppen trägt die Meta-Zeile den Lagerort zusätzlich; bei
+  // Lagerort-Gruppen steht er bereits in der Gruppenüberschrift.
+  if (state.filter !== 'all' && state.groupBy === 'category') {
     const place = document.createElement('span');
     place.className = 'pantry-row__place';
     place.textContent = ` · ${item.location_name ? locationLabel(item.location_name) : t('pantry.unlocated')}`;
@@ -937,14 +1082,13 @@ function rowEl(item) {
   // schließt. Der Tausch ist bewusst: dieselbe Restüberdeckung, aber auf der
   // harmlosen Aktion statt auf der folgenreichen.
   //
-  // Der Slot ist IMMER da, auch ohne Warenkorb. Sonst wäre die Bedienzone in
-  // jeder Zeile anders breit und die Minus-Buttons stünden pro Zeile woanders -
-  // genau der Grund, aus dem der Knopf ursprünglich an die Zeilenkante wanderte.
+  // Der leere Slot wird per CSS ausgeblendet; die Bediengruppe sitzt ohnehin
+  // an der Zeilenkante.
   const cartSlot = document.createElement('div');
   cartSlot.className = 'pantry-row__cart-slot';
-  // Der Warenkorb schreibt in den EINKAUF, gefragt wird also dessen Recht
-  // (#1265, Regel 1 in utils/module-access.js). Der Slot bleibt trotzdem.
-  if ((status.out || status.low) && mayTransferPantryToShopping()) cartSlot.appendChild(cartEl(item));
+  // Der Warenkorb schreibt in Einkauf und Vorrat; der gemeinsame Rechte-Riegel
+  // prüft beide Module. Der Slot bleibt trotzdem.
+  if (!isOnShoppingList(item) && mayTransferPantryToShopping()) cartSlot.appendChild(cartEl(item));
   actions.appendChild(cartSlot);
 
   const stepper = document.createElement('div');
@@ -955,7 +1099,7 @@ function rowEl(item) {
   minus.type = 'button';
   minus.className = 'pantry-stepper__btn';
   minus.dataset.action = 'decrease';
-  minus.disabled = Number(item.quantity) <= 0;
+  minus.disabled = Number(item.quantity) <= 0 || transferLocks.has(item.id);
   minus.setAttribute('aria-label', `${t('pantry.decrease')}: ${item.name}`);
   minus.insertAdjacentHTML('beforeend', '<i data-lucide="minus" class="icon-sm" aria-hidden="true"></i>');
 
@@ -970,6 +1114,7 @@ function rowEl(item) {
   plus.type = 'button';
   plus.className = 'pantry-stepper__btn';
   plus.dataset.action = 'increase';
+  plus.disabled = transferLocks.has(item.id);
   plus.setAttribute('aria-label', `${t('pantry.increase')}: ${item.name}`);
   plus.insertAdjacentHTML('beforeend', '<i data-lucide="plus" class="icon-sm" aria-hidden="true"></i>');
 
@@ -986,12 +1131,13 @@ function rowEl(item) {
   return li;
 }
 
-/** Kontextuelle Einkaufs-Aktion einer Zeile; nur bei leeren/knappen Artikeln. */
+/** Einkaufs-Aktion einer Zeile. */
 function cartEl(item) {
   const cart = document.createElement('button');
   cart.type = 'button';
   cart.className = 'row-action pantry-row__cart';
   cart.dataset.action = 'to-shopping';
+  cart.disabled = transferLocks.has(item.id);
   cart.setAttribute('aria-label', `${t('common.toShoppingList')}: ${item.name}`);
   cart.title = t('common.toShoppingList');
   cart.insertAdjacentHTML('beforeend', '<i data-lucide="shopping-cart" class="icon-md" aria-hidden="true"></i>');
@@ -1026,6 +1172,7 @@ function onListClick(e) {
  * Fehltap. Die Auswahl aktualisiert sich beim nächsten vollen Render.
  */
 function adjustQuantity(item, direction, row) {
+  if (transferLocks.has(item.id)) return;
   const step = Number(row.querySelector('.pantry-stepper')?.dataset.step) || 1;
   // Der Ausgangspunkt ist, was die Zeile ZEIGT - eine schon laufende Absicht
   // eingeschlossen, sonst zaehlte jeder Schritt vom Serverstand aus neu.
@@ -1037,9 +1184,57 @@ function adjustQuantity(item, direction, row) {
   if (vorher) clearTimeout(vorher.timer);
   const seq = ++_quantitySeq;
 
-  const timer = setTimeout(async () => {
+  const intent = {
+    quantity: next,
+    seq,
+    timer: null,
+    request: null,
+    flush: null,
+  };
+
+  const persist = async (options = undefined) => {
     try {
-      const res = await api.patch(`/pantry/${item.id}`, { quantity: next });
+      let expectedQuantity = previous;
+      let queuedOffline = false;
+      if (item.sync_status === 'conflict') {
+        const reviewedQuantity = await clearKitchenConflict(
+          state.currentUserId,
+          'pantry',
+          item.id,
+        );
+        if (Number.isFinite(Number(reviewedQuantity))) expectedQuantity = Number(reviewedQuantity);
+      }
+      let res;
+      if (isBrowserOffline() && canQueueOffline(state.currentUserId)) {
+        queuedOffline = true;
+        await enqueueKitchenOperation(state.currentUserId, {
+          type: 'pantry.quantity',
+          method: 'PATCH',
+          path: `/pantry/${item.id}`,
+          body: { quantity: next, expected_quantity: expectedQuantity },
+          entityType: 'pantry',
+          entityId: item.id,
+          projection: { quantity: next },
+        });
+        res = { data: { quantity: next } };
+      } else {
+        try {
+          res = await api.patch(`/pantry/${item.id}`, { quantity: next }, options);
+        } catch (err) {
+          if (!isOfflineWriteError(err) || !canQueueOffline(state.currentUserId)) throw err;
+          queuedOffline = true;
+          await enqueueKitchenOperation(state.currentUserId, {
+            type: 'pantry.quantity',
+            method: 'PATCH',
+            path: `/pantry/${item.id}`,
+            body: { quantity: next, expected_quantity: expectedQuantity },
+            entityType: 'pantry',
+            entityId: item.id,
+            projection: { quantity: next },
+          });
+          res = { data: { quantity: next } };
+        }
+      }
       // Ueberholt: ein spaeterer Schritt hat die Absicht ersetzt, sein Ausgang
       // entscheidet. Der Server steht trotzdem auf `next` - das gehoert in den
       // SERVERSTAND, damit ein Fehlschlag des spaeteren nicht daran vorbei
@@ -1050,7 +1245,17 @@ function adjustQuantity(item, direction, row) {
       // Name, Ort oder Notiz geaendert, holt die naechste Auffrischung das.
       const bestaetigt = normalizePantryQuantity(res.data?.quantity, { fallback: next });
       const current = state.items.find((i) => i.id === item.id);
-      if (current) current.quantity = bestaetigt;
+      if (current) {
+        current.quantity = bestaetigt;
+        if (queuedOffline) {
+          current.pending_sync = true;
+          current.sync_status = 'pending';
+        } else {
+          delete current.pending_sync;
+          delete current.sync_status;
+          delete current.sync_server_quantity;
+        }
+      }
       settledAt.set(item.id, _pantryLoadSeq);
       if (aktuell?.seq !== seq) return;
       // Die eigene Absicht ist erfuellt und faellt - was die Zeile danach
@@ -1058,6 +1263,7 @@ function adjustQuantity(item, direction, row) {
       intents.delete(item.id);
       const rowNow = liveRow(item.id, row);
       if (rowNow && current) refreshRowQuantity(rowNow, withIntent(current));
+      return true;
     } catch (err) {
       const aktuell = intents.get(item.id);
       if (aktuell?.seq !== seq) return;
@@ -1072,25 +1278,27 @@ function adjustQuantity(item, direction, row) {
       if (!rowNow) return;
       if (current) refreshRowQuantity(rowNow, withIntent(current));
       if (renderFilters().wasReset) renderList();
-      window.yuvomi?.showToast(err.data?.error ?? t('common.errorGeneric'), 'danger');
+      window.yuvomi?.showToast?.(err.data?.error ?? t('common.errorGeneric'), 'danger');
+      return false;
     }
+  };
+
+  intent.flush = () => {
+    clearTimeout(intent.timer);
+    if (!intent.request) intent.request = persist();
+    return intent.request;
+  };
+  intent.timer = setTimeout(() => {
+    if (intents.get(item.id)?.seq === seq) intent.flush();
   }, QUANTITY_DEBOUNCE_MS_OVERRIDE ?? QUANTITY_DEBOUNCE_MS);
 
-  intents.set(item.id, {
-    quantity: next,
-    seq,
-    timer,
-    // `flush` schickt den gedebouncten Wert sofort ab, wenn die Seite
-    // verschwindet. Die Absicht faellt dabei nicht - der Rundlauf laeuft ja
-    // noch, nur ohne Timer.
-    flush: () => {
-      clearTimeout(timer);
-      // keepalive: der Request muss den Seitenwechsel überleben. Ohne ihn
-      // bricht der Browser ihn mit dem Dokument ab.
-      api.patch(`/pantry/${item.id}`, { quantity: next }, { keepalive: true })
-        .catch(() => { /* Die Seite ist weg; ein Toast hätte kein Ziel mehr. */ });
-    },
-  });
+  // `flush` schickt den gedebounced Wert sofort ab, wenn die Seite verschwindet.
+  // Die Absicht faellt dabei nicht - der Rundlauf laeuft ja noch.
+  intent.flushForNavigation = () => {
+    clearTimeout(intent.timer);
+    if (!intent.request) intent.request = persist({ keepalive: true });
+  };
+  intents.set(item.id, intent);
 
   vibrate(8);
   refreshRowQuantity(row, withIntent(item));
@@ -1116,7 +1324,7 @@ function bindQuantityFlush() {
   if (_quantityFlushBound) return;
   _quantityFlushBound = true;
   window.addEventListener('pagehide', () => {
-    for (const intent of [...intents.values()]) intent.flush?.();
+    for (const intent of [...intents.values()]) intent.flushForNavigation?.();
   });
 }
 
@@ -1214,11 +1422,131 @@ async function sendToShopping(items, btn) {
   // Warenkorb mehrfach antippen, und jeder Klick erzeugt einen eigenen Toast mit
   // eigenem Undo - von denen nur der letzte etwas zurücknimmt.
   if (btn) btn.disabled = true;
+  const lockedItems = items.map((item) => state.items.find((current) => current.id === item.id) ?? item);
+  for (const item of lockedItems) transferLocks.add(item.id);
+  for (const item of lockedItems) {
+    const row = _container?.querySelector(`.pantry-row[data-id="${item.id}"]`);
+    row?.querySelectorAll('[data-action="increase"], [data-action="decrease"], [data-action="to-shopping"]')
+      .forEach((control) => { control.disabled = true; });
+  }
   try {
-    const res = await api.post(`/shopping/${target.id}/import-pantry`, {
-      items: items.map((item) => ({ pantry_item_id: item.id, quantity: shortfallText(item) })),
-    });
-    const { added = 0, skipped = 0, added_ids: addedIds = [] } = res.data ?? {};
+    for (const item of lockedItems) {
+      const pending = intents.get(item.id);
+      if (pending && !(await pending.flush())) return;
+    }
+    let transferItems = lockedItems.map((item) => state.items.find((current) => current.id === item.id) ?? item);
+    if (isBrowserOffline() && canQueueOffline(state.currentUserId)) {
+      const targetItems = await api.get(`/shopping/${target.id}/items`);
+      const openShoppingNames = new Set(
+        (targetItems.data ?? [])
+          .filter((item) => Number(item.is_checked) === 0)
+          .map((item) => shoppingNameKey(item.name)),
+      );
+      transferItems = transferItems.filter((item) => !openShoppingNames.has(shoppingNameKey(item.name)));
+      if (!transferItems.length) {
+        window.yuvomi?.showToast?.(t('pantry.toShoppingNone'), 'info');
+        return;
+      }
+    }
+    const clientRefs = transferItems.map(() => createKitchenClientId());
+    const requestBody = {
+      items: transferItems.map((item, index) => ({
+        pantry_item_id: item.id,
+        quantity: shortfallText(item),
+        client_ref: clientRefs[index],
+      })),
+    };
+    const operationId = createKitchenClientId();
+    const pendingOperation = {
+      operationId,
+      type: 'shopping.fromPantry',
+      method: 'POST',
+      path: `/shopping/${target.id}/import-pantry`,
+      body: requestBody,
+      listId: target.id,
+      localEntities: clientRefs.map((clientRef) => ({ entityType: 'shopping', clientRef })),
+      projection: {
+        items: transferItems.map((item, index) => ({
+          name: item.name,
+          quantity: shortfallText(item),
+          category: item.category,
+          is_checked: 0,
+          clientRef: clientRefs[index],
+        })),
+        pantryUpdates: transferItems.map((item) => ({
+          id: item.id,
+          quantity: normalizePantryQuantity(Number(item.quantity) - 1, { fallback: 0 }),
+          restock_interval_days: item.restock_interval_days == null
+            ? null
+            : Math.max(7, Number(item.restock_interval_days) - 7),
+        })),
+      },
+    };
+    let res;
+    if (isBrowserOffline() && canQueueOffline(state.currentUserId)) {
+      await enqueueKitchenOperation(state.currentUserId, pendingOperation);
+      state.items = await projectPantryOperations(state.items, state.currentUserId);
+      renderList();
+      for (const update of pendingOperation.projection.pantryUpdates) {
+        const pantryItem = state.items.find((current) => current.id === update.id);
+        if (pantryItem) {
+          pantryItem.quantity = update.quantity;
+          pantryItem.restock_interval_days = update.restock_interval_days;
+          pantryItem.pending_sync = true;
+        }
+      }
+      state.shoppingNames ??= new Set();
+      for (const item of transferItems) {
+        const name = shoppingNameKey(item.name);
+        if (name) state.shoppingNames.add(name);
+      }
+      renderList();
+      window.yuvomi?.showToast?.(t('common.pendingSync'), 'info');
+      return;
+    }
+    try {
+      res = await api.post(`/shopping/${target.id}/import-pantry`, requestBody, {
+        headers: { 'Idempotency-Key': `offline-kitchen:${operationId}` },
+      });
+    } catch (err) {
+      if (!isOfflineWriteError(err) || !canQueueOffline(state.currentUserId)) throw err;
+      await enqueueKitchenOperation(state.currentUserId, pendingOperation);
+      state.items = await projectPantryOperations(state.items, state.currentUserId);
+      renderList();
+      for (const update of pendingOperation.projection.pantryUpdates) {
+        const pantryItem = state.items.find((current) => current.id === update.id);
+        if (pantryItem) {
+          pantryItem.quantity = update.quantity;
+          pantryItem.restock_interval_days = update.restock_interval_days;
+          pantryItem.pending_sync = true;
+        }
+      }
+      state.shoppingNames ??= new Set();
+      for (const item of transferItems) {
+        const name = shoppingNameKey(item.name);
+        if (name) state.shoppingNames.add(name);
+      }
+      renderList();
+      window.yuvomi?.showToast(t('common.pendingSync'), 'info');
+      return;
+    }
+    const {
+      added = 0, skipped = 0, added_ids: addedIds = [], pantry_updates: pantryUpdates = [],
+    } = res.data ?? {};
+    const currentItems = new Map(state.items.map((item) => [item.id, item]));
+    for (const updated of pantryUpdates) {
+      const item = currentItems.get(Number(updated.id));
+      if (!item) continue;
+      item.quantity = updated.quantity;
+      item.restock_interval_days = updated.restock_interval_days;
+      settledAt.set(item.id, _pantryLoadSeq);
+    }
+    state.shoppingNames ??= new Set();
+    for (const item of items) {
+      const name = shoppingNameKey(item.name);
+      if (name) state.shoppingNames.add(name);
+    }
+    renderList();
     if (!added) {
       window.yuvomi?.showToast(t('pantry.toShoppingNone'), 'info');
       return;
@@ -1241,10 +1569,29 @@ async function sendToShopping(items, btn) {
     // Baustein. Der Warenkorb ist der Pfad, den man am leichtesten versehentlich
     // nimmt - er sitzt in der Zeile direkt neben „Menge erhöhen", und die beiden
     // bedeuten das Gegenteil voneinander (Critique 2026-07-30).
-    announceTransfer({ message, addedIds });
+    announceTransfer({
+      message,
+      addedIds,
+      onUndone: async () => {
+        await loadPantry();
+        renderList();
+        await refreshShoppingMembership();
+      },
+    });
   } catch (err) {
     window.yuvomi?.showToast(err.data?.error ?? t('common.errorGeneric'), 'danger');
   } finally {
+    for (const item of lockedItems) {
+      transferLocks.delete(item.id);
+      const row = _container?.querySelector(`.pantry-row[data-id="${item.id}"]`);
+      const current = state.items.find((candidate) => candidate.id === item.id);
+      row?.querySelectorAll('[data-action="increase"], [data-action="decrease"], [data-action="to-shopping"]')
+        .forEach((control) => {
+          control.disabled = control.dataset.action === 'decrease'
+            ? Number(current?.quantity ?? item.quantity) <= 0
+            : false;
+        });
+    }
     if (btn) btn.disabled = false;
   }
 }
@@ -1319,7 +1666,7 @@ function openItemModal(mode, item = null) {
         </div>
         <div class="form-group">
           <label class="form-label" for="pantry-restock-interval">${esc(t('pantry.restockIntervalLabel'))}</label>
-          <input id="pantry-restock-interval" class="form-input" type="number" min="1" max="3650" step="1" inputmode="numeric" placeholder="30">
+          <input id="pantry-restock-interval" class="form-input" type="number" min="7" max="3650" step="1" inputmode="numeric" placeholder="30">
         </div>
         <div class="form-group">
           <label class="form-label" for="pantry-notes">${esc(t('pantry.notesLabel'))}</label>
@@ -1503,14 +1850,20 @@ export const __test = {
   // Aufraeumen am ANFANG: `_pantryLoadSeq` waechst global weiter, und eine
   // Bestaetigung aus einem frueheren Fall schuetzt sonst den Artikel des
   // naechsten vor seiner eigenen Auffrischung.
-  resetLoadOrderForTest: () => { _pantryAppliedLoad = 0; settledAt.clear(); },
+  resetLoadOrderForTest: () => {
+    _pantryAppliedNetworkLoad = 0;
+    _pantryHasAppliedLoad = false;
+    settledAt.clear();
+  },
   // #1265 P4: der Warenkorb der Zeile und sein Handler schreiben in den
   // Einkauf - gemessen am echten Knoten und als Programm
   // (test-shopping-readonly-ui.js).
   rowEl,
   sendToShopping,
+  loadShoppingMembership,
   // R10 L4: das Nebenpanel ordnet wie die Filterchips (test-pantry-ux.js).
   pantryWatchGroups,
+  groupedItems,
   renderWatch,
   // Beide Wege in den Bearbeiten-Dialog (test-pantry-ux.js).
   onListClick,

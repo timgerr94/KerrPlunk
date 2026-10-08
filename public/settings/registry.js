@@ -427,6 +427,7 @@ export const SETTINGS_SECTIONS = freezeEntries([
     descriptionKey: 'settings.pageTaskDefaultsDescription',
     options: [
       'settings.tasksDefaultTargetLabel',
+      'settings.tasksSplitViewLabel',
     ],
     adminOnly: false,
     loader: () => import('/settings/pages/personal-tasks.js'),

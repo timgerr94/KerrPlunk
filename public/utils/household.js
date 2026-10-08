@@ -87,6 +87,11 @@ export function setOtherReaders(modules) {
   _otherReaders = new Set(modules);
 }
 
+/** The known set of modules readable by another household member, if loaded. */
+export function getOtherReaders() {
+  return _otherReaders ? [..._otherReaders] : null;
+}
+
 /** Kann ausser dem angemeldeten Konto noch jemand dieses Modul lesen? */
 export function othersCanRead(moduleKey) {
   return _otherReaders?.has(moduleKey) ?? false;

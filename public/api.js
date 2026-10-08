@@ -5,6 +5,7 @@
  */
 
 import { clearApiCache } from '/sw-register.js';
+import { forgetOfflineSession } from '/utils/offline-session.js';
 import { setPermissions, clearPermissions } from '/permissions.js';
 import { setHouseholdSize, setOtherReaders, clearHouseholdSize } from '/utils/household.js';
 import { forgetLayoutHint } from '/utils/dashboard-layout-hint.js';
@@ -198,6 +199,12 @@ class ApiError extends Error {
 const api = {
   get: (path) => apiFetch(path, { method: 'GET' }),
 
+  request: (method, path, body, opts = {}) => apiFetch(path, {
+    method,
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    ...opts,
+  }),
+
   /**
    * Wie `get`, liefert aber `{ data, fromCache }` statt nur den Rumpf.
    *
@@ -281,6 +288,7 @@ const auth = {
     } finally {
       clearPermissions();
       clearHouseholdSize();
+      forgetOfflineSession();
       // API-Cache IMMER leeren — auch wenn der Logout-Request offline oder bei
       // nicht erreichbarem Server fehlschlägt. Der Settings-Handler navigiert in
       // seinem finally trotzdem zu /login, daher darf hier kein offline gecachter

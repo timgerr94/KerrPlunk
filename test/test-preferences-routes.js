@@ -96,6 +96,7 @@ test('GET / liefert die dokumentierten Defaults', async () => {
   assert.equal(body.data.health_cycle_enabled, true);
   assert.equal(body.data.rewards_require_approval, true);
   assert.equal(body.data.tasks_subtasks_expanded, false);
+  assert.equal(body.data.tasks_split_view, false);
 });
 
 // --------------------------------------------------------
@@ -589,6 +590,17 @@ test('PUT tasks_subtasks_expanded: Mitglied -> 403, Admin non-boolean 400, true 
   assert.equal((await put({ tasks_subtasks_expanded: true }, { role: 'member' })).status, 403);
   assert.equal((await put({ tasks_subtasks_expanded: 'yes' }, { role: 'admin' })).status, 400);
   assert.equal((await put({ tasks_subtasks_expanded: true }, { role: 'admin' })).body.data.tasks_subtasks_expanded, true);
+});
+test('PUT tasks_split_view: per-user Boolean, isolated between members', async () => {
+  cfgDelete('tasks_split_view:user:7');
+  cfgDelete('tasks_split_view:user:8');
+  assert.equal((await get({ role: 'member', userId: 7 })).body.data.tasks_split_view, false);
+  assert.equal((await put({ tasks_split_view: 'yes' }, { role: 'member', userId: 7 })).status, 400);
+  assert.equal((await put({ tasks_split_view: true }, { role: 'member', userId: 7 })).body.data.tasks_split_view, true);
+  assert.equal((await get({ role: 'member', userId: 7 })).body.data.tasks_split_view, true);
+  assert.equal((await get({ role: 'member', userId: 8 })).body.data.tasks_split_view, false);
+  cfgDelete('tasks_split_view:user:7');
+  cfgDelete('tasks_split_view:user:8');
 });
 
 // --------------------------------------------------------

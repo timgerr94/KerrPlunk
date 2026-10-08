@@ -17,7 +17,7 @@ import { renderKitchenTabsBar, refreshKitchenBadges } from '/utils/kitchen-tabs.
 import { mayImportMealPlan, mayTransferShoppingToPantry } from '/utils/kitchen-transfer.js';
 import { mayWritePath } from '/utils/module-access.js';
 import { mountEmptyState, mountLoadError } from '/utils/empty-state.js';
-import { pageToolsMenuHtml, installPopoverMenus } from '/utils/popover-menu.js';
+import { pageToolsMenuHtml, popoverMenuHtml, installPopoverMenus } from '/utils/popover-menu.js';
 import '/components/category-manager.js';
 import { findPageFab } from '/utils/fab.js';
 import { setBulkPill, clearBulkPill, bulkPillLayer } from '/utils/bulk-pill.js';
@@ -25,6 +25,16 @@ import { makeSortable } from '/utils/sortable.js';
 import { amountPlaceholder, formatMoney, currencyFractionDigits, centsToAmountInput, amountInputToCents, toDecimalString, breaksOffAtSeparator } from '/utils/money.js';
 import { startLiveFeed } from '/utils/live-feed.js';
 import { createPageController } from '/utils/page-lifecycle.js';
+import { normalizePantryQuantity } from '/utils/pantry-units.js';
+import {
+  enqueueKitchenOperation,
+  createKitchenClientId,
+  projectShoppingOperations,
+  isOfflineWriteError,
+  isBrowserOffline,
+  canQueueOffline,
+  startKitchenOutbox,
+} from '/utils/offline-kitchen.js';
 
 
 // --------------------------------------------------------
@@ -71,6 +81,7 @@ const state = {
   collapsedCategories: new Set(),
 };
 const pantryTransfersInFlight = new Set();
+let _kitchenOutboxBound = false;
 
 // --------------------------------------------------------
 // Hilfsfunktionen
@@ -590,6 +601,7 @@ async function toggleShoppingItem(id, checked, container) {
   }
 
   try {
+    if (isBrowserOffline() && canQueueOffline(state.currentUserId)) throw Object.assign(new Error('offline'), { status: 0 });
     acknowledgeOwnChange(await api.patch(`/shopping/items/${id}`, { is_checked: newVal }));
     // BEWUSST OHNE AUFRAEUMEN. Die Absicht faellt erst, wenn eine Ladeantwort
     // den Wert traegt (`settleIntents`) - der Erfolg allein beweist der Zeile
@@ -624,6 +636,25 @@ async function toggleShoppingItem(id, checked, container) {
     // EIGENE Schreibvorgang ist trotzdem gescheitert und gehoert gemeldet.
     const intent = intents.get(id);
     if (intent && intent.seq !== seq) return;
+    if (isOfflineWriteError(err) && canQueueOffline(state.currentUserId) && intent) {
+      try {
+        await enqueueKitchenOperation(state.currentUserId, {
+          type: 'shopping.check',
+          method: 'PATCH',
+          path: `/shopping/items/${id}`,
+          body: { is_checked: newVal },
+          listId,
+          entityType: 'shopping',
+          entityId: id,
+          projection: { is_checked: newVal },
+        });
+        if (item) item.pending_sync = true;
+        vibrate(10);
+        return;
+      } catch (queueError) {
+        err = queueError;
+      }
+    }
     if (intent) {
       // DIE ABSICHT FAELLT, mehr passiert nicht. Was die Zeile danach zeigt,
       // ist der Serverstand - der aktuellste, den wir haben, auch wenn eine
@@ -640,7 +671,7 @@ async function toggleShoppingItem(id, checked, container) {
       }
       renderTabs(container);
     }
-    window.yuvomi.showToast(err.data?.error ?? t('common.errorGeneric'), 'danger');
+    window.yuvomi?.showToast?.(err.data?.error ?? t('common.errorGeneric'), 'danger');
   }
 }
 
@@ -697,8 +728,33 @@ function deleteItemUndoable(id, container) {
     commit: async ({ keepalive }) => {
       let response;
       try {
-        response = await api.delete(`/shopping/items/${id}`, { keepalive });
+        if (isBrowserOffline() && canQueueOffline(state.currentUserId)) {
+          await enqueueKitchenOperation(state.currentUserId, {
+            type: 'shopping.delete',
+            method: 'DELETE',
+            path: `/shopping/items/${id}`,
+            listId,
+            entityType: 'shopping',
+            entityId: id,
+          });
+          response = { deleted: 1 };
+        } else {
+          response = await api.delete(`/shopping/items/${id}`, { keepalive });
+        }
       } catch (err) {
+        if (isOfflineWriteError(err) && canQueueOffline(state.currentUserId)) {
+          await enqueueKitchenOperation(state.currentUserId, {
+            type: 'shopping.delete',
+            method: 'DELETE',
+            path: `/shopping/items/${id}`,
+            listId,
+            entityType: 'shopping',
+            entityId: id,
+          });
+          pendingRemovals.delete(id);
+          intents.delete(id);
+          return;
+        }
         // Schlaegt das DELETE fehl, bringt `restore` die Zeile zurueck, und
         // jede Antwort darf sie wieder tragen - sofort, nicht erst spaeter.
         pendingRemovals.delete(id);
@@ -1358,7 +1414,7 @@ function renderItem(item) {
            data-item-id="${item.id}">
         ${renderItemCheck(item, isDone)}
         <div class="list-row__main">
-          <div class="list-row__name">${esc(item.name)}${renderItemMeta(item)}</div>
+          <div class="list-row__name">${esc(item.name)}${renderItemMeta(item)}${item.pending_sync ? `<span class="offline-sync-status" data-status="${item.sync_status === 'conflict' ? 'conflict' : 'pending'}" title="${esc(t(item.sync_status === 'conflict' ? 'common.syncNeedsReview' : 'common.pendingSync'))}">${esc(t(item.sync_status === 'conflict' ? 'common.syncNeedsReview' : 'common.pendingSync'))}</span>` : ''}</div>
           ${item.quantity || item.tags?.length ? `<div class="list-row__meta">
             ${item.quantity ? `<span class="shopping-item__quantity">${esc(item.quantity)}</span>` : ''}
             ${renderItemTags(item.tags)}
@@ -1639,9 +1695,36 @@ function wireQuickAdd(container) {
     if (!name) { nameInput.focus(); return; }
 
     try {
-      const data = await api.post(`/shopping/${state.activeListId}/items`, { name, quantity, category });
-      acknowledgeOwnChange(data);
-      state.items.push(data.data);
+      const payload = { name, quantity, category };
+      const operationId = createKitchenClientId();
+      const pendingOperation = {
+        operationId,
+        type: 'shopping.add',
+        method: 'POST',
+        path: `/shopping/${state.activeListId}/items`,
+        body: payload,
+        listId: state.activeListId,
+        localEntityType: 'shopping',
+        projection: { ...payload, is_checked: 0 },
+      };
+      let item;
+      if (isBrowserOffline() && canQueueOffline(state.currentUserId)) {
+        const queued = await enqueueKitchenOperation(state.currentUserId, pendingOperation);
+        item = { ...payload, id: queued.localId, is_checked: 0, pending_sync: true };
+      } else {
+        try {
+          const data = await api.post(`/shopping/${state.activeListId}/items`, payload, {
+            headers: { 'Idempotency-Key': `offline-kitchen:${operationId}` },
+          });
+          acknowledgeOwnChange(data);
+          item = data.data;
+        } catch (err) {
+          if (!isOfflineWriteError(err) || !canQueueOffline(state.currentUserId)) throw err;
+          const queued = await enqueueKitchenOperation(state.currentUserId, pendingOperation);
+          item = { ...payload, id: queued.localId, is_checked: 0, pending_sync: true };
+        }
+      }
+      state.items.push(item);
       // Einfügen in DOM ohne komplettes Re-Render
       updateItemsList(container);
       updateListCounter(state.activeListId, 1, 0);
@@ -1655,7 +1738,7 @@ function wireQuickAdd(container) {
       nameInput.classList.add('quick-add__input--flash');
       nameInput.addEventListener('animationend', () => nameInput.classList.remove('quick-add__input--flash'), { once: true });
     } catch (err) {
-      window.yuvomi.showToast(err.data?.error ?? t('common.errorGeneric'), 'danger');
+      window.yuvomi?.showToast?.(err.data?.error ?? t('common.errorGeneric'), 'danger');
     }
   });
 }
@@ -2409,20 +2492,36 @@ function parseShoppingQuantity(raw) {
   return { quantity, unit: match[2] ? match[2].toLowerCase() : 'pcs' };
 }
 
-function pantryTransferEntries(items, locationId) {
-  return items.map((item) => ({
-    shopping_item_id: Number(item.id),
-    ...parseShoppingQuantity(item.quantity),
-    location_id: locationId,
-  }));
+function pantryTransferEntries(items, locationId, pantryItems = [], inheritExistingLocation = true) {
+  return items.map((item) => {
+    const parsed = item.unit
+      ? { quantity: Number(item.quantity) || 1, unit: item.unit }
+      : parseShoppingQuantity(item.quantity);
+    const name = String(item.name ?? '').trim().toLowerCase();
+    const sameName = pantryItems.filter((pantryItem) =>
+      String(pantryItem.name ?? '').trim().toLowerCase() === name,
+    );
+    const sameCategory = sameName.filter((pantryItem) =>
+      pantryItem.category === item.category,
+    );
+    const knownLocations = new Set(sameName.map((pantryItem) => pantryItem.location_id ?? null));
+    const existing = inheritExistingLocation && sameCategory.length && knownLocations.size === 1
+      ? sameCategory[0]
+      : null;
+
+    return {
+      shopping_item_id: Number(item.id ?? item.shopping_item_id),
+      ...parsed,
+      location_id: existing ? (existing.location_id ?? null) : locationId,
+    };
+  });
 }
 
 /**
- * Übernahme-Dialog „Einkauf → Vorrat". Ein gemeinsamer Lagerort für alle
- * Artikel plus Menge/Einheit je Zeile: nach dem Einkauf räumt man einen Beutel
- * an einen Ort ein, nicht zwölf Artikel an zwölf Orte. Haltbarkeitsdaten bleiben
- * hier bewusst außen vor - sie sind die Ausnahme, nicht die Regel, und im
- * Vorrat einen Tap entfernt.
+ * Übernahme-Dialog „Einkauf → Vorrat". Ein Standardlagerort für neue Artikel
+ * plus Menge/Einheit je Zeile. Einträge, die Name und Einheit eines vorhandenen
+ * Vorratsartikels treffen, behalten dessen Ort; ein bewusst geänderter
+ * Standard überschreibt das für alle. Haltbarkeitsdaten bleiben hier außen vor.
  */
 async function openPantryTransfer(container) {
   // Der Uebertrag schreibt in den VORRAT (Pfad-Guard `pantry`) - die Frage
@@ -2432,9 +2531,11 @@ async function openPantryTransfer(container) {
   if (!checked.length) return;
 
   let locations = [];
+  let pantryItems = [];
   try {
-    const res = await api.get('/pantry/locations');
-    locations = res.data ?? [];
+    const res = await api.get('/pantry');
+    locations = res.locations ?? [];
+    pantryItems = res.data ?? [];
   } catch (err) {
     window.yuvomi.showToast(err.data?.error ?? t('common.errorGeneric'), 'danger');
     return;
@@ -2450,7 +2551,7 @@ async function openPantryTransfer(container) {
   const rows = checked.map((item) => {
     const parsed = parseShoppingQuantity(item.quantity);
     return `
-      <li class="pantry-transfer__row" data-id="${item.id}">
+      <li class="pantry-transfer__row" data-id="${item.id}" data-category="${esc(item.category ?? '')}">
         <span class="pantry-transfer__name">${esc(item.name)}</span>
         <input class="form-input pantry-transfer__qty" type="number" min="0" step="any" inputmode="decimal"
                value="${parsed.quantity}" aria-label="${esc(`${t('pantry.quantityLabel')}: ${item.name}`)}">
@@ -2471,6 +2572,7 @@ async function openPantryTransfer(container) {
           <option value="">${esc(t('pantry.unlocated'))}</option>
           ${locations.map((loc) => `<option value="${loc.id}">${esc(locationLabel(loc.name))}</option>`).join('')}
         </select>
+        <p class="form-hint">${esc(t('shopping.toPantryLocationHint'))}</p>
       </div>
       <ul class="pantry-transfer__list">${rows}</ul>
       <!-- Geteiltes .form-check (layout.css): 20px-Box in Modul-Akzent, Label mit
@@ -2490,9 +2592,12 @@ async function openPantryTransfer(container) {
         <button type="button" class="btn btn--primary" id="pantry-transfer-confirm">${esc(t('common.apply'))}</button>
       </div>`,
     onSave(panel) {
-      // Der erste Ort ist der wahrscheinlichste Standardwert; er ist zugleich
-      // der, den der Haushalt in der Lagerort-Verwaltung nach oben sortiert hat.
+      // Der erste Ort ist der Standard für neue Artikel; bestehende Treffer
+      // übernehmen ihren Ort separat in pantryTransferEntries().
       if (locations.length) panel.querySelector('#pantry-transfer-location').value = String(locations[0].id);
+      const locationSelect = panel.querySelector('#pantry-transfer-location');
+      let locationOverridden = false;
+      locationSelect.addEventListener('change', () => { locationOverridden = true; });
 
       panel.querySelector('#pantry-transfer-confirm').addEventListener('click', async (e) => {
         const btn = e.currentTarget;
@@ -2502,12 +2607,14 @@ async function openPantryTransfer(container) {
         const clearList = !readOnly() && Boolean(panel.querySelector('#pantry-transfer-clear')?.checked);
         const listId = state.activeListId;
 
-        const items = [...panel.querySelectorAll('.pantry-transfer__row')].map((row) => ({
+        const selectedItems = [...panel.querySelectorAll('.pantry-transfer__row')].map((row) => ({
           shopping_item_id: Number(row.dataset.id),
+          name: row.querySelector('.pantry-transfer__name').textContent,
+          category: row.dataset.category,
           quantity: Number(row.querySelector('.pantry-transfer__qty').value) || 1,
           unit: row.querySelector('.pantry-transfer__unit').value,
-          location_id: locationId,
         }));
+        const items = pantryTransferEntries(selectedItems, locationId, pantryItems, !locationOverridden);
 
         btn.disabled = true;
         try {
@@ -2530,12 +2637,14 @@ async function openPantryTransfer(container) {
           // Der Vorrat ist ein einziges Ziel, der Toast nennt ihn also schon. Was er
           // NICHT nennt, ist der Lagerort - und der ist die Wahl, die der Nutzer im
           // Dialog gerade getroffen hat.
-          const locationName = locationId
-            ? (locations.find((l) => String(l.id) === String(locationId))?.name ?? '')
+          const importedLocations = [...new Set(items.map((item) => item.location_id ?? null))];
+          const effectiveLocationId = importedLocations.length === 1 ? importedLocations[0] : null;
+          const locationName = effectiveLocationId
+            ? (locations.find((l) => String(l.id) === String(effectiveLocationId))?.name ?? '')
             : '';
           window.yuvomi.showToast(
             stored
-              ? (locationName
+              ? (importedLocations.length === 1 && locationName
                 ? t('shopping.toPantryDoneAt', { count: stored, location: locationLabel(locationName) })
                 : t('shopping.toPantryDone', { count: stored }))
               : t('shopping.toPantryNothing'),
@@ -2561,20 +2670,117 @@ async function transferCheckedToPantry(container, button) {
   pantryTransfersInFlight.add(listId);
   button.disabled = true;
   try {
-    const locationsResponse = await api.get('/pantry/locations');
-    const locationId = locationsResponse.data?.[0]?.id ?? null;
-    const result = await api.post('/pantry/import-shopping', {
-      list_id: listId,
-      items: pantryTransferEntries(checked, locationId),
+    const pantryResponse = await api.get('/pantry');
+    const pantryItems = pantryResponse.data ?? [];
+    const locationId = pantryResponse.locations?.[0]?.id ?? null;
+    const clientRefs = checked.map(() => createKitchenClientId());
+    const entries = pantryTransferEntries(checked, locationId, pantryItems)
+      .map((entry, index) => ({ ...entry, client_ref: clientRefs[index] }));
+    const projectionPantry = pantryItems.map((item) => ({ ...item }));
+    const changes = entries.map((entry, index) => {
+      const source = checked[index];
+      const existing = projectionPantry.find((item) =>
+        String(item.name ?? '').trim().toLowerCase() === String(source.name ?? '').trim().toLowerCase()
+        && item.unit === entry.unit
+        && item.category === source.category,
+      );
+      if (existing) {
+        existing.quantity = normalizePantryQuantity(
+          Number(existing.quantity) + Number(entry.quantity),
+          { fallback: Number(entry.quantity) },
+        );
+        const priorAdded = existing._clientRef
+          ? changes.find((change) => change.clientRef === existing._clientRef && change.item)
+          : null;
+        if (priorAdded) {
+          priorAdded.item.quantity = existing.quantity;
+          return { clientRef: clientRefs[index], existingId: null, quantity: existing.quantity };
+        }
+        return { clientRef: clientRefs[index], existingId: existing.id, quantity: existing.quantity };
+      }
+      const projectedItem = {
+        name: source.name,
+        quantity: normalizePantryQuantity(Number(entry.quantity), { fallback: 1 }),
+        unit: entry.unit,
+        location_id: entry.location_id ?? null,
+        category: source.category,
+        expires_on: null,
+        min_quantity: null,
+        restock_interval_days: 30,
+        notes: null,
+        _clientRef: clientRefs[index],
+      };
+      projectionPantry.push(projectedItem);
+      const visibleItem = { ...projectedItem };
+      delete visibleItem._clientRef;
+      return { clientRef: clientRefs[index], item: visibleItem };
     });
+    const operationId = createKitchenClientId();
+    const queuedTransfer = {
+      operationId,
+      type: 'pantry.fromShopping',
+      method: 'POST',
+      path: '/pantry/import-shopping',
+      body: { list_id: listId, items: entries },
+      listId,
+      shoppingIds: checked.map((item) => item.id),
+      localEntities: clientRefs.map((clientRef) => ({ entityType: 'pantry', clientRef })),
+      projection: { changes },
+      deleteChecked: {
+        path: `/shopping/${listId}/items/checked`,
+        ids: checked.map((item) => item.id),
+      },
+    };
+    let result;
+    if (isBrowserOffline() && canQueueOffline(state.currentUserId)) {
+      await enqueueKitchenOperation(state.currentUserId, queuedTransfer);
+      state.items = state.items.filter((item) => !checked.some((selected) => selected.id === item.id));
+      state.items = await projectShoppingOperations(state.items, state.currentUserId, listId);
+      updateItemsList(container);
+      updateListCounter(listId, -checked.length, -checked.length);
+      renderTabs(container);
+      window.yuvomi?.showToast?.(t('common.pendingSync'), 'info');
+      return;
+    }
+    try {
+      result = await api.post('/pantry/import-shopping', queuedTransfer.body, {
+        headers: { 'Idempotency-Key': `offline-kitchen:${operationId}` },
+      });
+    } catch (err) {
+      if (!isOfflineWriteError(err) || !canQueueOffline(state.currentUserId)) throw err;
+      await enqueueKitchenOperation(state.currentUserId, queuedTransfer);
+      state.items = state.items.filter((item) => !checked.some((selected) => selected.id === item.id));
+      state.items = await projectShoppingOperations(state.items, state.currentUserId, listId);
+      updateItemsList(container);
+      updateListCounter(listId, -checked.length, -checked.length);
+      renderTabs(container);
+      window.yuvomi?.showToast?.(t('common.pendingSync'), 'info');
+      return;
+    }
     const stored = (result.data?.added ?? 0) + (result.data?.merged ?? 0);
 
     if (stored && !readOnly()) {
       const itemIds = checked.map((item) => Number(item.id));
-      const removed = await api.delete(`/shopping/${listId}/items/checked`, {
-        body: JSON.stringify({ ids: itemIds }),
-      });
-      acknowledgeOwnChange(removed);
+      let removed;
+      let deleteQueued = false;
+      try {
+        removed = await api.delete(`/shopping/${listId}/items/checked`, {
+          body: JSON.stringify({ ids: itemIds }),
+        });
+        acknowledgeOwnChange(removed);
+      } catch (err) {
+        if (!isOfflineWriteError(err) || !canQueueOffline(state.currentUserId)) throw err;
+        await enqueueKitchenOperation(state.currentUserId, {
+          type: 'shopping.transferRemove',
+          method: 'DELETE',
+          path: `/shopping/${listId}/items/checked`,
+          body: { ids: itemIds },
+          listId,
+          shoppingIds: itemIds,
+        });
+        removed = { deleted: itemIds.length };
+        deleteQueued = true;
+      }
       const deleted = Number(removed.deleted) || 0;
       updateListCounter(listId, -deleted, -deleted);
       if (state.activeListId === listId && container.isConnected) {
@@ -2587,6 +2793,7 @@ async function transferCheckedToPantry(container, button) {
         updateItemsList(container);
       }
       renderTabs(container);
+      if (deleteQueued) window.yuvomi?.showToast(t('common.pendingSync'), 'info');
     }
 
     window.yuvomi?.showToast(
@@ -2978,7 +3185,12 @@ async function loadItems(listId) {
     // Die Wache darueber deckt das nicht ab: dieselbe Liste, zwei Rundlaeufe.
     // Nur eine netzfrische Antwort setzt die Marke - bei wackligem Netz scheitert
     // die spaeter begonnene Anfrage oft zuerst und wird aus dem Cache bedient.
-    if (startedAt < (_appliedLoad.get(listId) ?? 0)) return;
+    if (startedAt < (_appliedLoad.get(listId) ?? 0)) {
+      if (state.activeListId === listId && _itemsListId === listId) {
+        state.items = await projectShoppingOperations(state.items, state.currentUserId, listId);
+      }
+      return;
+    }
     // EINE GECACHTE ANTWORT ERSETZT KEINEN FRISCHEREN STAND. Sie ist beliebig
     // alt; steht fuer diese Liste schon etwas Netzfrisches, waere sie ein
     // Rueckschritt - offline gehoert der zuletzt bekannte Stand auf den Schirm,
@@ -2987,7 +3199,10 @@ async function loadItems(listId) {
     // ... aber nur, wenn `state.items` diese Liste ueberhaupt zeigt. Gehoert der
     // Bestand einer anderen, ist die gecachte Antwort das Beste, was es gibt -
     // und allemal besser als die Artikel der falschen Liste.
-    if (fromCache && _appliedLoad.has(listId) && _itemsListId === listId) return;
+    if (fromCache && _appliedLoad.has(listId) && _itemsListId === listId) {
+      state.items = await projectShoppingOperations(state.items, state.currentUserId, listId);
+      return;
+    }
     if (!fromCache) _appliedLoad.set(listId, startedAt);
 
     // `state.items` traegt NUR den Serverstand - die Absichten liegen daneben und
@@ -3015,7 +3230,7 @@ async function loadItems(listId) {
         if (alt) item.is_checked = alt.is_checked;
       }
     }
-    state.items = frisch;
+    state.items = await projectShoppingOperations(frisch, state.currentUserId, listId);
     _itemsListId = listId;
     settleIntents(state.items, listId, { fromCache, startedAt });
     state.activeList = data.list ?? null;
@@ -3682,6 +3897,23 @@ async function openCategoryManager(container, { fromDeepLink = false } = {}) {
 
 export async function render(container, { user, signal: routeSignal = null } = {}) {
   state.currentUserId = user?.id ?? null;
+  startKitchenOutbox(state.currentUserId, (method, path, body, headers) =>
+    api.request(method, path, body, { headers, ...(method === 'DELETE' && body ? { body: JSON.stringify(body) } : {}) }));
+  if (!_kitchenOutboxBound) {
+    window.addEventListener('kitchen:outbox-changed', (event) => {
+      if (Number(event.detail?.ownerId) !== Number(state.currentUserId) || !state.activeListId) return;
+      loadItems(state.activeListId).then(() => {
+        const content = document.querySelector('#list-content');
+        if (content) updateItemsList(content);
+      }).catch((error) => console.error('[Shopping] Could not refresh the offline queue projection:', error));
+    });
+    window.addEventListener('kitchen:outbox-error', (event) => {
+      if (Number(event.detail?.ownerId) === Number(state.currentUserId)) {
+        window.yuvomi?.showToast(event.detail.error?.data?.error ?? t('common.syncNeedsReview'), 'danger');
+      }
+    });
+    _kitchenOutboxBound = true;
+  }
   _routeSignal = routeSignal;
   // Ein Seitenaufbau ist immer ein neuer Batch fuer die Sammelaktions-Pille -
   // eine Frist der vorherigen Seite darf diese hier nicht treffen (#1039).

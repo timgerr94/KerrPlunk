@@ -3,7 +3,7 @@ import { t } from '/i18n.js';
 import { esc } from '/utils/html.js';
 import { caldavTargetValue, SYNC_TARGET_LOCAL } from '/utils/sync-target.js';
 import { getPreferences, savePreferences } from '/settings/preferences-cache.js';
-import { createRetryState } from '/settings/components.js';
+import { createRetryState, toggleRowHtml } from '/settings/components.js';
 
 /**
  * Standardwerte, die nur für die eigenen neuen Aufgaben gelten (#695).
@@ -127,6 +127,16 @@ function renderPage(container, preferences, lists, user) {
       <div class="settings-card">
         <p class="settings-card-description">${t('settings.tasksDefaultsDescription')}</p>
 ${body}      </div>
+      <div class="settings-card">
+        <h3 class="settings-card__title">${t('settings.tasksSplitViewTitle')}</h3>
+        <p class="form-hint">${t('settings.tasksSplitViewHint')}</p>
+        ${toggleRowHtml({
+          control: 'switch',
+          label: t('settings.tasksSplitViewLabel'),
+          checked: preferences.tasks_split_view === true,
+          attrs: { id: 'tasks-split-view' },
+        })}
+      </div>
     </section>
   `);
 }
@@ -138,6 +148,20 @@ function bindEvents(container) {
     if (!window.yuvomi?.navigate) return;
     event.preventDefault();
     window.yuvomi.navigate(SYNC_REMINDERS_PATH);
+  });
+
+  const splitView = container.querySelector('#tasks-split-view');
+  splitView?.addEventListener('change', async () => {
+    splitView.disabled = true;
+    try {
+      await savePreferences({ tasks_split_view: splitView.checked });
+      window.yuvomi?.showToast(t('settings.tasksSplitViewSaved'), 'success');
+    } catch (error) {
+      splitView.checked = !splitView.checked;
+      window.yuvomi?.showToast(error.message || t('common.errorGeneric'), 'danger');
+    } finally {
+      if (splitView.isConnected) splitView.disabled = false;
+    }
   });
 
   const select = container.querySelector('#tasks-default-target');

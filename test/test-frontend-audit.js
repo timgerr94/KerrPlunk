@@ -1333,10 +1333,17 @@ test('visual skin stays independent from the light and dark theme mode', () => {
   assert.match(shell, /href="\/styles\/skins\.css"/);
   assert.match(skin, /"IM Fell English"/);
   assert.match(skin, /"party-business-font-f2250"/);
+  assert.match(skin, /"Ringbearer"/);
   assert.match(skin, /\/fonts\/IMFellEnglish-Regular\.ttf/);
   assert.match(skin, /\/fonts\/PartyBusiness-4B0K\.ttf/);
+  assert.match(skin, /\/fonts\/RingbearerMedium-51mgZ\.ttf/);
+  assert.match(skin, /--font-heading-major:\s*"party-business-font-f2250"/);
+  assert.match(skin, /--font-heading-medium:\s*"Ringbearer"/);
+  assert.match(skin, /h1,[\s\S]*?font-family:\s*var\(--font-heading-major\)/);
+  assert.match(skin, /h2,[\s\S]*?font-family:\s*var\(--font-heading-medium\)/);
   assert.match(sw, /'\/fonts\/IMFellEnglish-Regular\.ttf'/);
   assert.match(sw, /'\/fonts\/PartyBusiness-4B0K\.ttf'/);
+  assert.match(sw, /'\/fonts\/RingbearerMedium-51mgZ\.ttf'/);
   assert.match(skin, /\[data-theme="dark"\]/);
 });
 
@@ -1642,6 +1649,10 @@ test('module-specific settings leaves only reference their owned preferences and
     '../public/settings/pages/modules-options.js': {
       endpoints: ['/preferences'],
       preferences: ['budget_mode', 'health_cycle_enabled', 'housekeeping_payment_tasks', 'tasks_subtasks_expanded', 'schedule_hidden_templates'],
+    },
+    '../public/settings/pages/personal-tasks.js': {
+      endpoints: ['/tasks/sync-targets'],
+      preferences: ['tasks_default_target', 'tasks_split_view'],
     },
   };
 
@@ -2141,6 +2152,9 @@ test('documents-storage leaf owns hybrid document storage with a status-first la
 
   // Connection fields live behind an accessible disclosure.
   assert.match(source, /createDisclosure\(/);
+  assert.match(source, /id="document-storage-username" name="webdav_username" autocomplete="off"/);
+  assert.match(source, /id="document-storage-password" name="webdav_password"[\s\S]{0,80}autocomplete="off"/);
+  assert.doesNotMatch(source, /id="document-storage-password"[\s\S]{0,80}autocomplete="(?:current|new)-password"/);
 
   // Protected-change detection + confirm before save.
   assert.match(source, /hasProtectedDocumentStorageChange/);
@@ -2163,6 +2177,8 @@ test('documents-dms leaf owns DMS account management (Paperless + Papra)', () =>
   assert.match(source, /\/documents\/dms\/accounts\/\$\{[^}]+\}\/test/);
   assert.match(source, /value="paperless"/);
   assert.match(source, /value="papra"/);
+  assert.match(source, /id="dms-url" name="base_url" autocomplete="url"/);
+  assert.match(source, /id="dms-token" name="api_token" required autocomplete="new-password"/);
 
   // DMS leaf must not own storage concerns.
   assert.doesNotMatch(source, /\/documents\/storage/);
