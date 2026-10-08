@@ -2037,9 +2037,14 @@ function openMealModal(opts) {
         ingList.insertAdjacentHTML('beforeend', (recipe.ingredients || [])
           .map((ing) => ingredientRowHTML({
             name: ing.name,
+            // Das Rezept bringt Menge und Einheit getrennt mit; die Mahlzeit hat
+            // seit v238 dasselbe Feld. Die Menge wird skaliert, die Einheit zieht
+            // unveraendert um - kein Zusammenziehen mehr noetig.
             quantity: scaleQuantityText(ing.quantity ?? '', factor),
+            unit: ing.unit ?? '',
             category: ing.category ?? DEFAULT_CATEGORY_NAME,
             categories: mealCategories(),
+            withUnit: true,
           }))
           .join(''));
 
@@ -2075,8 +2080,10 @@ function openMealModal(opts) {
           .map((ing) => ingredientRowHTML({
             name: ing.name,
             quantity: scaleQuantityText(ing.quantity ?? '', Math.max(factor, 0.1)),
+            unit: ing.unit ?? '',
             category: ing.category ?? DEFAULT_CATEGORY_NAME,
             categories: mealCategories(),
+            withUnit: true,
           }))
           .join(''));
 
@@ -2097,6 +2104,7 @@ function openMealModal(opts) {
         const ingredients = collectModalIngredients(panel).map((ing) => ({
           name: ing.name,
           quantity: ing.quantity,
+          unit: ing.unit,
           category: ing.category,
         }));
 
@@ -2124,7 +2132,7 @@ function openMealModal(opts) {
 
       addIngBtn.addEventListener('click', () => {
         const tmp  = document.createElement('div');
-        tmp.insertAdjacentHTML('beforeend', ingredientRowHTML({ categories: mealCategories() }));
+        tmp.insertAdjacentHTML('beforeend', ingredientRowHTML({ categories: mealCategories(), withUnit: true }));
         const row = tmp.firstElementChild;
         ingList.appendChild(row);
         if (window.lucide) lucide.createIcons({ el: ingList });
@@ -2370,9 +2378,11 @@ function buildModalContent({ mode, date, mealType, meal, fromSlot = false, recip
     ? meal.ingredients.map((ing) => ingredientRowHTML({
         name: ing.name,
         quantity: ing.quantity ?? '',
+        unit: ing.unit ?? '',
         id: ing.id,
         category: ing.category ?? DEFAULT_CATEGORY_NAME,
         categories: mealCategories(),
+        withUnit: true,
       })).join('')
     : '';
 
@@ -2694,7 +2704,7 @@ async function saveModal(overlay) {
           if (!keptIds.has(id)) await api.delete(`/meals/ingredients/${id}`);
         }
         for (const ing of ingredients) {
-          if (!ing.id) await api.post(`/meals/${meal.id}/ingredients`, { name: ing.name, quantity: ing.quantity, category: ing.category });
+          if (!ing.id) await api.post(`/meals/${meal.id}/ingredients`, { name: ing.name, quantity: ing.quantity, unit: ing.unit, category: ing.category });
         }
       }
 
@@ -2719,8 +2729,9 @@ function collectModalIngredients(overlay) {
   overlay.querySelectorAll('.ingredient-row').forEach((row) => {
     const name = row.querySelector('.ingredient-row__name').value.trim();
     const qty = row.querySelector('.ingredient-row__qty').value.trim() || null;
+    const unit = row.querySelector('.ingredient-row__unit')?.value.trim() || null;
     const category = row.querySelector('.ingredient-row__cat')?.value || DEFAULT_CATEGORY_NAME;
-    if (name) ingredients.push({ name, quantity: qty, category, id: row.dataset.ingId || null });
+    if (name) ingredients.push({ name, quantity: qty, unit, category, id: row.dataset.ingId || null });
   });
   return ingredients;
 }

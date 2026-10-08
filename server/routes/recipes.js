@@ -17,6 +17,24 @@ import { mayReadModule, mayWriteModule } from '../permissions.js';
 const log = createLogger('Recipes');
 const router = express.Router();
 
+/**
+ * quantity + unit zu EINEM Anzeigetext zusammenziehen.
+ *
+ * recipe_ingredients traegt seit v237 Menge und Einheit getrennt, damit die
+ * Anzeige im Rezept sie einzeln zeigen und ein spaeteres Skalieren die Einheit
+ * unangetastet lassen kann. Nach aussen in die Einkaufsliste gilt weiterhin das
+ * alte, flache Format: shopping_items.quantity ist ein einzelner Text, und
+ * server/services/shopping-import.js#parseQuantity liest ihn mit einer Regex
+ * wieder ein - "500" + "g" getrennt zu uebergeben gaebe dort keinen Platz fuer
+ * die zweite Spalte. Hier ist die einzige Stelle, an der beide zusammenlaufen.
+ */
+function flattenQuantity(quantity, unit) {
+  const q = String(quantity ?? '').trim();
+  const u = String(unit ?? '').trim();
+  if (!u) return q || null;
+  return q ? `${q} ${u}` : u;
+}
+
 // Nicht-skriptfähige Rasterformate (kein SVG), dieselbe Allowlist wie der
 // DMS-Vorschau-Proxy (server/routes/dms.js) - dort wie hier landet ein
 // Content-Type, den ein Drittsystem liefert, direkt im Response-Header.
@@ -204,15 +222,16 @@ router.post('/', (req, res) => {
 
       const rid = Number(result.lastInsertRowid);
       const insertIng = db.get().prepare(`
-        INSERT INTO recipe_ingredients (recipe_id, name, quantity, category)
-        VALUES (?, ?, ?, ?)
+        INSERT INTO recipe_ingredients (recipe_id, name, quantity, unit, category)
+        VALUES (?, ?, ?, ?, ?)
       `);
 
       for (const ing of ingredients) {
         const name = String(ing.name || '').trim().slice(0, MAX_TITLE);
         const quantity = String(ing.quantity || '').trim().slice(0, MAX_SHORT) || null;
+        const unit = String(ing.unit || '').trim().slice(0, MAX_SHORT) || null;
         const category = String(ing.category || '').trim().slice(0, MAX_SHORT) || 'Sonstiges';
-        if (name) insertIng.run(rid, name, quantity, category);
+        if (name) insertIng.run(rid, name, quantity, unit, category);
       }
 
       return rid;
@@ -277,15 +296,16 @@ router.put('/:id', (req, res) => {
       db.get().prepare('DELETE FROM recipe_ingredients WHERE recipe_id = ?').run(id);
 
       const insertIng = db.get().prepare(`
-        INSERT INTO recipe_ingredients (recipe_id, name, quantity, category)
-        VALUES (?, ?, ?, ?)
+        INSERT INTO recipe_ingredients (recipe_id, name, quantity, unit, category)
+        VALUES (?, ?, ?, ?, ?)
       `);
 
       for (const ing of ingredients) {
         const name = String(ing.name || '').trim().slice(0, MAX_TITLE);
         const quantity = String(ing.quantity || '').trim().slice(0, MAX_SHORT) || null;
+        const unit = String(ing.unit || '').trim().slice(0, MAX_SHORT) || null;
         const category = String(ing.category || '').trim().slice(0, MAX_SHORT) || 'Sonstiges';
-        if (name) insertIng.run(id, name, quantity, category);
+        if (name) insertIng.run(id, name, quantity, unit, category);
       }
 
       // VERWAISTE ZUORDNUNGEN ABRAEUMEN, IN DERSELBEN TRANSAKTION (#1314).
@@ -485,7 +505,7 @@ router.post('/:id/to-shopping-list', (req, res) => {
     if (!list) return res.status(404).json({ error: 'Shopping list not found.', code: 404 });
 
     const ingredients = db.get().prepare(
-      'SELECT name, quantity, category FROM recipe_ingredients WHERE recipe_id = ? ORDER BY id ASC',
+      'SELECT name, quantity, unit, category FROM recipe_ingredients WHERE recipe_id = ? ORDER BY id ASC',
     ).all(id);
     if (!ingredients.length) return res.json({ data: { transferred: 0, skipped: 0, added_ids: [] } });
 
@@ -505,7 +525,7 @@ router.post('/:id/to-shopping-list', (req, res) => {
       for (const ing of ingredients) {
         const key = ing.name.trim().toLowerCase();
         if (present.has(key)) { skipped += 1; continue; }
-        const info = insertItem.run(vList.value, ing.name, ing.quantity, ing.category || 'Sonstiges');
+        const info = insertItem.run(vList.value, ing.name, flattenQuantity(ing.quantity, ing.unit), ing.category || 'Sonstiges');
         present.add(key);
         addedIds.push(Number(info.lastInsertRowid));
       }

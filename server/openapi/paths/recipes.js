@@ -4,13 +4,13 @@ export function recipesPaths() {
   return {
     '/api/v1/recipes': {
       get: op({ summary: 'List recipes', tag: 'Recipes', description: 'Every ingredient carries `pantry_item_id` and `pantry_item_name`, the household\'s own confirmed match to one row of its pantry, both `null` when there is none. They name a row of the `pantry` module although this path belongs to `meals`, so they are also `null` for a member whose pantry access is `none` and for a token that carries no pantry scope - the ingredient itself stays, simply unmatched.' }),
-      post: op({ summary: 'Create recipe', tag: 'Recipes', stateChanging: true, requestBody: jsonBody(null) }),
+      post: op({ summary: 'Create recipe', tag: 'Recipes', stateChanging: true, requestBody: jsonBody(null), description: 'Body: `{ title, notes?, recipe_url?, meal_types?, image_data?, ingredients? }`. Each ingredient is `{ name, quantity?, unit?, category? }`; `quantity` and `unit` are free text stored separately (`unit` since 2.72.0), so `"500"` + `"g"` and `"500 g"` + nothing are both valid. `category` defaults to `Sonstiges`; an ingredient with an empty `name` is skipped. When ingredients are transferred to a shopping list, `quantity` and `unit` are joined into that list\'s single `quantity` text.' }),
     },
     '/api/v1/recipes/{id}': {
       put: op({
         summary: 'Update recipe',
         tag: 'Recipes',
-        description: 'Replaces the recipe including its whole ingredient list - the ingredient rows are deleted and reinserted, so their ids change on every save. Confirmed pantry matches are keyed by the ingredient name and survive that; a match whose ingredient is no longer in the recipe is deleted in the same transaction rather than left behind, so renaming an ingredient really drops its match instead of hiding one that could come back. The response follows the same pantry-access rule as the list.',
+        description: 'Replaces the recipe including its whole ingredient list - the ingredient rows are deleted and reinserted, so their ids change on every save. Each ingredient is `{ name, quantity?, unit?, category? }` with `quantity` and `unit` stored separately as free text. Confirmed pantry matches are keyed by the ingredient name and survive that; a match whose ingredient is no longer in the recipe is deleted in the same transaction rather than left behind, so renaming an ingredient really drops its match instead of hiding one that could come back. The response follows the same pantry-access rule as the list.',
         params: [idParam()],
         stateChanging: true,
         requestBody: jsonBody(null),
@@ -21,7 +21,7 @@ export function recipesPaths() {
       post: op({
         summary: 'Transfer recipe ingredients to shopping list',
         tag: 'Recipes',
-        description: 'Creates shopping items, so it requires write access to the `shopping` module in addition to `meals` (which owns `/recipes`) - a credential scoped to the recipes alone is refused with 403.',
+        description: 'Creates shopping items, so it requires write access to the `shopping` module in addition to `meals` (which owns `/recipes`) - a credential scoped to the recipes alone is refused with 403. Each ingredient\'s `quantity` and `unit` are joined into the shopping item\'s single `quantity` text ("500" + "g" becomes "500 g"); the unit is not a separate field there.',
         params: [idParam()],
         stateChanging: true,
         requestBody: jsonBody(null),

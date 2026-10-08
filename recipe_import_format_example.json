@@ -1,0 +1,52 @@
+{
+  "id": 47,
+
+  "name": "string",
+  "meal": ["Dinner", "Lunch", "Breakfast", "Snack"],
+  "tags": ["vegan", "gluten-free", "30-minute"],
+
+  "recipeLink": "string",
+  "image": "string",
+
+  "servings": 4,
+
+  "prepTime": "10 minutes",
+  "cookTime": "30 minutes",
+
+  "cuisine": "Indian",
+  "diet": ["vegan", "gluten-free"],
+
+  "ingredients": [
+    {
+      "name": "string",
+      "quantity": "string",
+      "unit": "string",
+      "category": "Produce | Dairy | Meat & Eggs | Frozen | Bakery | Canned & Jars | Health Market | Juice & Beverages | Miscellaneous",
+      "note": "string",
+
+      "nutrition": {
+        "calories": 0,
+        "protein": 0,
+        "fat": 0,
+        "carbs": 0,
+        "fiber": 0,
+        "sodium": 0
+      }
+    }
+  ],
+
+  "instructionsRich": [
+    "Step 1...",
+    "Step 2...",
+    "Step 3..."
+  ],
+
+  "nutritionSummary": {
+    "calories": 0,
+    "protein": 0,
+    "fat": 0,
+    "carbs": 0,
+    "fiber": 0,
+    "sodium": 0
+  }
+}

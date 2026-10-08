@@ -16,11 +16,12 @@ const FALLBACK_CATEGORY = 'Sonstiges';
 // diesen Sprachen befüllt sein können. Reihenfolge ist irrelevant, die erste
 // Übereinstimmung zählt.
 const KEYWORDS = {
-  'Obst & Gemüse': [
+  'Produce': [
     'apple', 'apfel', 'banana', 'banane', 'tomato', 'tomate', 'onion', 'zwiebel',
     'garlic', 'knoblauch', 'potato', 'kartoffel', 'carrot', 'karotte', 'lemon',
     'zitrone', 'lime', 'pepper', 'paprika', 'lettuce', 'salat', 'spinach', 'spinat',
     'cucumber', 'gurke', 'vegetable', 'gemüse', 'fruit', 'obst', 'herb', 'kräuter',
+<<<<<<< HEAD
     'basil', 'basilikum', 'parsley', 'petersilie', 'mushroom', 'pilz', 'løk', 'rødløk',
     'vårløk', 'hvitløk', 'potet', 'poteter', 'gulrot', 'gulrøtter', 'tomat', 'tomater',
     'agurk', 'brokkoli', 'blomkål', 'kål', 'purre', 'sopp', 'sitron', 'eple', 'epler',
@@ -35,10 +36,25 @@ const KEYWORDS = {
     'milk', 'milch', 'cheese', 'käse', 'butter', 'cream', 'sahne', 'yogurt',
     'joghurt', 'egg', 'ei', 'eier', 'melk', 'lettmelk', 'helmelk', 'ost',
     'smør', 'fløte', 'matfløte', 'kremfløte', 'rømme', 'yoghurt',
+=======
+    'basil', 'basilikum', 'parsley', 'petersilie', 'mushroom', 'pilz','lettuce','greens',
+    'kale', 'grünkohl','pineapple','berries','mango','mangoes','zucchini','greens','pear',
+    'aprikose','apricot','berry','beere','strawberry','erdbeere','blueberry','heidelbeere',
+    'raspberry','himbeere','avacado','peach'
   ],
-  'Fleisch & Fisch': [
+  'Backwaren': [
+    'flour', 'mehl', 'bread', 'baking powder', 'backpulver', 'yeast',
+    'hefe', 'bun', 'brötchen', 'tortilla', 'noodle', 'nudel', 'pasta',
+  ],
+  'Milchprodukte': [
+    'milk', 'milch', 'cheese', 'käse', 'butter', 'cream', 'sahne', 'yogurt',
+    'joghurt','ghee','ricotta',
+>>>>>>> ba5d29180 (Commit 10/8/2026)
+  ],
+  'Meat & Eggs': [
     'chicken', 'hähnchen', 'huhn', 'beef', 'rind', 'pork', 'schwein', 'fish',
     'fisch', 'salmon', 'lachs', 'shrimp', 'garnele', 'bacon', 'speck', 'sausage',
+<<<<<<< HEAD
     'wurst', 'meat', 'fleisch', 'kylling', 'kyllingfilet', 'kjøtt', 'kjøttdeig',
     'svinekjøtt', 'storfe', 'fisk', 'laks', 'torsk', 'reker', 'pølse', 'pølser', 'skinke',
   ],
@@ -46,6 +62,15 @@ const KEYWORDS = {
   'Getränke': ['juice', 'saft', 'wine', 'wein', 'beer', 'bier', 'water', 'wasser', 'soda', 'cola', 'vin', 'øl', 'vann', 'brus'],
   'Haushalt': ['foil', 'folie', 'napkin', 'serviette', 'detergent', 'waschmittel', 'aluminiumsfolie', 'servietter', 'vaskemiddel', 'oppvaskmiddel'],
   'Drogerie': ['soap', 'seife', 'shampoo', 'toothpaste', 'zahnpasta', 'såpe', 'sjampo', 'tannkrem'],
+=======
+    'wurst', 'meat', 'fleisch', 'egg', 'ei', 'eier','ham','prosciutto','beef','turkey',
+    'tuna','crab','lobster','tilapia','catfish','salami','bologna','pastrami','corned beef',
+  ],
+  'Tiefkühl': ['frozen', 'tiefkühl', 'tiefgefroren', 'ice cream', 'eis','popsicle','ice'],
+  'Juice & Beverages': ['juice', 'saft', 'wine', 'wein', 'beer', 'bier', 'water', 'wasser', 'soda', 'cola', 'tea', 'tee','pop','prosecco','liquer','coke','spindrift'],
+  'Haushalt': ['shampoo','foil', 'folie', 'napkin', 'serviette', 'detergent', 'waschmittel','paper','utensils','cleaner','spoon', 'fork', 'knife','towel','soap','toothpaste','brush','bürste','scrub'],
+  'Drogerie': ['seife','zahnpasta'],
+>>>>>>> ba5d29180 (Commit 10/8/2026)
 };
 
 function escapeRegex(text) {

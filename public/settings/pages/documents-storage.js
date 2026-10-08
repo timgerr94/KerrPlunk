@@ -106,14 +106,14 @@ function buildConnectionForm() {
     </div>
     <div class="form-group">
       <label class="form-label" for="document-storage-username">${t("settings.documentStorageUsername")}</label>
-      <input class="form-input" type="text" id="document-storage-username" name="username" autocomplete="off" />
+      <input class="form-input" type="text" id="document-storage-username" name="webdav_username" autocomplete="off" />
       <span class="form-hint" data-env-hint="username" hidden>${t("settings.documentStorageEnvHint")}</span>
     </div>
     <div class="form-group">
       <label class="form-label" for="document-storage-password">${t("settings.documentStoragePassword")}</label>
       <div class="settings-webdav-pw-wrap">
-        <input class="form-input" type="password" id="document-storage-password" name="password"
-          autocomplete="current-password" placeholder="${t("settings.documentStoragePasswordPlaceholder")}" />
+        <input class="form-input" type="password" id="document-storage-password" name="webdav_password"
+          autocomplete="off" placeholder="${t("settings.documentStoragePasswordPlaceholder")}" />
         <button type="button" class="btn btn--icon btn--ghost settings-webdav-reveal-btn"
           data-reveal-target="document-storage-password" aria-label="${t("common.togglePasswordVisibility")}">
           <i data-lucide="eye" aria-hidden="true"></i>

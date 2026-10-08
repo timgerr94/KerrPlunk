@@ -14,10 +14,10 @@
  *          POST /housekeeping/supply-requests -> legt shopping_items an und,
  *               wenn der Haushalt noch keine hat, eine Einkaufsliste (#1351)
  *
- *        Dazu die Gegenfrage beim LESEN: `POST /pantry/import-shopping` liest
- *        abgehakte Einkaufsartikel, `POST /shopping/:listId/import-pantry`
- *        liest Vorratszeilen. Der Pfad-Guard misst jeweils nur das Ziel, die
- *        Route fragt deshalb selbst nach dem Leserecht der Quelle.
+ *        Dazu die Gegenfrage beim LESEN und SCHREIBEN: `POST /pantry/import-shopping`
+ *        liest abgehakte Einkaufsartikel, `POST /shopping/:listId/import-pantry`
+ *        liest und veraendert Vorratszeilen. Der Pfad-Guard misst jeweils nur
+ *        das Ziel, die Route fragt deshalb nach den Rechten der Quelle.
  *
  *        Dazu die Ruecknahme `POST /shopping/items/undo-transfer`, die dasselbe
  *        Flag zurueckdreht - aber nur fuer Artikel aus einem Mahlzeit-Uebertrag
@@ -556,9 +556,7 @@ test('Mitglied mit pantry: none liest den Vorrat nicht ueber den Einkauf', async
   );
 });
 
-test('Leserecht auf die Quelle reicht: Import ist kein Schreibvorgang in der Quelle', async () => {
-  // OHNE DIESEN FALL WAERE EIN RIEGEL AUF `write` GRUEN: der Import liest die
-  // Quelle nur, loescht und aendert dort nichts.
+test('Vorrat → Einkauf braucht Schreibrecht, weil der Transfer Vorratsbestand ändert', async () => {
   asMember({});
   const shoppingItem = seedCheckedItem('Quelle-Einkauf-lesend');
   const pantryItem = seedPantryItem('Quelle-Vorrat-lesend');
@@ -572,8 +570,22 @@ test('Leserecht auf die Quelle reicht: Import ist kein Schreibvorgang in der Que
 
   asMember({ pantry: 'read' });
   const r2 = await call('POST', `/shopping/${LIST}/import-pantry`, { items: [{ pantry_item_id: pantryItem }] });
-  assert.equal(r2.status, 200);
-  assert.equal(r2.body.data.added, 1);
+  assertDeniedShape(r2, 'pantry: read darf den Transfer mit Bestandsänderung nicht ausführen');
+
+  asMember({ pantry: 'write' });
+  const r3 = await call('POST', `/shopping/${LIST}/import-pantry`, { items: [{ pantry_item_id: pantryItem }] });
+  assert.equal(r3.status, 200);
+  assert.equal(r3.body.data.added, 1);
+  assert.equal(db.prepare('SELECT quantity FROM pantry_items WHERE id = ?').get(pantryItem).quantity, 0);
+  asMember({ pantry: 'read' });
+  assertDeniedShape(
+    await call('POST', '/shopping/items/undo-transfer', { ids: r3.body.data.added_ids }),
+    'Undo stellt Pantrybestand wieder her und braucht daher pantry: write',
+  );
+  asMember({ pantry: 'write' });
+  const undo = await call('POST', '/shopping/items/undo-transfer', { ids: r3.body.data.added_ids });
+  assert.equal(undo.status, 200);
+  assert.equal(db.prepare('SELECT quantity FROM pantry_items WHERE id = ?').get(pantryItem).quantity, 1);
 });
 
 test('Token ohne Scope auf die Quelle importiert nicht', async () => {
@@ -599,7 +611,7 @@ test('Token ohne Scope auf die Quelle importiert nicht', async () => {
   asToken(['pantry:write', 'shopping:read']);
   const r1 = await call('POST', '/pantry/import-shopping', { list_id: LIST, items: [{ shopping_item_id: shoppingItem }] });
   assert.equal(r1.status, 200, 'mit Lese-Scope auf die Quelle geht es durch');
-  asToken(['shopping:write', 'pantry:read']);
+  asToken(['shopping:write', 'pantry:write']);
   const r2 = await call('POST', `/shopping/${LIST}/import-pantry`, { items: [{ pantry_item_id: pantryItem }] });
   assert.equal(r2.status, 200);
 });

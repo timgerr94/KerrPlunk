@@ -62,6 +62,12 @@ function ingredientRows(recipeId) {
   return db.prepare('SELECT name, quantity, category FROM recipe_ingredients WHERE recipe_id = ? ORDER BY id ASC').all(recipeId);
 }
 
+// Inkl. `unit` (v237) - eigener Helfer, weil `ingredientRows` oben bewusst ohne
+// die neue Spalte auskommt und seine deepEqual-Asserts sonst um ein Feld wachsen.
+function ingredientRowsWithUnit(recipeId) {
+  return db.prepare('SELECT name, quantity, unit, category FROM recipe_ingredients WHERE recipe_id = ? ORDER BY id ASC').all(recipeId);
+}
+
 // --------------------------------------------------------------------------
 // GET / (Liste)
 // --------------------------------------------------------------------------
@@ -126,6 +132,40 @@ test('POST /: zu lange Notizen → 400 (kein Rezept angelegt)', async () => {
   assert.equal(r.status, 400);
   const after = db.prepare('SELECT COUNT(*) AS n FROM recipes').get().n;
   assert.equal(after, before);
+});
+
+// v237: Menge und Einheit sind zwei freie Textspalten. Der Altbestand trug die
+// Einheit schon in `quantity` ("500 g"); beides zugleich bleibt erlaubt.
+test('POST/PUT /: unit wird getrennt von quantity gespeichert und gelesen', async () => {
+  const created = await call('POST', '/', {
+    title: 'Einheitenprobe',
+    ingredients: [
+      { name: 'Mehl', quantity: '500', unit: 'g' },
+      { name: 'Milch', quantity: '1', unit: 'l', category: 'Milchprodukte' },
+      { name: 'Salz', unit: 'Prise' },              // nur Einheit, keine Menge
+      { name: 'Zucker', quantity: '50 g' },          // Altform: Einheit steckt in quantity
+    ],
+  });
+  assert.equal(created.status, 201);
+  const rows = ingredientRowsWithUnit(created.body.data.id);
+  assert.deepEqual(rows[0], { name: 'Mehl', quantity: '500', unit: 'g', category: 'Sonstiges' });
+  assert.deepEqual(rows[1], { name: 'Milch', quantity: '1', unit: 'l', category: 'Milchprodukte' });
+  assert.deepEqual(rows[2], { name: 'Salz', quantity: null, unit: 'Prise', category: 'Sonstiges' });
+  assert.deepEqual(rows[3], { name: 'Zucker', quantity: '50 g', unit: null, category: 'Sonstiges' });
+
+  // Auch die Antwort des Servers traegt die Einheit.
+  const detail = await call('GET', `/${created.body.data.id}`);
+  assert.equal(detail.body.data.ingredients[0].unit, 'g');
+
+  // PUT ersetzt die Zutatenliste inkl. Einheit (DELETE + INSERT).
+  const updated = await call('PUT', `/${created.body.data.id}`, {
+    title: 'Einheitenprobe',
+    ingredients: [{ name: 'Mehl', quantity: '1', unit: 'kg' }],
+  });
+  assert.equal(updated.status, 200);
+  assert.deepEqual(ingredientRowsWithUnit(created.body.data.id), [
+    { name: 'Mehl', quantity: '1', unit: 'kg', category: 'Sonstiges' },
+  ]);
 });
 
 // --------------------------------------------------------------------------
@@ -282,6 +322,30 @@ test('POST /:id/to-shopping-list: überträgt Zutaten mit Menge und Kategorie', 
   assert.equal(items[0].quantity, '500 g');
   assert.equal(items[0].category, 'Backen');
   assert.equal(items[1].category, 'Sonstiges'); // Default greift
+});
+
+// v237: getrennte Menge und Einheit werden beim Uebertrag wieder zu EINEM Text
+// zusammengezogen - die Einkaufsliste kennt nur ein Mengenfeld, und
+// shopping-import.js#parseQuantity liest es mit einer Regex wieder ein.
+test('POST /:id/to-shopping-list: amount+unit verschmelzen zur Einkaufs-Menge', async () => {
+  const listId = newList('Transfer Unit');
+  const created = await call('POST', '/', {
+    title: 'Einheiten-Transfer',
+    ingredients: [
+      { name: 'Mehl', quantity: '500', unit: 'g' },
+      { name: 'Salz', unit: 'Prise' },        // keine Menge: nur die Einheit steht dann da
+      { name: 'Eier', quantity: '6' },        // keine Einheit: Menge bleibt allein
+    ],
+  });
+  const r = await call('POST', `/${created.body.data.id}/to-shopping-list`, { listId });
+  assert.equal(r.status, 200);
+
+  const items = shoppingItems(listId);
+  assert.deepEqual(items.map((i) => [i.name, i.quantity]), [
+    ['Mehl', '500 g'],
+    ['Salz', 'Prise'],
+    ['Eier', '6'],
+  ]);
 });
 
 test('POST /:id/to-shopping-list: überspringt, was unabgehakt schon auf der Liste liegt', async () => {

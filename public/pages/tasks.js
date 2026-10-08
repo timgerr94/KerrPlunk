@@ -1461,6 +1461,7 @@ let state = {
   history:         { entries: [], hasMore: false, cursor: null, userId: null, loading: null, error: null },
   showFuture:      false,
   subtasksExpandedByDefault: false,
+  taskSplitViewEnabled: false,
   // Persönliche Standard-Erinnerungsliste für neue Aufgaben (#695), leer = nur
   // lokal. Wird beim Öffnen des Dialogs als Vorauswahl gesetzt.
   defaultSyncTarget: '',
@@ -4720,7 +4721,9 @@ function syncViewChrome(container) {
   // auch kein Container: die Detailspalte bleibt verborgen, und nichts im
   // Brett bezieht sich auf einen neuen Containing Block (Drag-Ghosts,
   // fixierte Ebenen). Die Auswahl raeumt setViewMode bei jedem Wechsel ab.
-  container.querySelector('.tasks-page')?.classList.toggle('app-page--list-detail', !isKanbanMode());
+  container.querySelector('.tasks-page')?.classList.toggle(
+    'app-page--list-detail', state.taskSplitViewEnabled && !isKanbanMode(),
+  );
   syncSplitHeight(container);
 
   // Suche, Filter und Sammelauswahl fragen alle nach AUFGABEN. Der Verlauf
@@ -5972,7 +5975,7 @@ export async function render(container, { user, signal } = {}) {
   // Initiales Skeleton (all values are from i18n keys or hardcoded constants, no user data)
   container.replaceChildren();
   container.insertAdjacentHTML('beforeend', `
-    <div class="tasks-page app-page app-page--full${state.viewMode !== 'kanban' ? ' app-page--list-detail' : ''}" data-composition="full">
+    <div class="tasks-page app-page app-page--full" data-composition="full">
       <div class="page-toolbar page-toolbar--wrap tasks-toolbar">
         <h1 class="page-toolbar__title">${t('tasks.title')}</h1>
         ${renderPageSearch({
@@ -6088,6 +6091,7 @@ export async function render(container, { user, signal } = {}) {
     state.allTags = meta.tags ?? [];
     state.defaultPoints = Number(meta.default_points) || 0;
     state.subtasksExpandedByDefault = preferencesData.data?.tasks_subtasks_expanded === true;
+    state.taskSplitViewEnabled = preferencesData.data?.tasks_split_view === true;
     state.defaultSyncTarget = preferencesData.data?.tasks_default_target || '';
   } catch (err) {
     console.error('[Tasks] Ladefehler:', err.message);
@@ -6106,6 +6110,7 @@ export async function render(container, { user, signal } = {}) {
     state.metaStale = { users: false, categories: false, tags: false };
     state.defaultPoints = 0;
     state.subtasksExpandedByDefault = false;
+    state.taskSplitViewEnabled = false;
     state.defaultSyncTarget = '';
   }
 

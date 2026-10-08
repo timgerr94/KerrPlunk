@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#F5F3ED">
+  <title>Offline diagnostics - Yuvomi</title>
+  <style>
+    :root { color-scheme: light dark; font: 16px/1.5 system-ui, sans-serif; }
+    body { max-width: 44rem; margin: 0 auto; padding: 1.25rem; background: #F5F3ED; color: #1D1B17; }
+    h1 { font-size: 1.4rem; }
+    p { color: #63615B; }
+    pre { overflow-wrap: anywhere; white-space: pre-wrap; padding: 1rem; border-radius: .75rem; background: #fff; border: 1px solid #E4E0D7; }
+    button { min-height: 44px; padding: .65rem 1rem; border: 0; border-radius: 999px; background: #6C3AED; color: #fff; font: inherit; }
+    @media (prefers-color-scheme: dark) {
+      body { background: #191816; color: #F5F3ED; }
+      p { color: #B9B5AC; }
+      pre { background: #24221F; border-color: #45413B; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Yuvomi offline diagnostics</h1>
+    <p>This report contains cache and connection status only. It does not display shopping or pantry contents, account names, cookies, or tokens.</p>
+    <button id="refresh" type="button">Refresh diagnostics</button>
+    <pre id="report" role="status" aria-live="polite">Checking…</pre>
+  </main>
+  <script src="/offline-diagnostics.js" defer></script>
+</body>
+</html>

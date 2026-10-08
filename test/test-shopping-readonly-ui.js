@@ -610,10 +610,12 @@ const knapp = () => ({
   location_id: null, expires_on: null,
 });
 
-test('Vorrat: der Warenkorb der Zeile nur mit Schreibrecht auf den Einkauf', async () => {
+test('Vorrat: der Warenkorb der Zeile nur mit Schreibrecht auf Vorrat und Einkauf', async () => {
   const zeile = (modules) => withAccess(modules, () => pantry.rowEl(knapp()).outerHTML);
   assert.match(await zeile({ pantry: 'write', shopping: 'write' }), /pantry-row__cart"/,
     'Gegenfall: ein knapper Artikel traegt den Warenkorb');
+  assert.doesNotMatch(await zeile({ pantry: 'read', shopping: 'write' }), /pantry-row__cart"/,
+    'ohne Schreibrecht auf den zu ändernden Bestand darf der Warenkorb nicht erscheinen');
   const ohne = await zeile({ pantry: 'write', shopping: 'read' });
   assert.doesNotMatch(ohne, /pantry-row__cart"/, 'der Warenkorb endete im 403');
   assert.match(ohne, /pantry-row__cart-slot/, 'der Slot bleibt, damit die Bedienzone gleich breit bleibt');

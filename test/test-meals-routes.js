@@ -695,11 +695,34 @@ test('POST /:id/ingredients: fehlender Name → 400', async () => {
 
 test('POST /:id/ingredients: fügt Zutat hinzu', async () => {
   const m = (await createMeal({ date: '2026-05-19', title: 'Ing2' })).body.data;
-  const r = await call('POST', `/${m.id}/ingredients`, { name: 'Mehl', quantity: '500g', category: 'Backen' });
+  const r = await call('POST', `/${m.id}/ingredients`, { name: 'Mehl', quantity: '500', unit: 'g', category: 'Backen' });
   assert.equal(r.status, 201);
   assert.equal(r.body.data.name, 'Mehl');
-  assert.equal(r.body.data.quantity, '500g');
+  assert.equal(r.body.data.quantity, '500');
+  assert.equal(r.body.data.unit, 'g');
   assert.equal(r.body.data.category, 'Backen');
+});
+
+// v238: Menge und Einheit sind getrennte freie Textspalten, genau wie auf
+// recipe_ingredients - der Weg Rezept <-> Mahlzeit traegt beide einzeln.
+test('POST /:id + POST /:id/ingredients: unit getrennt von quantity gespeichert', async () => {
+  const m = (await createMeal({
+    date: '2026-05-22',
+    title: 'Einheiten',
+    ingredients: [{ name: 'Milch', quantity: '1', unit: 'l' }],
+  })).body.data;
+  assert.equal(m.ingredients[0].quantity, '1');
+  assert.equal(m.ingredients[0].unit, 'l');
+
+  const added = await call('POST', `/${m.id}/ingredients`, { name: 'Salz', unit: 'Prise' });
+  assert.equal(added.body.data.quantity, null);
+  assert.equal(added.body.data.unit, 'Prise');
+
+  const rows = db.prepare('SELECT name, quantity, unit FROM meal_ingredients WHERE meal_id = ? ORDER BY id ASC').all(m.id);
+  assert.deepEqual(rows, [
+    { name: 'Milch', quantity: '1', unit: 'l' },
+    { name: 'Salz', quantity: null, unit: 'Prise' },
+  ]);
 });
 
 test('PATCH /ingredients/:ingId: unbekannt → 404', async () => {
@@ -714,6 +737,23 @@ test('PATCH /ingredients/:ingId: setzt on_shopping_list-Flag + Menge', async () 
   assert.equal(r.status, 200);
   assert.equal(r.body.data.on_shopping_list, 1);
   assert.equal(r.body.data.quantity, '2TL');
+});
+
+// v238: ein fehlendes `unit` laesst die gespeicherte Einheit stehen (derselbe
+// COALESCE-Vertrag wie bei `category`), ein mitgeschicktes ersetzt sie.
+test('PATCH /ingredients/:ingId: unit folgt demselben Feld-Vertrag wie quantity', async () => {
+  const m = (await createMeal({ date: '2026-05-23', title: 'Ing5', ingredients: [{ name: 'Mehl', quantity: '500', unit: 'g' }] })).body.data;
+  const ingId = m.ingredients[0].id;
+
+  // Nur die Menge aendern: die Einheit bleibt.
+  const nurMenge = await call('PATCH', `/ingredients/${ingId}`, { quantity: '600' });
+  assert.equal(nurMenge.body.data.quantity, '600');
+  assert.equal(nurMenge.body.data.unit, 'g', 'fehlendes unit laesst die gespeicherte stehen');
+
+  // Einheit ersetzen, Menge unangetastet lassen.
+  const nurEinheit = await call('PATCH', `/ingredients/${ingId}`, { unit: 'kg' });
+  assert.equal(nurEinheit.body.data.quantity, '600');
+  assert.equal(nurEinheit.body.data.unit, 'kg');
 });
 
 test('DELETE /ingredients/:ingId: unbekannt → 404', async () => {
@@ -762,6 +802,30 @@ test('POST /:id/to-shopping-list: überträgt nur offene, markiert sie, idempote
   const r2 = await call('POST', `/${m.id}/to-shopping-list`, { listId: LIST });
   assert.equal(r2.body.data.transferred, 0);
   assert.deepEqual(r2.body.data.added_ids, []);
+});
+
+// v238: getrennte Menge und Einheit werden beim Uebertrag zu EINEM Text
+// zusammengezogen - shopping_items kennt nur ein Mengenfeld.
+test('POST /:id/to-shopping-list: amount+unit verschmelzen zur Einkaufs-Menge', async () => {
+  const m = (await createMeal({
+    date: '2026-06-05',
+    title: 'Einheiten-Transfer',
+    ingredients: [
+      { name: 'Mehl', quantity: '500', unit: 'g' },
+      { name: 'Salz', unit: 'Prise' },     // keine Menge: nur die Einheit steht dann da
+      { name: 'Eier', quantity: '6' },     // keine Einheit: Menge bleibt allein
+    ],
+  })).body.data;
+  const r = await call('POST', `/${m.id}/to-shopping-list`, { listId: LIST });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.data.transferred, 3);
+
+  const items = db.prepare('SELECT name, quantity FROM shopping_items WHERE added_from_meal = ? ORDER BY id ASC').all(m.id);
+  assert.deepEqual(items.map((i) => [i.name, i.quantity]), [
+    ['Mehl', '500 g'],
+    ['Salz', 'Prise'],
+    ['Eier', '6'],
+  ]);
 });
 
 /**

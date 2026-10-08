@@ -15,6 +15,14 @@
   font-display: swap;
 }
 
+@font-face {
+  font-family: "Ringbearer";
+  src: url("/fonts/RingbearerMedium-51mgZ.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+
 :root[data-skin="middle-earth"] {
   --_neutral-50: #FBF7E9;
   --_neutral-100: #F5F3ED;
@@ -49,7 +57,9 @@
   --_color-btn-primary-hover: #355332;
 
   --font-sans: "IM Fell English", Georgia, serif;
-  --font-heading: "party-business-font-f2250", "IM Fell English", Georgia, serif;
+  --font-heading-major: "party-business-font-f2250", "IM Fell English", Georgia, serif;
+  --font-heading-medium: "Ringbearer", "IM Fell English", Georgia, serif;
+  --font-heading: var(--font-heading-major);
   --skin-paper-fiber: rgba(102, 78, 39, 0.025);
 }
 
@@ -73,30 +83,30 @@
 }
 
 :root[data-skin="middle-earth"] h1,
+:root[data-skin="middle-earth"] .u-hero,
+:root[data-skin="middle-earth"] .u-page-title,
+:root[data-skin="middle-earth"] .page__title,
+:root[data-skin="middle-earth"] .page-toolbar__title,
+:root[data-skin="middle-earth"] .settings-leaf-header__title,
+:root[data-skin="middle-earth"] .settings-shell-header__title,
+:root[data-skin="middle-earth"] .page-toolbar__dock-title,
+:root[data-skin="middle-earth"] .split-title {
+  font-family: var(--font-heading-major);
+}
+
 :root[data-skin="middle-earth"] h2,
 :root[data-skin="middle-earth"] h3,
 :root[data-skin="middle-earth"] h4,
 :root[data-skin="middle-earth"] h5,
 :root[data-skin="middle-earth"] h6,
-:root[data-skin="middle-earth"] .page-toolbar__title,
-:root[data-skin="middle-earth"] .settings-section__title {
-  font-family: var(--font-heading);
-}
-
-:root[data-skin="middle-earth"] .u-hero,
-:root[data-skin="middle-earth"] .u-page-title,
 :root[data-skin="middle-earth"] .u-section-title,
 :root[data-skin="middle-earth"] .u-card-title,
 :root[data-skin="middle-earth"] .u-toolbar-title,
-:root[data-skin="middle-earth"] .page__title,
 :root[data-skin="middle-earth"] .settings-card__title,
-:root[data-skin="middle-earth"] .settings-leaf-header__title,
-:root[data-skin="middle-earth"] .settings-shell-header__title,
-:root[data-skin="middle-earth"] .page-toolbar__dock-title,
+:root[data-skin="middle-earth"] .settings-section__title,
 :root[data-skin="middle-earth"] .panel-head__title,
-:root[data-skin="middle-earth"] .sub-tabs-bar__title,
-:root[data-skin="middle-earth"] .split-title {
-  font-family: var(--font-heading);
+:root[data-skin="middle-earth"] .sub-tabs-bar__title {
+  font-family: var(--font-heading-medium);
 }
 
 @media screen and (prefers-color-scheme: dark) {

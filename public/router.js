@@ -4,8 +4,15 @@
  * Abhängigkeiten: api.js
  */
 
+<<<<<<< HEAD
 import { api, auth, isAbortError } from '/api.js';
 import { canAccessNavModule, navModuleAccess, setExtensionNavMap } from '/permissions.js';
+=======
+import { api, auth } from '/api.js';
+import {
+  canAccessNavModule, navModuleAccess, setExtensionNavMap, getPermissions, setPermissions,
+} from '/permissions.js';
+>>>>>>> ba5d29180 (Commit 10/8/2026)
 import { setExtensionModules, selectThirdPartyModuleList } from '/utils/extension-widgets.js';
 import { initExtensionI18n, moduleDisplayLabel, reloadExtensionLocales } from '/utils/extension-i18n.js';
 import { clearApiCache, onServiceWorkerUpdate, UPDATE_RELOAD_DELAY_MS } from '/sw-register.js';
@@ -64,6 +71,8 @@ import {
   scrollPositionFor,
   forgetScrollPositions,
 } from '/utils/scroll-restore.js';
+import { readOfflineSession, rememberOfflineSession, forgetOfflineSession } from '/utils/offline-session.js';
+import { getHouseholdSize, setHouseholdSize, setOtherReaders, getOtherReaders } from '/utils/household.js';
 import { openModal, confirmModal } from '/components/modal.js';
 import { installPopoverMenus } from '/utils/popover-menu.js';
 import { prefersInkText } from '/utils/contrast.js';
@@ -462,6 +471,13 @@ const routerState = {
 let _navBuiltForUserId = null;
 /** AbortController des laufenden Seitenaufbaus; abgebrochen, sobald die Route ersetzt wird (#976). */
 let _pageController = null;
+<<<<<<< HEAD
+=======
+let _renderedModuleName = null;
+let _preferencesLoaded = false;
+let _offlineSessionActive = false;
+let _disabledModules = new Set();
+>>>>>>> ba5d29180 (Commit 10/8/2026)
 // Persoenlich ausgeblendete Module (#673). Bewusst eine ZWEITE Menge neben
 // `_disabledModules` und nicht mit ihr vereinigt: die haushaltweite Abschaltung
 // wirkt auch im Routen-Guard weiter unten, diese hier NUR in der Navigation.
@@ -473,6 +489,37 @@ let _thirdPartyModules = [];
 let _moduleOrder = [];
 let _mobileNavOrder = [];
 let _moduleRefreshTimer = null;
+
+function rememberCurrentOfflineSession() {
+  if (!currentUser) return;
+  rememberOfflineSession({
+    user: currentUser,
+    permissions: getPermissions(),
+    householdSize: getHouseholdSize(),
+    othersCanRead: getOtherReaders(),
+    preferences: {
+      disabled_modules: [..._disabledModules],
+      hidden_modules: [..._hiddenModules],
+      module_order: _moduleOrder,
+      mobile_nav_order: _mobileNavOrder,
+    },
+  });
+}
+
+function restoreOfflineSession(snapshot) {
+  _offlineSessionActive = true;
+  currentUser = snapshot.user;
+  setPermissions(snapshot.permissions);
+  setHouseholdSize(snapshot.householdSize);
+  setOtherReaders(snapshot.othersCanRead);
+
+  const preferences = snapshot.preferences;
+  _disabledModules = new Set(Array.isArray(preferences.disabled_modules) ? preferences.disabled_modules : []);
+  _hiddenModules = new Set(Array.isArray(preferences.hidden_modules) ? preferences.hidden_modules : []);
+  _moduleOrder = Array.isArray(preferences.module_order) ? preferences.module_order : [];
+  _mobileNavOrder = Array.isArray(preferences.mobile_nav_order) ? preferences.mobile_nav_order : [];
+  _preferencesLoaded = true;
+}
 
 // --------------------------------------------------------
 // Router
@@ -688,6 +735,7 @@ async function syncPreferencesOnce() {
   const session = routerState.currentUser;
   const sameSession = () => routerState.currentUser === session;
 
+<<<<<<< HEAD
   const preferences = api.get('/preferences');
   // Die Uebersicht braucht dieselbe Antwort fuer ihre Kacheln und holte sie ein
   // zweites Mal (gemessen: zweimal `/preferences` je Kaltstart).
@@ -696,6 +744,27 @@ async function syncPreferencesOnce() {
     .then((res) => { if (sameSession()) applyStartPreferences(res); })
     // Non-critical. The settings page can refresh this later.
     .catch(() => {});
+=======
+  try {
+    // Überlastung: navigate(path, user) nach Login vs navigate(path, false) beim Init
+    if (typeof userOrPushState === 'object' && userOrPushState !== null) {
+      currentUser = userOrPushState;
+      _offlineSessionActive = false;
+      _setupRequired = false;
+      await syncPreferencesOnce();
+      rememberCurrentOfflineSession();
+      startThirdPartyModulePolling();
+      // currentUser kann während des await oben auf null gesetzt worden sein
+      // (auth:expired bei 401 von /preferences), daher Guard gegen null.
+      if (currentUser && !['split_guest', 'display'].includes(currentUser.access_scope)) {
+        loadReminderStyles();
+        initReminders();
+        initPush();
+      }
+    } else {
+      pushState = userOrPushState;
+    }
+>>>>>>> ba5d29180 (Commit 10/8/2026)
 
   // Die Versionsangaben NACH den Praeferenzen anwenden, wie bisher: beide
   // tragen `app_name`, und die Reihenfolge soll nicht vom Netz abhaengen.
@@ -711,7 +780,264 @@ async function syncPreferencesOnce() {
     // Non-critical. The login page and settings page can refresh branding later.
     .catch(() => {});
 
+<<<<<<< HEAD
   await Promise.all([preferencesApplied, versionApplied, syncThirdPartyModules()]);
+=======
+    // Scrollstand der Seite festhalten, die gerade verlassen wird - er ist die
+    // Antwort auf ein späteres Browser-Zurück. Bewusst vor den Guards: was hier
+    // sichtbar ist, gilt unabhängig davon, ob die Navigation gleich umgeleitet
+    // wird. Der Scrollport ist #main-content selbst (== .app-content).
+    if (previousPath) {
+      rememberScrollPosition(previousPath, document.getElementById('main-content')?.scrollTop ?? 0);
+    }
+    // Vorwärts heißt oben anfangen, Zurück/Vor heißt weitermachen. Details und
+    // die Begründung gegen eine Nav-Reihenfolge in utils/scroll-restore.js.
+    const scrollTarget = scrollPositionFor(basePath, { restore: !pushState });
+
+    // First-Run-Weiche: Solange kein Account existiert und niemand eingeloggt ist,
+    // alle Routen außer /setup auf /setup umleiten.
+    if (_setupRequired && !currentUser && basePath !== '/setup') {
+      currentPath = null;
+      isNavigating = false;
+      navigate('/setup');
+      return;
+    }
+    // Setup bereits erledigt -> /setup ist nicht mehr erreichbar.
+    if (!_setupRequired && basePath === '/setup') {
+      currentPath = null;
+      isNavigating = false;
+      navigate('/login');
+      return;
+    }
+
+    let route = allRoutes().find((r) => r.path === basePath) ?? ROUTES.find((r) => r.path === '/');
+
+    // Split-Guest-Weiche: Gäste einer Ausgabenteilung sehen nur das Budget-Modul.
+    // ABER: hat der Nutzer zusätzlich eine Familienrolle OHNE Budget-Recht, würde
+    // ein bedingungsloses navigate('/budget') vom Modul-Guard (canAccessNavModule)
+    // sofort wieder auf '/' geworfen — und '/' schickt zurück auf '/budget':
+    // Endlosschleife bis Stack-Overflow (#480). Daher nur umleiten, wenn Budget
+    // tatsächlich zugänglich ist; sonst greift der reguläre Rechte-Guard und der
+    // Nutzer landet auf einer für ihn erlaubten Seite.
+    if (currentUser?.access_scope === 'split_guest'
+        && route.path !== '/budget'
+        && canAccessNavModule('budget')) {
+      currentPath = null;
+      isNavigating = false;
+      navigate('/budget');
+      return;
+    }
+
+    // Modul-Guard: deaktivierte ODER per Rechte gesperrte Module leiten auf das
+    // Dashboard um (Rechte-Guard #467; die verbindliche 403-Sperre liegt am Server).
+    if (route.module
+        && route.path !== '/'
+        && (_disabledModules.has(route.module) || !canAccessNavModule(route.module))) {
+      currentPath = null;
+      isNavigating = false;
+      navigate('/');
+      return;
+    }
+
+    // Auth-Guard
+    if (route.requiresAuth && !currentUser) {
+      if (navigator.onLine === false) {
+        const offlineSession = readOfflineSession();
+        if (offlineSession) {
+          restoreOfflineSession(offlineSession);
+        } else {
+          currentPath = null;
+          isNavigating = false;
+          _pendingLoginRedirect = false;
+          navigate('/login');
+          return;
+        }
+      }
+    }
+
+    if (route.requiresAuth && !currentUser) {
+      try {
+        const result = await auth.me();
+        currentUser = result.user;
+        _offlineSessionActive = false;
+        await syncPreferencesOnce();
+        startThirdPartyModulePolling();
+        // currentUser kann während des await oben auf null gesetzt worden sein
+        // (auth:expired bei 401 von /preferences), daher Guard gegen null.
+        if (currentUser && !['split_guest', 'display'].includes(currentUser.access_scope)) {
+          loadReminderStyles();
+          initReminders();
+          initPush();
+        }
+      } catch (err) {
+        // A remembered iPhone can enter the read-only modules when the server
+        // cannot be reached. A real 401/403 or server error must still fail closed.
+        const networkFailure = err?.status === 0 || err instanceof TypeError;
+        const offlineSession = networkFailure ? readOfflineSession() : null;
+        if (offlineSession) {
+          restoreOfflineSession(offlineSession);
+        } else {
+          currentPath = null; // Reset damit navigate('/login') nicht geblockt wird
+          isNavigating = false;
+          // _pendingLoginRedirect leeren: der catch ruft navigate('/login') direkt auf,
+          // der finally soll keinen zweiten Aufruf starten (würde isNavigating=true setzen,
+          // während die Login-Seite rendert, und so post-login navigate blockieren).
+          _pendingLoginRedirect = false;
+          navigate(_setupRequired ? '/setup' : '/login');
+          return;
+        }
+      }
+      if (currentUser && _preferencesLoaded) rememberCurrentOfflineSession();
+    }
+
+    if (_offlineSessionActive && !['/shopping', '/pantry'].includes(basePath)) {
+      const offlineRoute = ['/shopping', '/pantry'].find((candidate) => {
+        const module = candidate.slice(1);
+        return !_disabledModules.has(module) && canAccessNavModule(module);
+      });
+      if (offlineRoute) {
+        currentPath = null;
+        isNavigating = false;
+        navigate(offlineRoute);
+        return;
+      }
+      forgetSessionState();
+      currentPath = null;
+      isNavigating = false;
+      navigate('/login');
+      return;
+    }
+
+    route = allRoutes().find((r) => r.path === basePath) ?? route;
+
+    // Split-Guest-Weiche: Gäste einer Ausgabenteilung sehen nur das Budget-Modul.
+    // ABER: hat der Nutzer zusätzlich eine Familienrolle OHNE Budget-Recht, würde
+    // ein bedingungsloses navigate('/budget') vom Modul-Guard (canAccessNavModule)
+    // sofort wieder auf '/' geworfen — und '/' schickt zurück auf '/budget':
+    // Endlosschleife bis Stack-Overflow (#480). Daher nur umleiten, wenn Budget
+    // tatsächlich zugänglich ist; sonst greift der reguläre Rechte-Guard und der
+    // Nutzer landet auf einer für ihn erlaubten Seite.
+    if (currentUser?.access_scope === 'split_guest'
+        && route.path !== '/budget'
+        && canAccessNavModule('budget')) {
+      currentPath = null;
+      isNavigating = false;
+      navigate('/budget');
+      return;
+    }
+
+    // Rechte-Guard nach frisch geladenen Rechten (Deep-Link auf ein für diese
+    // Rolle/dieses Mitglied gesperrtes Modul → Dashboard). #467
+    if (route.module && route.path !== '/' && !canAccessNavModule(route.module)) {
+      currentPath = null;
+      isNavigating = false;
+      navigate('/');
+      return;
+    }
+
+    if (!route.requiresAuth && currentUser && path === '/login') {
+      currentPath = null;
+      isNavigating = false;
+      navigate('/');
+      return;
+    }
+
+    if (pushState) {
+      /* EIN DIALOG UEBERLEBT KEINE NAVIGATION (#871). Er stuende sonst ueber
+       * der falschen Seite - genau der gemeldete Zustand, nur andersherum
+       * erreicht. `consumeOverlayMarker()` schliesst deshalb, was noch offen
+       * ist, und meldet zurueck, ob der aktuelle History-Eintrag unser
+       * Platzhalter war.
+       *
+       * WAR ER ES, TRITT DIE NEUE SEITE AN SEINE STELLE. Laege sie darueber,
+       * zeigte der Rueckweg zuerst auf einen Eintrag mit derselben Adresse -
+       * eine Geste, die sichtbar nichts tut. */
+      if (consumeOverlayMarker()) history.replaceState({ path }, '', path);
+      else history.pushState({ path }, '', path);
+    }
+
+    // Soft-Navigation innerhalb desselben Moduls (z. B. Settings-Blatt → Blatt
+    // oder Browser-Zurück innerhalb der Einstellungen): Das bereits gerenderte
+    // Modul tauscht nur seinen Detailbereich aus — keine App-Shell-Teardown,
+    // keine Slide-Transition, kein erneuter Auth-Refresh. Gibt update() false
+    // zurück (z. B. Redirect nötig), fällt die Navigation auf das volle Rendern
+    // zurück.
+    if (
+      route.module
+      && route.module === _renderedModuleName
+      && typeof _renderedModule?.update === 'function'
+    ) {
+      let handled = false;
+      try {
+        handled = await _renderedModule.update({
+          user: currentUser,
+          path: basePath,
+          query: new URLSearchParams(path.split('?')[1] ?? ''),
+        });
+      } catch (error) {
+        console.error('[Router] Soft-Update fehlgeschlagen, vollständiges Rendern folgt:', error);
+        handled = false;
+      }
+      if (handled) {
+        // Auch die Soft-Navigation wechselt den Inhalt (Settings-Blatt, Health-Tab)
+        // und muss den Scrollport nachziehen - hier zwangsläufig NACH dem Render,
+        // weil kein Teardown existiert, an den man sich hängen könnte.
+        const main = document.getElementById('main-content');
+        if (main) main.scrollTop = scrollTarget;
+        // Ein Tabwechsel kann einen neuen FAB anlegen (Health-Tabs) - der muss
+        // denselben Weg aus dem Scrollport nehmen wie beim vollen Rendern.
+        adoptPageFab();
+        updateNav(topLevelSection(basePath));
+        return;
+      }
+    }
+
+    // Der Wand-Modus ist ein Zustand DES DASHBOARDS, kein eigener Eintrag in
+    // dieser Tabelle - er muss die Route also von hier erfahren. Vor dem
+    // Modul-Akzent, weil er nachts das Theme auf dunkel zwingt und der Akzent
+    // als aufgeloeste Farbe im Inline-Style landet: umgekehrt truege die Shell
+    // den Hellmodus-Wert in eine dunkle Nacht (dieselbe Reihenfolge-Falle wie
+    // bei applyTheme).
+    syncWallMode(basePath);
+
+    // Küchen-Routen lösen auf --module-kitchen auf, nicht auf ihr eigenes
+    // --module-*: die Küche ist im Routing vier Module, in Navigation, Akzent
+    // und Statusbar eines (kitchenGroup). Sonst wechselte der 3px-Streifen der
+    // Tab-Leiste und der FAB beim Tabwechsel die Farbe - dieselbe Botschaft wie
+    // ein echter Modulwechsel (Critique 2026-07-29). Begründung am Token in
+    // tokens.css, Wortlaut bei moduleAccentToken().
+    applyModuleAccentForRoute(route);
+
+    // Optimistisches Chrome-Feedback: aktive Nav-Markierung + Indikator-Pille und
+    // Statusbar-Farbe schon VOR dem Modul-Render setzen, sobald die Shell existiert.
+    // So quittiert der Tap sofort (Pille gleitet, Akzent wechselt), während Modul-
+    // CSS und -Daten noch laden — statt erst nach Abschluss des Renders. Beim aller-
+    // ersten Laden wird die Shell erst in renderPage gebaut; dann greift allein die
+    // autoritative Aktualisierung danach.
+    if (document.querySelector('.nav-bottom')) {
+      updateNav(topLevelSection(basePath));
+      updateThemeColorForRoute(route);
+    }
+
+    await renderPage(route, previousPath, scrollTarget);
+    // Autoritative Aktualisierung nach dem Render: deckt den Erstlade-Fall ab und
+    // markiert ggf. seiten-interne [data-route]-Links (idempotent).
+    // Settings-Blätter teilen sich den /settings Nav-Eintrag (aria-current).
+    updateNav(topLevelSection(basePath));
+    updateThemeColorForRoute(route);
+    updateBranding(basePath);
+    focusMainContentAfterNavigation(basePath);
+  } finally {
+    isNavigating = false;
+    // auth:expired kann waehrend einer Navigation gefeuert haben (z.B. wenn ein
+    // paralleler API-Call 401 zurueckgab). Jetzt wo die Navigation abgeschlossen
+    // ist, holen wir die Login-Weiterleitung nach.
+    if (_pendingLoginRedirect) {
+      _pendingLoginRedirect = false;
+      navigate('/login');
+    }
+  }
+>>>>>>> ba5d29180 (Commit 10/8/2026)
 }
 
 function applyStartPreferences(res) {
@@ -4506,8 +4832,15 @@ window.addEventListener('popstate', (e) => {
  * die Praeferenzen nachlaedt. Ihn zu leeren gewaenne nichts und oeffnete ein
  * Fenster, in dem eine abgeschaltete Route wieder erreichbar waere. */
 function forgetSessionState() {
+<<<<<<< HEAD
   routerState.currentUser = null;
   routerState._preferencesLoaded = false;
+=======
+  currentUser = null;
+  _offlineSessionActive = false;
+  forgetOfflineSession();
+  _preferencesLoaded = false;
+>>>>>>> ba5d29180 (Commit 10/8/2026)
   forgetZonePrefs();
   _hiddenModules = new Set();
   _moduleOrder = [];
@@ -4860,6 +5193,7 @@ if (/iPhone|iPad|iPod/.test(navigator.userAgent)) {
 
     await initI18n();
     initExtensionI18n();
+<<<<<<< HEAD
     try {
       const v = await version;
       routerState._setupRequired = v?.setup_required === true;
@@ -4868,6 +5202,19 @@ if (/iPhone|iPad|iPod/.test(navigator.userAgent)) {
       startHandoff.holdVersion(v);
     } catch {
       routerState._setupRequired = false; // Fail-safe: kein Setup erzwingen
+=======
+    if (navigator.onLine !== false) {
+      try {
+        const v = await api.get('/version');
+        _setupRequired = v?.setup_required === true;
+        if (v?.version) setAppVersion(v.version);
+        if (v?.app_name) setAppName(v.app_name);
+      } catch {
+        _setupRequired = false; // Fail-safe: kein Setup erzwingen
+      }
+    } else {
+      _setupRequired = false;
+>>>>>>> ba5d29180 (Commit 10/8/2026)
     }
     // Was die erste Navigation nicht abgeholt hat, verfaellt mit ihr: eine
     // spaetere Anmeldung faende sonst die Antwort einer frueheren Sitzung vor.

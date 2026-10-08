@@ -547,7 +547,9 @@ function viewContainer() {
 
 test('Liste und Verlauf sind Liste + Detail mit Lesebahn darunter, das Brett ist Flaeche', () => {
   const before = tasks.state.viewMode;
+  const beforeSplit = tasks.state.taskSplitViewEnabled;
   try {
+    tasks.state.taskSplitViewEnabled = true;
     for (const [mode, splitAllowed] of [['list', true], ['history', true], ['kanban', false]]) {
       tasks.state.viewMode = mode;
       const c = viewContainer();
@@ -558,8 +560,18 @@ test('Liste und Verlauf sind Liste + Detail mit Lesebahn darunter, das Brett ist
       // Unter der Schwelle: Liste und Verlauf behalten die 720px-Bahn, das Brett nicht.
       assert.equal(c.classes.has('is-reading-measure'), splitAllowed, `${mode}: Lesebahn unter der Schwelle`);
     }
+
+    tasks.state.taskSplitViewEnabled = false;
+    for (const mode of ['list', 'history']) {
+      tasks.state.viewMode = mode;
+      const c = viewContainer();
+      tasks.syncViewChrome(c);
+      assert.equal(c.classes.has('app-page--list-detail'), false,
+        `${mode}: ohne persoenliche Einstellung bleibt die Dialogdarstellung aktiv`);
+    }
   } finally {
     tasks.state.viewMode = before;
+    tasks.state.taskSplitViewEnabled = beforeSplit;
   }
 });
 

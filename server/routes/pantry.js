@@ -164,8 +164,8 @@ function validateItemFields(body, { partial = false, current = null } = {}) {
     } else {
       const vInterval = num(body.restock_interval_days, 'Einkaufsintervall');
       results.push(vInterval);
-      if (vInterval.value !== null && (!Number.isInteger(vInterval.value) || vInterval.value < 1 || vInterval.value > 3650)) {
-        results.push({ error: 'Einkaufsintervall muss eine ganze Zahl von 1 bis 3650 Tagen sein.' });
+      if (vInterval.value !== null && (!Number.isInteger(vInterval.value) || vInterval.value < 7 || vInterval.value > 3650)) {
+        results.push({ error: 'Einkaufsintervall muss eine ganze Zahl von 7 bis 3650 Tagen sein.' });
       }
       values.restock_interval_days = vInterval.value;
     }
@@ -366,13 +366,14 @@ router.post('/import-shopping', (req, res) => {
         SELECT id, quantity FROM pantry_items
         WHERE name = ? COLLATE NOCASE
           AND unit = ?
-          AND location_id IS ?
-          AND expires_on IS ?
+          AND category = ?
+          AND (? IS NULL OR expires_on IS ?)
+        ORDER BY CASE WHEN location_id IS ? THEN 0 ELSE 1 END, id ASC
         LIMIT 1
       `);
       const findRule = db.get().prepare(`
         SELECT restock_interval_days FROM pantry_items
-        WHERE name = ? COLLATE NOCASE AND unit = ? AND location_id IS ?
+        WHERE name = ? COLLATE NOCASE AND unit = ? AND category = ?
           AND restock_interval_days IS NOT NULL
         ORDER BY id DESC LIMIT 1
       `);
@@ -391,17 +392,18 @@ router.post('/import-shopping', (req, res) => {
         SET restock_list_id = ?,
             restock_interval_days = COALESCE(restock_interval_days, ?),
             last_purchased_at = ?, restock_snoozed_until = NULL
-        WHERE name = ? COLLATE NOCASE AND unit = ? AND location_id IS ?
+        WHERE name = ? COLLATE NOCASE AND unit = ? AND category = ?
       `);
       const clearPredictions = db.get().prepare(`
         DELETE FROM shopping_items
         WHERE predicted_pantry_item_id IN (
           SELECT id FROM pantry_items
-          WHERE name = ? COLLATE NOCASE AND unit = ? AND location_id IS ?
+          WHERE name = ? COLLATE NOCASE AND unit = ? AND category = ?
         )
       `);
 
       let added = 0, merged = 0, skipped = 0;
+      const transfers = [];
 
       for (const entry of entries) {
         const source = checkedById.get(Number(entry?.shopping_item_id));
@@ -427,14 +429,16 @@ router.post('/import-shopping', (req, res) => {
         const expiresOn = date(entry.expires_on, 'Mindesthaltbarkeitsdatum').value;
         const category = categoryNames.includes(source.category) ? source.category : fallbackCategory;
 
-        // Gleicher Name, gleiche Einheit, gleicher Ort UND gleiches MHD →
-        // dieselbe Charge, also aufaddieren. Ein abweichendes MHD ist eine neue
-        // Charge und bekommt bewusst eine eigene Zeile.
-        const match = findMatch.get(source.name, unit, locationId, expiresOn);
-        const inheritedInterval = findRule.get(source.name, unit, locationId)?.restock_interval_days ?? 30;
+        // Name, Einheit, Kategorie und ein angegebenes MHD kennzeichnen eine
+        // Charge. Ohne MHD-Angabe wird eine vorhandene Charge derselben
+        // Kategorie aufgefüllt. Der Ort darf abweichen: ein anderer Dialog-
+        // Standard dupliziert denselben Listenkontext nicht.
+        const match = findMatch.get(source.name, unit, category, expiresOn, expiresOn, locationId);
+        const inheritedInterval = Math.max(7, findRule.get(source.name, unit, category)?.restock_interval_days ?? 30);
         if (match) {
+          const nextQuantity = normalizePantryQuantity(Number(match.quantity) + quantity, { fallback: quantity });
           bump.run(
-            normalizePantryQuantity(Number(match.quantity) + quantity, { fallback: quantity }),
+            nextQuantity,
             purchasedAt,
             match.id,
           );
@@ -442,6 +446,13 @@ router.post('/import-shopping', (req, res) => {
           // Erinnerung wieder fällig, die das Ausbuchen abgeräumt hat.
           syncReminder(getItem(match.id), access, today);
           merged += 1;
+          transfers.push({
+            client_ref: typeof entry.client_ref === 'string' ? entry.client_ref : null,
+            shopping_item_id: source.id,
+            pantry_item_id: match.id,
+            quantity: nextQuantity,
+            merged: true,
+          });
         } else {
           const inserted = insert.run(
             source.name, quantity, unit, locationId, category, expiresOn,
@@ -449,12 +460,24 @@ router.post('/import-shopping', (req, res) => {
           );
           syncReminder(getItem(inserted.lastInsertRowid), access, today);
           added += 1;
+          transfers.push({
+            client_ref: typeof entry.client_ref === 'string' ? entry.client_ref : null,
+            shopping_item_id: source.id,
+            pantry_item_id: Number(inserted.lastInsertRowid),
+            quantity,
+            merged: false,
+          });
         }
-        recordProductPurchase.run(vList.value, inheritedInterval, purchasedAt, source.name, unit, locationId);
-        clearPredictions.run(source.name, unit, locationId);
+        recordProductPurchase.run(vList.value, inheritedInterval, purchasedAt, source.name, unit, category);
+        clearPredictions.run(source.name, unit, category);
       }
 
-      return { added, merged, skipped };
+      return {
+        added,
+        merged,
+        skipped,
+        ...(entries.some((entry) => typeof entry?.client_ref === 'string') ? { transfers } : {}),
+      };
     })();
 
     res.json({ data: result });
@@ -575,8 +598,23 @@ router.patch('/:itemId', (req, res) => {
     const item = getItem(vId.value);
     if (!item) return res.status(404).json({ error: 'Item not found.', code: 404 });
 
-    const { values, errors } = validateItemFields(req.body, { partial: true, current: item });
+    const { expected_quantity: expectedQuantity, ...patchBody } = req.body ?? {};
+    const { values, errors } = validateItemFields(patchBody, { partial: true, current: item });
     if (errors.length) return res.status(400).json({ error: errors.join(' '), code: 400 });
+
+    if (expectedQuantity !== undefined && Object.hasOwn(patchBody, 'quantity')) {
+      const expected = Number(expectedQuantity);
+      if (!Number.isFinite(expected) || expected < 0) {
+        return res.status(400).json({ error: 'Expected quantity must be a non-negative number.', code: 400 });
+      }
+      if (Number(item.quantity) !== expected && Number(item.quantity) !== Number(values.quantity)) {
+        return res.status(409).json({
+          error: 'The pantry quantity changed on another device. Review the current quantity before retrying.',
+          code: 409,
+          current_quantity: item.quantity,
+        });
+      }
+    }
 
     // Die Spaltennamen stammen aus dem festen Schlüsselvorrat von
     // validateItemFields, nicht aus dem Request-Body - kein Injection-Pfad.
