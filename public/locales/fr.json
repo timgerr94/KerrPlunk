@@ -808,6 +808,7 @@
         "recipeScaleLabel": "Ajuster les ingrédients",
         "deletedToast": "Repas supprimé.",
 <<<<<<< HEAD
+<<<<<<< HEAD
         "recurrenceLabel": "Répéter chaque semaine",
         "recurrenceWeekly": "Hebdomadaire",
         "cookLabel": "Qui cuisine",
@@ -815,6 +816,9 @@
 =======
         "recurrenceLabel": "Répéter",
 >>>>>>> 2b7868654 (My local changes)
+=======
+        "recurrenceLabel": "Répéter",
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
         "recurrenceHint": "Yuvomi ajoute automatiquement ce repas le même jour de la semaine dans les semaines à venir.",
         "recurrenceUntilLabel": "Répéter jusqu'au",
         "recurrenceUntilHint": "Laisser vide pour répéter indéfiniment.",
@@ -1829,6 +1833,7 @@
         "wallModeOn": "Mode mural activé - visible dans {{page}}.",
         "wallModeOff": "Mode mural désactivé.",
 <<<<<<< HEAD
+<<<<<<< HEAD
         "screensaverIdleLabel": "Lancer l'économiseur d'écran après",
         "screensaverIdleHint": "Durée pendant laquelle cet appareil reste sans contact avant le lancement de l'économiseur d'écran photo. S'applique uniquement à cet appareil, pas au reste du foyer. Prend effet dès qu'un administrateur a connecté Immich.",
         "screensaverIdleSaved": "Délai de l'économiseur d'écran sur cet appareil : {{delay}}.",
@@ -1838,11 +1843,16 @@
         "screensaverCoverHint": "Les photos remplissent tout l'écran au lieu de s'y ajuster. Les bords sont rognés, surtout pour les photos en portrait. S'applique uniquement à cet appareil.",
         "screensaverDeviceSaved": "Enregistré pour cet appareil. S'applique au prochain démarrage de l'économiseur d'écran.",
 =======
+=======
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
         "themeDarkLabel": "Mode sombre",
         "visualSkinLabel": "Style visuel",
         "visualSkinDefault": "Classique",
         "visualSkinMiddleEarth": "Terre du Milieu",
+<<<<<<< HEAD
 >>>>>>> 2b7868654 (My local changes)
+=======
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
         "changePassword": "Changer le mot de passe",
         "currentPasswordLabel": "Mot de passe actuel",
         "newPasswordLabel": "Nouveau mot de passe",

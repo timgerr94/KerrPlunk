@@ -612,7 +612,10 @@ function dispatchFetch(request, url) {
     ));
   }
 
+<<<<<<< HEAD
 >>>>>>> ba5d29180 (Commit 10/8/2026)
+=======
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
   // Nach SW-Update: direkt vom Netz, kein SW-Cache, kein HTTP-Cache.
   // Gilt für ALLE Requests (JS, CSS, Images, HTML) im Bypass-Fenster.
   if (Date.now() < bypassCacheUntil) {
@@ -720,11 +723,14 @@ async function networkFirst(request, cacheName, event) {
   const cache = await caches.open(cacheName);
 
 <<<<<<< HEAD
+<<<<<<< HEAD
   // Das Ablegen haelt die Antwort nicht auf, wird aber gemerkt: nach der Frist
   // muss der Worker so lange leben, bis es durch ist.
   let stored = Promise.resolve();
   const network = fetch(request).then((response) => {
 =======
+=======
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
   if (isDefinitelyOffline()) {
     if (request.mode === 'navigate') return offlineNavigationFallback(request, cache);
     return (await cache.match(request)) || offlineResponse();
@@ -772,6 +778,7 @@ async function networkFirst(request, cacheName, event) {
     return serveCached(cached);
   } catch {
 <<<<<<< HEAD
+<<<<<<< HEAD
     const cached = await cache.match(request);
     if (cached) return cached;
 
@@ -791,6 +798,10 @@ async function networkFirst(request, cacheName, event) {
     if (request.mode === 'navigate') return offlineNavigationFallback(request, cache);
     return (await cache.match(request)) || offlineResponse();
 >>>>>>> ba5d29180 (Commit 10/8/2026)
+=======
+    if (request.mode === 'navigate') return offlineNavigationFallback(request, cache);
+    return (await cache.match(request)) || offlineResponse();
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
   }
 }
 

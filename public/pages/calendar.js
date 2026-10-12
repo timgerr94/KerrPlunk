@@ -4774,6 +4774,7 @@ function renderDayView(container) {
     </div>
   `);
 
+<<<<<<< HEAD
   // Die Seitenspalte traegt Agenda-Zeilen: dieselbe Aktivierung wie dort.
   const rail = container.querySelector('.day-rail');
   rail?.addEventListener('click', (e) => {
@@ -4789,6 +4790,8 @@ function renderDayView(container) {
     handleDayRowActivation(e, { keyboard: true });
   });
 
+=======
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
   const quickAddForm = container.querySelector('#cal-day-quick-add');
   const quickAddInput = quickAddForm?.querySelector?.('#cal-day-quick-add-input');
   quickAddInput?.addEventListener('input', () => quickAddInput.setCustomValidity(''));
@@ -4926,6 +4929,7 @@ async function submitDayQuickAdd(form) {
   }
 }
 
+<<<<<<< HEAD
 /**
  * DIE FOLGETAGE NEBEN DEM TAG (Critique R16, 2026-10-05). Am Desktop war die
  * Tagesansicht eine einzelne 932px breite Spalte - die Telefonansicht, nur
@@ -4955,6 +4959,8 @@ function renderDayRail() {
     </aside>`;
 }
 
+=======
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
 /**
  * Ein Termin im Tagesraster: derselbe Block wie in der Woche - Toenung,
  * Vollton-Kante, Titel oben, Zeit darunter (DESIGN.md „Event-Bloecke").

@@ -60,7 +60,10 @@ import {
 =======
 import { householdMonthOf as householdMonthOfIn, householdMonthRange as householdMonthRangeIn } from '../services/housekeeping-month.js';
 import { householdDisabledModules } from '../services/household-modules.js';
+<<<<<<< HEAD
 >>>>>>> 2b7868654 (My local changes)
+=======
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
 
 const log = createLogger('Housekeeping');
 const router = express.Router();

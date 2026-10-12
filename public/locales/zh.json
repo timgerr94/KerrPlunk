@@ -808,6 +808,7 @@
         "recipeScaleLabel": "调整食材用量",
         "deletedToast": "已删除该餐。",
 <<<<<<< HEAD
+<<<<<<< HEAD
         "recurrenceLabel": "每周重复",
         "recurrenceWeekly": "每周",
         "cookLabel": "掌勺人",
@@ -815,6 +816,9 @@
 =======
         "recurrenceLabel": "重复",
 >>>>>>> 2b7868654 (My local changes)
+=======
+        "recurrenceLabel": "重复",
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
         "recurrenceHint": "Yuvomi 会在未来每周的同一天自动添加这顿餐食。",
         "recurrenceUntilLabel": "重复至",
         "recurrenceUntilHint": "留空表示无限重复。",
@@ -1829,6 +1833,7 @@
         "wallModeOn": "壁挂模式已开启，可在{{page}}中查看。",
         "wallModeOff": "壁挂模式已关闭。",
 <<<<<<< HEAD
+<<<<<<< HEAD
         "screensaverIdleLabel": "屏幕保护程序启动前等待",
         "screensaverIdleHint": "本设备在无人触碰多久后启动照片屏幕保护程序。仅适用于本设备，不影响家庭中的其他设备。管理员连接 Immich 后生效。",
         "screensaverIdleSaved": "此设备的屏幕保护等待时间：{{delay}}",
@@ -1838,11 +1843,16 @@
         "screensaverCoverHint": "照片铺满整个屏幕，而不是完整显示在屏幕内。边缘会被裁切，竖向照片尤其明显。仅适用于此设备。",
         "screensaverDeviceSaved": "已为此设备保存。下次屏幕保护启动时生效。",
 =======
+=======
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
         "themeDarkLabel": "深色主题",
         "visualSkinLabel": "视觉风格",
         "visualSkinDefault": "经典",
         "visualSkinMiddleEarth": "中洲",
+<<<<<<< HEAD
 >>>>>>> 2b7868654 (My local changes)
+=======
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
         "changePassword": "修改密码",
         "currentPasswordLabel": "当前密码",
         "newPasswordLabel": "新密码",

@@ -1003,6 +1003,7 @@
         "recipeScaleLabel": "تعديل مقادير المكونات",
         "deletedToast": "تم حذف الوجبة.",
 <<<<<<< HEAD
+<<<<<<< HEAD
         "recurrenceLabel": "كرر أسبوعياً",
         "recurrenceWeekly": "أسبوعيًا",
         "cookLabel": "من يطبخ",
@@ -1010,6 +1011,9 @@
 =======
         "recurrenceLabel": "تكرار",
 >>>>>>> 2b7868654 (My local changes)
+=======
+        "recurrenceLabel": "تكرار",
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
         "recurrenceHint": "ينشئ Yuvomi هذه الوجبة تلقائياً في نفس يوم الأسبوع في الأسابيع القادمة.",
         "recurrenceUntilLabel": "التكرار حتى",
         "recurrenceUntilHint": "اتركه فارغًا للتكرار بلا نهاية.",
@@ -2066,6 +2070,7 @@
         "wallModeOn": "وضع الحائط مُفعَّل، ويظهر في {{page}}.",
         "wallModeOff": "وضع الحائط مُعطَّل.",
 <<<<<<< HEAD
+<<<<<<< HEAD
         "screensaverIdleLabel": "بدء شاشة التوقف بعد",
         "screensaverIdleHint": "المدة التي يبقى فيها هذا الجهاز دون لمس قبل أن تبدأ شاشة توقف الصور. ينطبق على هذا الجهاز فقط، وليس على بقية أجهزة الأسرة. يسري بعد أن يربط المسؤول Immich.",
         "screensaverIdleSaved": "مدة انتظار شاشة التوقف على هذا الجهاز: {{delay}}.",
@@ -2075,11 +2080,16 @@
         "screensaverCoverHint": "تملأ الصور الشاشة بالكامل بدلاً من أن تتسع داخلها. تُقص الحواف، خاصةً في الصور الطولية. ينطبق على هذا الجهاز فقط.",
         "screensaverDeviceSaved": "تم الحفظ لهذا الجهاز. يُطبَّق عند التشغيل التالي لشاشة التوقف.",
 =======
+=======
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
         "themeDarkLabel": "المظهر الداكن",
         "visualSkinLabel": "المظهر المرئي",
         "visualSkinDefault": "الكلاسيكي",
         "visualSkinMiddleEarth": "الأرض الوسطى",
+<<<<<<< HEAD
 >>>>>>> 2b7868654 (My local changes)
+=======
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
         "changePassword": "تغيير كلمة المرور",
         "currentPasswordLabel": "كلمة المرور الحالية",
         "newPasswordLabel": "كلمة المرور الجديدة",

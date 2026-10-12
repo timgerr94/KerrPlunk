@@ -810,9 +810,12 @@
         "recipeScaleLabel": "Scale ingredients",
         "deletedToast": "Meal deleted.",
         "recurrenceLabel": "Repeat",
+<<<<<<< HEAD
         "recurrenceWeekly": "Weekly",
         "cookLabel": "Cook",
         "cookNamed": "Cook: {{name}}",
+=======
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
         "recurrenceHint": "Yuvomi automatically adds this meal on the same weekday in future weeks.",
         "recurrenceUntilLabel": "Repeat until",
         "recurrenceUntilHint": "Leave empty to repeat indefinitely.",
@@ -1847,6 +1850,7 @@
         "visualSkinLabel": "Visual style",
         "visualSkinDefault": "Classic",
         "visualSkinMiddleEarth": "Middle-earth",
+<<<<<<< HEAD
         "screensaverIdleLabel": "Start the screensaver after",
         "screensaverIdleHint": "How long this device stays untouched before the photo screensaver starts. Applies to this device only, not to the rest of the household. Takes effect once an admin has connected Immich.",
         "screensaverIdleSaved": "Screensaver delay on this device: {{delay}}.",
@@ -1855,6 +1859,8 @@
         "screensaverCoverLabel": "Fill the screen with the photo",
         "screensaverCoverHint": "Photos fill the whole screen instead of fitting inside it. The edges are cropped, most of all on portrait photos. Applies to this device only.",
         "screensaverDeviceSaved": "Saved for this device. Applies the next time the screensaver starts.",
+=======
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
         "changePassword": "Change password",
         "currentPasswordLabel": "Current password",
         "newPasswordLabel": "New password",

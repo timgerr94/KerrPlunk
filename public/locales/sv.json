@@ -808,6 +808,7 @@
         "recipeScaleLabel": "Skala ingredienser",
         "deletedToast": "Måltid borttagen.",
 <<<<<<< HEAD
+<<<<<<< HEAD
         "recurrenceLabel": "Upprepa varje vecka",
         "recurrenceWeekly": "Varje vecka",
         "cookLabel": "Lagar maten",
@@ -815,6 +816,9 @@
 =======
         "recurrenceLabel": "Upprepa",
 >>>>>>> 2b7868654 (My local changes)
+=======
+        "recurrenceLabel": "Upprepa",
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
         "recurrenceHint": "Yuvomi lägger automatiskt till den här måltiden samma veckodag kommande veckor.",
         "recurrenceUntilLabel": "Upprepa till",
         "recurrenceUntilHint": "Lämna tomt för att upprepa utan slut.",
@@ -1829,6 +1833,7 @@
         "wallModeOn": "Väggläge på, syns under {{page}}.",
         "wallModeOff": "Väggläge av.",
 <<<<<<< HEAD
+<<<<<<< HEAD
         "screensaverIdleLabel": "Starta skärmsläckaren efter",
         "screensaverIdleHint": "Hur länge den här enheten är orörd innan fotoskärmsläckaren startar. Gäller bara den här enheten, inte resten av hushållet. Gäller när en administratör har anslutit Immich.",
         "screensaverIdleSaved": "Väntetid för skärmsläckaren på den här enheten: {{delay}}.",
@@ -1838,11 +1843,16 @@
         "screensaverCoverHint": "Foton fyller hela skärmen i stället för att passas in. Kanterna beskärs, mest på stående foton. Gäller bara den här enheten.",
         "screensaverDeviceSaved": "Sparat för den här enheten. Gäller nästa gång skärmsläckaren startar.",
 =======
+=======
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
         "themeDarkLabel": "Mörkt läge",
         "visualSkinLabel": "Visuell stil",
         "visualSkinDefault": "Klassisk",
         "visualSkinMiddleEarth": "Midgård",
+<<<<<<< HEAD
 >>>>>>> 2b7868654 (My local changes)
+=======
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
         "changePassword": "Byt lösenord",
         "currentPasswordLabel": "Aktuellt lösenord",
         "newPasswordLabel": "Nytt lösenord",

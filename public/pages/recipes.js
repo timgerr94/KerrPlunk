@@ -1165,6 +1165,7 @@ function ingredientsSectionEl(recipe) {
     const label = document.createElement('span');
     label.className = 'recipe-detail__ingredient-name';
 <<<<<<< HEAD
+<<<<<<< HEAD
     // DIE MENGE HAT IHRE EIGENE SPALTE (Critique R18): rechtsbuendig und in
     // gleich breiten Ziffern vor dem Namen, sodass "200 g", "1 EL" und "2"
     // an EINER Kante enden und die Namen an einer beginnen. Vorher stand sie
@@ -1176,12 +1177,17 @@ function ingredientsSectionEl(recipe) {
     item.appendChild(quantity);
     label.textContent = ing.name;
 =======
+=======
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
     // Menge und Einheit stehen getrennt gespeichert (v237), aber zusammen
     // gelesen wie bisher: "500 g · Mehl". Fehlt die Menge und nur die Einheit
     // ist gesetzt, bleibt die Einheit sichtbar statt zu verschwinden.
     const amount = [ing.quantity, ing.unit].filter(Boolean).join(' ');
     label.textContent = amount ? `${amount} · ${ing.name}` : ing.name;
+<<<<<<< HEAD
 >>>>>>> ba5d29180 (Commit 10/8/2026)
+=======
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
     item.appendChild(label);
     // Die Einkaufskategorie steht sonst NUR im Formular. Bei `read` deshalb
     // hier, wo der Tipp landet (Regel 9) - als Text, nicht als Auswahl.

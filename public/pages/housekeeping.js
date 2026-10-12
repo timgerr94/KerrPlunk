@@ -28,10 +28,14 @@ import { todayKey } from '/utils/date.js';
 import { displayTimeZone, zonedDateKey } from '/utils/timezone.js';
 import { USER_COLOR_DEFAULT } from '/utils/color.js';
 <<<<<<< HEAD
+<<<<<<< HEAD
 import { renderPageColumns } from '/utils/page-layout.js';
 =======
 import { HOUSEKEEPING_CHILD_IDS } from '/settings/module-order.js';
 >>>>>>> 2b7868654 (My local changes)
+=======
+import { HOUSEKEEPING_CHILD_IDS } from '/settings/module-order.js';
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
 
 
 
@@ -408,6 +412,7 @@ function renderShell(container) {
         <div class="page-toolbar__actions"></div>
         <nav class="housekeeping-tabs page-toolbar__bar" role="tablist" aria-label="${esc(t('housekeeping.bottomNav'))}">
 <<<<<<< HEAD
+<<<<<<< HEAD
           ${renderTabButton('dashboard', 'layout-dashboard', t('housekeeping.dashboard'))}
           ${renderTabButton('tasks', 'list-checks', t('housekeeping.tasks'))}
           ${renderTabButton('reports', 'file-text', t('housekeeping.reports'))}
@@ -415,6 +420,9 @@ function renderShell(container) {
 =======
           ${tabs.map((tab) => renderTabButton(tab.id, tab.icon, t(tab.labelKey))).join('')}
 >>>>>>> 2b7868654 (My local changes)
+=======
+          ${tabs.map((tab) => renderTabButton(tab.id, tab.icon, t(tab.labelKey))).join('')}
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
         </nav>
       </header>
       <div class="housekeeping-period" id="housekeeping-period" hidden></div>
@@ -455,7 +463,10 @@ function renderCurrentTab(container, { direction = null } = {}) {
 =======
 function renderCurrentTab(container) {
   if (!availableTabs().some((tab) => tab.id === state.tab)) state.tab = 'tasks';
+<<<<<<< HEAD
 >>>>>>> 2b7868654 (My local changes)
+=======
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
   const content = container.querySelector('#housekeeping-content');
   if (!content) return;
   // Der Reiter steht an der Seite (Stil-Haken je Reiter). Das Mass folgt ihm

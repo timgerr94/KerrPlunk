@@ -808,6 +808,7 @@
         "recipeScaleLabel": "Escalar ingredientes",
         "deletedToast": "Comida eliminada.",
 <<<<<<< HEAD
+<<<<<<< HEAD
         "recurrenceLabel": "Repetir semanalmente",
         "recurrenceWeekly": "Semanal",
         "cookLabel": "Quién cocina",
@@ -815,6 +816,9 @@
 =======
         "recurrenceLabel": "Repetir",
 >>>>>>> 2b7868654 (My local changes)
+=======
+        "recurrenceLabel": "Repetir",
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
         "recurrenceHint": "Yuvomi crea esta comida automáticamente el mismo día de la semana en las próximas semanas.",
         "recurrenceUntilLabel": "Repetir hasta",
         "recurrenceUntilHint": "Déjalo vacío para repetir indefinidamente.",
@@ -1829,6 +1833,7 @@
         "wallModeOn": "Modo pared activado, visible en {{page}}.",
         "wallModeOff": "Modo pared desactivado.",
 <<<<<<< HEAD
+<<<<<<< HEAD
         "screensaverIdleLabel": "Iniciar el salvapantallas tras",
         "screensaverIdleHint": "Cuánto tiempo permanece este dispositivo sin tocar antes de que se inicie el salvapantallas de fotos. Solo se aplica a este dispositivo, no al resto del hogar. Surte efecto cuando un administrador haya conectado Immich.",
         "screensaverIdleSaved": "Espera del salvapantallas en este dispositivo: {{delay}}.",
@@ -1838,11 +1843,16 @@
         "screensaverCoverHint": "Las fotos ocupan toda la pantalla en lugar de ajustarse a ella. Los bordes se recortan, sobre todo en fotos verticales. Solo se aplica a este dispositivo.",
         "screensaverDeviceSaved": "Guardado para este dispositivo. Se aplica la próxima vez que se inicie el salvapantallas.",
 =======
+=======
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
         "themeDarkLabel": "Tema oscuro",
         "visualSkinLabel": "Estilo visual",
         "visualSkinDefault": "Clásico",
         "visualSkinMiddleEarth": "Tierra Media",
+<<<<<<< HEAD
 >>>>>>> 2b7868654 (My local changes)
+=======
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
         "changePassword": "Cambiar contraseña",
         "currentPasswordLabel": "Contraseña actual",
         "newPasswordLabel": "Nueva contraseña",

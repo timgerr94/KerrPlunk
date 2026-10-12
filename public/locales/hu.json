@@ -808,6 +808,7 @@
         "recipeScaleLabel": "Hozzávalók arányosítása",
         "deletedToast": "Étkezés törölve.",
 <<<<<<< HEAD
+<<<<<<< HEAD
         "recurrenceLabel": "Ismétlés hetente",
         "recurrenceWeekly": "Hetente",
         "cookLabel": "Ki főz",
@@ -815,6 +816,9 @@
 =======
         "recurrenceLabel": "Ismétlés",
 >>>>>>> 2b7868654 (My local changes)
+=======
+        "recurrenceLabel": "Ismétlés",
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
         "recurrenceHint": "A Yuvomi a következő hetekben automatikusan létrehozza ezt az ételt ugyanazon a hétköznapon.",
         "recurrenceUntilLabel": "Ismétlés eddig",
         "recurrenceUntilHint": "Hagyd üresen a végtelen ismétléshez.",
@@ -1846,6 +1850,7 @@
         "wallModeOn": "Fali mód bekapcsolva, itt látszik: {{page}}.",
         "wallModeOff": "Fali mód kikapcsolva.",
 <<<<<<< HEAD
+<<<<<<< HEAD
         "screensaverIdleLabel": "Képernyővédő indítása ennyi idő után",
         "screensaverIdleHint": "Ennyi ideig marad érintés nélkül ez az eszköz, mielőtt elindul a fényképes képernyővédő. Csak erre az eszközre vonatkozik, a háztartás többi tagjára nem. Akkor lép érvénybe, ha egy adminisztrátor csatlakoztatta az Immich-et.",
         "screensaverIdleSaved": "Képernyővédő várakozási ideje ezen az eszközön: {{delay}}.",
@@ -1855,11 +1860,16 @@
         "screensaverCoverHint": "A fotók a teljes képernyőt kitöltik ahelyett, hogy beleférnének. A szélek levágódnak, főleg az álló fotóknál. Csak erre az eszközre vonatkozik.",
         "screensaverDeviceSaved": "Mentve ehhez az eszközhöz. A képernyővédő következő indulásától érvényes.",
 =======
+=======
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
         "themeDarkLabel": "Sötét mód",
         "visualSkinLabel": "Megjelenés",
         "visualSkinDefault": "Klasszikus",
         "visualSkinMiddleEarth": "Középfölde",
+<<<<<<< HEAD
 >>>>>>> 2b7868654 (My local changes)
+=======
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
         "changePassword": "Jelszó módosítása",
         "currentPasswordLabel": "Jelenlegi jelszó",
         "newPasswordLabel": "Új jelszó",

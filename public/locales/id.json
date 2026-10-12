@@ -822,6 +822,7 @@
         "recipeScaleLabel": "Skala bahan",
         "deletedToast": "Makanan dihapus.",
 <<<<<<< HEAD
+<<<<<<< HEAD
         "recurrenceLabel": "Ulangi mingguan",
         "recurrenceWeekly": "Mingguan",
         "cookLabel": "Yang memasak",
@@ -829,6 +830,9 @@
 =======
         "recurrenceLabel": "Ulangi",
 >>>>>>> 2b7868654 (My local changes)
+=======
+        "recurrenceLabel": "Ulangi",
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
         "recurrenceHint": "Yuvomi secara otomatis menambahkan makanan ini pada hari yang sama di minggu-minggu mendatang.",
         "recurrenceUntilLabel": "Ulangi sampai",
         "recurrenceUntilHint": "Kosongkan untuk mengulang tanpa batas.",
@@ -1891,6 +1895,7 @@
         "wallModeOn": "Mode dinding aktif, terlihat di {{page}}.",
         "wallModeOff": "Mode dinding mati.",
 <<<<<<< HEAD
+<<<<<<< HEAD
         "screensaverIdleLabel": "Mulai screensaver setelah",
         "screensaverIdleHint": "Berapa lama perangkat ini tidak disentuh sebelum screensaver foto dimulai. Hanya berlaku untuk perangkat ini, bukan untuk anggota rumah tangga lainnya. Berlaku setelah admin menghubungkan Immich.",
         "screensaverIdleSaved": "Jeda screensaver di perangkat ini: {{delay}}.",
@@ -1900,11 +1905,16 @@
         "screensaverCoverHint": "Foto memenuhi seluruh layar alih-alih muat di dalamnya. Tepinya terpotong, terutama pada foto potret. Hanya berlaku untuk perangkat ini.",
         "screensaverDeviceSaved": "Disimpan untuk perangkat ini. Berlaku saat screensaver dimulai berikutnya.",
 =======
+=======
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
         "themeDarkLabel": "Tema gelap",
         "visualSkinLabel": "Gaya visual",
         "visualSkinDefault": "Klasik",
         "visualSkinMiddleEarth": "Middle-earth",
+<<<<<<< HEAD
 >>>>>>> 2b7868654 (My local changes)
+=======
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
         "changePassword": "Ubah kata sandi",
         "currentPasswordLabel": "Kata sandi saat ini",
         "newPasswordLabel": "Kata sandi baru",

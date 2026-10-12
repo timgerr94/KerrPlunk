@@ -808,6 +808,7 @@
         "recipeScaleLabel": "材料の分量を調整",
         "deletedToast": "食事を削除しました。",
 <<<<<<< HEAD
+<<<<<<< HEAD
         "recurrenceLabel": "毎週繰り返す",
         "recurrenceWeekly": "毎週",
         "cookLabel": "料理担当",
@@ -815,6 +816,9 @@
 =======
         "recurrenceLabel": "繰り返す",
 >>>>>>> 2b7868654 (My local changes)
+=======
+        "recurrenceLabel": "繰り返す",
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
         "recurrenceHint": "Yuvomi は今後の週でも同じ曜日にこの食事を自動で追加します。",
         "recurrenceUntilLabel": "繰り返しの終了日",
         "recurrenceUntilHint": "無期限に繰り返す場合は空のままにします。",
@@ -1829,6 +1833,7 @@
         "wallModeOn": "ウォールモードをオンにしました。{{page}} に表示されます。",
         "wallModeOff": "ウォールモードをオフにしました。",
 <<<<<<< HEAD
+<<<<<<< HEAD
         "screensaverIdleLabel": "スクリーンセーバーを開始するまで",
         "screensaverIdleHint": "写真スクリーンセーバーが始まるまで、このデバイスに触れない状態が続く時間です。このデバイスにのみ適用され、世帯の他のデバイスには影響しません。管理者が Immich を接続すると有効になります。",
         "screensaverIdleSaved": "このデバイスのスクリーンセーバー待ち時間: {{delay}}",
@@ -1838,11 +1843,16 @@
         "screensaverCoverHint": "写真を画面内に収める代わりに、画面全体に表示します。端が切り取られ、特に縦向きの写真で目立ちます。このデバイスにのみ適用されます。",
         "screensaverDeviceSaved": "このデバイスに保存しました。次にスクリーンセーバーが起動したときから適用されます。",
 =======
+=======
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
         "themeDarkLabel": "ダークテーマ",
         "visualSkinLabel": "ビジュアルスタイル",
         "visualSkinDefault": "クラシック",
         "visualSkinMiddleEarth": "中つ国",
+<<<<<<< HEAD
 >>>>>>> 2b7868654 (My local changes)
+=======
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
         "changePassword": "パスワードを変更",
         "currentPasswordLabel": "現在のパスワード",
         "newPasswordLabel": "新しいパスワード",

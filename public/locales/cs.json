@@ -873,6 +873,7 @@
         "recipeScaleLabel": "Upravit množství ingrediencí",
         "deletedToast": "Jídlo odstraněno.",
 <<<<<<< HEAD
+<<<<<<< HEAD
         "recurrenceLabel": "Opakovat každý týden",
         "recurrenceWeekly": "Týdně",
         "cookLabel": "Vaří",
@@ -880,6 +881,9 @@
 =======
         "recurrenceLabel": "Opakovat",
 >>>>>>> 2b7868654 (My local changes)
+=======
+        "recurrenceLabel": "Opakovat",
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
         "recurrenceHint": "Yuvomi tuto večeři nebo jídlo automaticky vytvoří ve stejný den v dalších týdnech.",
         "recurrenceUntilLabel": "Opakovat do",
         "recurrenceUntilHint": "Nechte prázdné pro opakování bez konce.",
@@ -1957,6 +1961,7 @@
         "wallModeOn": "Nástěnný režim zapnut, uvidíte ho v {{page}}.",
         "wallModeOff": "Nástěnný režim vypnut.",
 <<<<<<< HEAD
+<<<<<<< HEAD
         "screensaverIdleLabel": "Doba nečinnosti před spuštěním spořiče",
         "screensaverIdleHint": "Jak dlouho zůstane toto zařízení bez dotyku, než se spustí fotografický spořič obrazovky. Platí jen pro toto zařízení, ne pro zbytek domácnosti. Projeví se, jakmile správce připojí Immich.",
         "screensaverIdleSaved": "Prodleva spořiče na tomto zařízení: {{delay}}.",
@@ -1966,11 +1971,16 @@
         "screensaverCoverHint": "Fotky vyplní celou obrazovku, místo aby se do ní vešly. Okraje se oříznou, nejvíc u fotek na výšku. Platí jen pro toto zařízení.",
         "screensaverDeviceSaved": "Uloženo pro toto zařízení. Projeví se při dalším spuštění spořiče.",
 =======
+=======
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
         "themeDarkLabel": "Tmavý motiv",
         "visualSkinLabel": "Vzhled aplikace",
         "visualSkinDefault": "Klasický",
         "visualSkinMiddleEarth": "Středozem",
+<<<<<<< HEAD
 >>>>>>> 2b7868654 (My local changes)
+=======
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
         "changePassword": "Změnit heslo",
         "currentPasswordLabel": "Aktuální heslo",
         "newPasswordLabel": "Nové heslo",

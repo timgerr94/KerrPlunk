@@ -22,6 +22,7 @@ const KEYWORDS = {
     'zitrone', 'lime', 'pepper', 'paprika', 'lettuce', 'salat', 'spinach', 'spinat',
     'cucumber', 'gurke', 'vegetable', 'gemüse', 'fruit', 'obst', 'herb', 'kräuter',
 <<<<<<< HEAD
+<<<<<<< HEAD
     'basil', 'basilikum', 'parsley', 'petersilie', 'mushroom', 'pilz', 'løk', 'rødløk',
     'vårløk', 'hvitløk', 'potet', 'poteter', 'gulrot', 'gulrøtter', 'tomat', 'tomater',
     'agurk', 'brokkoli', 'blomkål', 'kål', 'purre', 'sopp', 'sitron', 'eple', 'epler',
@@ -43,17 +44,29 @@ const KEYWORDS = {
     'raspberry','himbeere','avacado','peach'
   ],
   'Backwaren': [
+=======
+    'basil', 'basilikum', 'parsley', 'petersilie', 'mushroom', 'pilz','lettuce','greens',
+    'kale', 'grünkohl','pineapple','berries','mango','mangoes','zucchini','greens','pear',
+    'aprikose','apricot','berry','beere','strawberry','erdbeere','blueberry','heidelbeere',
+    'raspberry','himbeere','avacado','peach'
+  ],
+  'Backwaren': [
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
     'flour', 'mehl', 'bread', 'baking powder', 'backpulver', 'yeast',
     'hefe', 'bun', 'brötchen', 'tortilla', 'noodle', 'nudel', 'pasta',
   ],
   'Milchprodukte': [
     'milk', 'milch', 'cheese', 'käse', 'butter', 'cream', 'sahne', 'yogurt',
     'joghurt','ghee','ricotta',
+<<<<<<< HEAD
 >>>>>>> ba5d29180 (Commit 10/8/2026)
+=======
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
   ],
   'Meat & Eggs': [
     'chicken', 'hähnchen', 'huhn', 'beef', 'rind', 'pork', 'schwein', 'fish',
     'fisch', 'salmon', 'lachs', 'shrimp', 'garnele', 'bacon', 'speck', 'sausage',
+<<<<<<< HEAD
 <<<<<<< HEAD
     'wurst', 'meat', 'fleisch', 'kylling', 'kyllingfilet', 'kjøtt', 'kjøttdeig',
     'svinekjøtt', 'storfe', 'fisk', 'laks', 'torsk', 'reker', 'pølse', 'pølser', 'skinke',
@@ -66,11 +79,19 @@ const KEYWORDS = {
     'wurst', 'meat', 'fleisch', 'egg', 'ei', 'eier','ham','prosciutto','beef','turkey',
     'tuna','crab','lobster','tilapia','catfish','salami','bologna','pastrami','corned beef',
   ],
+=======
+    'wurst', 'meat', 'fleisch', 'egg', 'ei', 'eier','ham','prosciutto','beef','turkey',
+    'tuna','crab','lobster','tilapia','catfish','salami','bologna','pastrami','corned beef',
+  ],
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
   'Tiefkühl': ['frozen', 'tiefkühl', 'tiefgefroren', 'ice cream', 'eis','popsicle','ice'],
   'Juice & Beverages': ['juice', 'saft', 'wine', 'wein', 'beer', 'bier', 'water', 'wasser', 'soda', 'cola', 'tea', 'tee','pop','prosecco','liquer','coke','spindrift'],
   'Haushalt': ['shampoo','foil', 'folie', 'napkin', 'serviette', 'detergent', 'waschmittel','paper','utensils','cleaner','spoon', 'fork', 'knife','towel','soap','toothpaste','brush','bürste','scrub'],
   'Drogerie': ['seife','zahnpasta'],
+<<<<<<< HEAD
 >>>>>>> ba5d29180 (Commit 10/8/2026)
+=======
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
 };
 
 function escapeRegex(text) {

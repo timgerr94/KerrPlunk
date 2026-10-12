@@ -434,7 +434,10 @@ export async function render(container, { user } = {}) {
           <option value="location"${state.groupBy === 'location' ? ' selected' : ''}>${esc(t('pantry.groupByLocation'))}</option>
         </select>
       </label>
+<<<<<<< HEAD
 >>>>>>> ba5d29180 (Commit 10/8/2026)
+=======
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
       ${pageToolsMenuHtml({
         id: 'pantry-tools-menu',
         label: t('common.moreActions'),
@@ -521,8 +524,11 @@ export async function render(container, { user } = {}) {
 
   installPopoverMenus(toolbar);
 <<<<<<< HEAD
+<<<<<<< HEAD
   toolbar.querySelector('[data-action="manage-locations"]')?.addEventListener('click', openLocationManager);
 =======
+=======
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
   toolbar.querySelector('#pantry-group-by').addEventListener('change', (event) => {
     state.groupBy = event.target.value === 'location' ? 'location' : 'category';
     renderList();
@@ -1239,6 +1245,7 @@ function rowEl(item) {
   return wrap;
 }
 
+<<<<<<< HEAD
 /**
  * Wisch zum Zeilenende loescht - mit dem Rueckweg, den removeItem() schon hat
  * (Undo-Toast). Die Karte federt zurueck statt hinauszufliegen: removeItem()
@@ -1265,6 +1272,8 @@ function wirePantrySwipe(list) {
   return optionen;
 }
 
+=======
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
 /** Einkaufs-Aktion einer Zeile. */
 function cartEl(item) {
   const cart = document.createElement('button');
@@ -1313,12 +1322,16 @@ function onListClick(e) {
  */
 function adjustQuantity(item, direction, row) {
 <<<<<<< HEAD
+<<<<<<< HEAD
   // Zweite Linie hinter dem fehlenden Stepper: ohne Schreibrecht keine
   // optimistische Menge und kein PATCH.
   if (readOnly()) return;
 =======
   if (transferLocks.has(item.id)) return;
 >>>>>>> ba5d29180 (Commit 10/8/2026)
+=======
+  if (transferLocks.has(item.id)) return;
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
   const step = Number(row.querySelector('.pantry-stepper')?.dataset.step) || 1;
   // Der Ausgangspunkt ist, was die Zeile ZEIGT - eine schon laufende Absicht
   // eingeschlossen, sonst zaehlte jeder Schritt vom Serverstand aus neu.

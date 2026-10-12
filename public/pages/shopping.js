@@ -19,11 +19,15 @@ import { mayImportMealPlan, mayTransferShoppingToPantry } from '/utils/kitchen-t
 import { mayWritePath } from '/utils/module-access.js';
 import { mountEmptyState, mountLoadError } from '/utils/empty-state.js';
 <<<<<<< HEAD
+<<<<<<< HEAD
 import { pageToolsMenuHtml, installPopoverMenus } from '/utils/popover-menu.js';
 import { rowMenuHtml } from '/utils/row-action.js';
 =======
 import { pageToolsMenuHtml, popoverMenuHtml, installPopoverMenus } from '/utils/popover-menu.js';
 >>>>>>> ba5d29180 (Commit 10/8/2026)
+=======
+import { pageToolsMenuHtml, popoverMenuHtml, installPopoverMenus } from '/utils/popover-menu.js';
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
 import '/components/category-manager.js';
 import { findPageFab } from '/utils/fab.js';
 import { setBulkPill, clearBulkPill, bulkPillLayer } from '/utils/bulk-pill.js';
@@ -741,9 +745,12 @@ async function toggleShoppingItem(id, checked, container, { settleNow = false, e
 
   try {
 <<<<<<< HEAD
+<<<<<<< HEAD
     const antwort = await api.patch(`/shopping/items/${id}`, { ...extra, is_checked: newVal });
     acknowledgeOwnChange(antwort);
 =======
+=======
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
     if (isBrowserOffline() && canQueueOffline(state.currentUserId)) throw Object.assign(new Error('offline'), { status: 0 });
     acknowledgeOwnChange(await api.patch(`/shopping/items/${id}`, { is_checked: newVal }));
 >>>>>>> ba5d29180 (Commit 10/8/2026)
@@ -1081,7 +1088,10 @@ function renderTabs(container) {
         ],
       }) : ''}
     </div>` : '';
+<<<<<<< HEAD
 >>>>>>> 2b7868654 (My local changes)
+=======
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
 
   bar.insertAdjacentHTML('beforeend', `
     ${tabsHtml}
@@ -2076,6 +2086,7 @@ function wireQuickAdd(container) {
     submitting = true;
     try {
 <<<<<<< HEAD
+<<<<<<< HEAD
       // Steht der Name abgehakt auf dieser Liste, kommt DIESE Zeile zurueck
       // (#1816) - gewaehlt aus dem Vorschlag oder von Hand getippt, verglichen
       // wie der Vorschlag sucht. Jeder andere Name wird angelegt.
@@ -2098,6 +2109,8 @@ function wireQuickAdd(container) {
         renderTabs(container);
       }
 =======
+=======
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
       const payload = { name, quantity, category };
       const operationId = createKitchenClientId();
       const pendingOperation = {
@@ -2143,12 +2156,16 @@ function wireQuickAdd(container) {
       nameInput.addEventListener('animationend', () => nameInput.classList.remove('quick-add__input--flash'), { once: true });
     } catch (err) {
 <<<<<<< HEAD
+<<<<<<< HEAD
       window.yuvomi.showToast(err.data?.error ?? t('common.errorGeneric'), 'danger');
     } finally {
       submitting = false;
 =======
       window.yuvomi?.showToast?.(err.data?.error ?? t('common.errorGeneric'), 'danger');
 >>>>>>> ba5d29180 (Commit 10/8/2026)
+=======
+      window.yuvomi?.showToast?.(err.data?.error ?? t('common.errorGeneric'), 'danger');
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
     }
   });
 }

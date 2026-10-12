@@ -87,10 +87,14 @@ function loadMealWithIngredients(id) {
     SELECT m.*, u.display_name AS creator_name, u.avatar_color AS creator_color,
            mrt.end_date AS recurrence_end_date,
 <<<<<<< HEAD
+<<<<<<< HEAD
            mrt.cook_user_id AS recurrence_cook_user_id,${MEAL_COOK_COLUMNS_SQL}
 =======
            mrt.recurrence_frequency AS recurrence_frequency
 >>>>>>> 2b7868654 (My local changes)
+=======
+           mrt.recurrence_frequency AS recurrence_frequency
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
     FROM meals m
     LEFT JOIN users u ON u.id = m.created_by
     ${MEAL_COOK_JOIN_SQL}
@@ -310,10 +314,14 @@ router.get('/', (req, res) => {
       SELECT m.*, u.display_name AS creator_name, u.avatar_color AS creator_color,
              mrt.end_date AS recurrence_end_date,
 <<<<<<< HEAD
+<<<<<<< HEAD
            mrt.cook_user_id AS recurrence_cook_user_id,${MEAL_COOK_COLUMNS_SQL},
 =======
              mrt.recurrence_frequency AS recurrence_frequency,
 >>>>>>> 2b7868654 (My local changes)
+=======
+             mrt.recurrence_frequency AS recurrence_frequency,
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
              -- Hat das verknuepfte Rezept ein Bild (#1059)? Der Planer stellt
              -- damit den Platzhalter ODER das Vorschaubild, ohne je Karte
              -- nachzufragen - und ohne einen Request, der fuer ein bildloses
@@ -410,15 +418,21 @@ router.post('/', (req, res) => {
     const vRecipeUrl  = str(req.body.recipe_url, 'Rezept-URL', { max: MAX_TEXT, required: false });
     const vRecipeId   = num(req.body.recipe_id, 'Rezept-ID', { required: false });
 <<<<<<< HEAD
+<<<<<<< HEAD
     const vCook       = cookField(req.body.cook_user_id);
     const repeatWeekly = req.body.repeat_weekly === true;
 =======
+=======
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
     const requestedFrequency = req.body.repeat_frequency;
     if (requestedFrequency != null && requestedFrequency !== '' && !['weekly', 'monthly'].includes(requestedFrequency)) {
       return res.status(400).json({ error: 'Wiederholung muss wöchentlich oder monatlich sein.', code: 400 });
     }
     const repeatFrequency = requestedFrequency || (req.body.repeat_weekly === true ? 'weekly' : null);
+<<<<<<< HEAD
 >>>>>>> 2b7868654 (My local changes)
+=======
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
     // Leeres/fehlendes repeat_until heißt „ohne Ende" - die Serie bleibt dann
     // unbegrenzt, wie vor #619, aber jetzt als bewusste Wahl statt als einziger Zustand.
     const vRepeatUntil = repeatFrequency
@@ -449,12 +463,17 @@ router.post('/', (req, res) => {
         const template = db.get().prepare(`
           INSERT INTO meal_recurrence_templates
 <<<<<<< HEAD
+<<<<<<< HEAD
             (start_date, end_date, weekday, meal_type, title, notes, recipe_url, recipe_id, cook_user_id, created_by)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 =======
             (start_date, end_date, weekday, recurrence_frequency, week_of_month, meal_type, title, notes, recipe_url, recipe_id, created_by)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 >>>>>>> 2b7868654 (My local changes)
+=======
+            (start_date, end_date, weekday, recurrence_frequency, week_of_month, meal_type, title, notes, recipe_url, recipe_id, created_by)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
         `).run(
           vDate.value,
           vRepeatUntil.value,

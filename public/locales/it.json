@@ -808,6 +808,7 @@
         "recipeScaleLabel": "Scala ingredienti",
         "deletedToast": "Pasto eliminato.",
 <<<<<<< HEAD
+<<<<<<< HEAD
         "recurrenceLabel": "Ripeti ogni settimana",
         "recurrenceWeekly": "Settimanale",
         "cookLabel": "Chi cucina",
@@ -815,6 +816,9 @@
 =======
         "recurrenceLabel": "Ripeti",
 >>>>>>> 2b7868654 (My local changes)
+=======
+        "recurrenceLabel": "Ripeti",
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
         "recurrenceHint": "Yuvomi aggiunge automaticamente questo pasto nello stesso giorno della settimana nelle settimane future.",
         "recurrenceUntilLabel": "Ripeti fino al",
         "recurrenceUntilHint": "Lascia vuoto per ripetere all'infinito.",
@@ -1829,6 +1833,7 @@
         "wallModeOn": "Modalità parete attiva, visibile in {{page}}.",
         "wallModeOff": "Modalità parete disattivata.",
 <<<<<<< HEAD
+<<<<<<< HEAD
         "screensaverIdleLabel": "Avvia il salvaschermo dopo",
         "screensaverIdleHint": "Quanto tempo questo dispositivo resta inattivo prima che parta il salvaschermo con le foto. Vale solo per questo dispositivo, non per il resto della famiglia. Ha effetto quando un amministratore ha collegato Immich.",
         "screensaverIdleSaved": "Attesa del salvaschermo su questo dispositivo: {{delay}}.",
@@ -1838,11 +1843,16 @@
         "screensaverCoverHint": "Le foto riempiono tutto lo schermo invece di adattarsi. I bordi vengono ritagliati, soprattutto nelle foto verticali. Vale solo per questo dispositivo.",
         "screensaverDeviceSaved": "Salvato per questo dispositivo. Vale dal prossimo avvio del salvaschermo.",
 =======
+=======
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
         "themeDarkLabel": "Modalità scura",
         "visualSkinLabel": "Stile visivo",
         "visualSkinDefault": "Classico",
         "visualSkinMiddleEarth": "Terra di Mezzo",
+<<<<<<< HEAD
 >>>>>>> 2b7868654 (My local changes)
+=======
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
         "changePassword": "Cambia password",
         "currentPasswordLabel": "Password attuale",
         "newPasswordLabel": "Nuova password",

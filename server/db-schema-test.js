@@ -1436,6 +1436,7 @@ const MIGRATIONS_SQL = {
       ON health_nutrition_entries(user_id, consumed_at);
   `,
 <<<<<<< HEAD
+<<<<<<< HEAD
   // v231 (#1381): ein deaktiviertes Konto behaelt seine Zeile. Das
   // Mitglieder-Praedikat liest die Spalte, also braucht sie jede Suite, die
   // `householdMemberSql()` gegen ein handgebautes Schema faehrt.
@@ -1503,13 +1504,18 @@ const MIGRATIONS_SQL = {
       ALTER TABLE budget_subscriptions ADD COLUMN reminder_enabled INTEGER NOT NULL DEFAULT 1
         CHECK(reminder_enabled IN (0,1));
 =======
+=======
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
   227: `
     ALTER TABLE meal_recurrence_templates
       ADD COLUMN recurrence_frequency TEXT NOT NULL DEFAULT 'weekly'
       CHECK (recurrence_frequency IN ('weekly', 'monthly'));
     ALTER TABLE meal_recurrence_templates ADD COLUMN week_of_month INTEGER
       CHECK (week_of_month IS NULL OR week_of_month BETWEEN 1 AND 5);
+<<<<<<< HEAD
 >>>>>>> 2b7868654 (My local changes)
+=======
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
   `,
 };
 

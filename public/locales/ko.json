@@ -822,6 +822,7 @@
         "recipeScaleLabel": "재료 비율 조절",
         "deletedToast": "식사가 삭제되었습니다.",
 <<<<<<< HEAD
+<<<<<<< HEAD
         "recurrenceLabel": "매주 반복",
         "recurrenceWeekly": "매주",
         "cookLabel": "요리 담당",
@@ -829,6 +830,9 @@
 =======
         "recurrenceLabel": "반복",
 >>>>>>> 2b7868654 (My local changes)
+=======
+        "recurrenceLabel": "반복",
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
         "recurrenceHint": "Yuvomi가 이 식사를 앞으로의 주에도 같은 요일에 자동으로 추가합니다.",
         "recurrenceUntilLabel": "반복 종료일",
         "recurrenceUntilHint": "무기한 반복하려면 비워 두세요.",
@@ -1891,6 +1895,7 @@
         "wallModeOn": "벽면 모드를 켰습니다. {{page}}에서 볼 수 있습니다.",
         "wallModeOff": "벽면 모드를 껐습니다.",
 <<<<<<< HEAD
+<<<<<<< HEAD
         "screensaverIdleLabel": "화면 보호기 시작까지",
         "screensaverIdleHint": "사진 화면 보호기가 시작되기 전까지 이 기기를 만지지 않은 상태로 두는 시간입니다. 이 기기에만 적용되며 가족의 다른 기기에는 적용되지 않습니다. 관리자가 Immich를 연결하면 적용됩니다.",
         "screensaverIdleSaved": "이 기기의 화면 보호기 대기 시간: {{delay}}",
@@ -1900,11 +1905,16 @@
         "screensaverCoverHint": "사진을 화면 안에 맞추는 대신 화면 전체를 채웁니다. 가장자리가 잘리며, 세로 사진에서 특히 그렇습니다. 이 기기에만 적용됩니다.",
         "screensaverDeviceSaved": "이 기기에 저장했습니다. 다음에 화면 보호기가 시작될 때부터 적용됩니다.",
 =======
+=======
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
         "themeDarkLabel": "어두운 테마",
         "visualSkinLabel": "시각 스타일",
         "visualSkinDefault": "클래식",
         "visualSkinMiddleEarth": "중간계",
+<<<<<<< HEAD
 >>>>>>> 2b7868654 (My local changes)
+=======
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
         "changePassword": "비밀번호 변경",
         "currentPasswordLabel": "현재 비밀번호",
         "newPasswordLabel": "새 비밀번호",

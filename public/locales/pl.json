@@ -952,6 +952,7 @@
         "recipeScaleLabel": "Skaluj składniki",
         "deletedToast": "Posiłek usunięty.",
 <<<<<<< HEAD
+<<<<<<< HEAD
         "recurrenceLabel": "Powtarzaj co tydzień",
         "recurrenceWeekly": "Co tydzień",
         "cookLabel": "Gotuje",
@@ -959,6 +960,9 @@
 =======
         "recurrenceLabel": "Powtarzaj",
 >>>>>>> 2b7868654 (My local changes)
+=======
+        "recurrenceLabel": "Powtarzaj",
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
         "recurrenceHint": "Yuvomi automatycznie dodaje ten posiłek w ten sam dzień tygodnia w kolejnych tygodniach.",
         "recurrenceUntilLabel": "Powtarzaj do",
         "recurrenceUntilHint": "Pozostaw puste, aby powtarzać bez końca.",
@@ -2051,6 +2055,7 @@
         "wallModeOn": "Tryb ścienny włączony, widoczny w {{page}}.",
         "wallModeOff": "Tryb ścienny wyłączony.",
 <<<<<<< HEAD
+<<<<<<< HEAD
         "screensaverIdleLabel": "Czas bezczynności przed uruchomieniem wygaszacza",
         "screensaverIdleHint": "Jak długo to urządzenie pozostaje nietknięte, zanim uruchomi się wygaszacz ze zdjęciami. Dotyczy tylko tego urządzenia, nie reszty gospodarstwa domowego. Działa, gdy administrator połączy Immich.",
         "screensaverIdleSaved": "Czas oczekiwania wygaszacza na tym urządzeniu: {{delay}}.",
@@ -2060,11 +2065,16 @@
         "screensaverCoverHint": "Zdjęcia wypełniają cały ekran zamiast się w nim mieścić. Krawędzie są przycinane, zwłaszcza w zdjęciach pionowych. Dotyczy tylko tego urządzenia.",
         "screensaverDeviceSaved": "Zapisano dla tego urządzenia. Zadziała przy następnym uruchomieniu wygaszacza.",
 =======
+=======
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
         "themeDarkLabel": "Ciemny motyw",
         "visualSkinLabel": "Styl wizualny",
         "visualSkinDefault": "Klasyczny",
         "visualSkinMiddleEarth": "Śródziemie",
+<<<<<<< HEAD
 >>>>>>> 2b7868654 (My local changes)
+=======
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
         "changePassword": "Zmień hasło",
         "currentPasswordLabel": "Aktualne hasło",
         "newPasswordLabel": "Nowe hasło",

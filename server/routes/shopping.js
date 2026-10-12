@@ -710,6 +710,9 @@ router.post('/items/undo-transfer', (req, res) => {
     if (touchesPantry && !mayWriteModule(req, 'pantry')) {
       return res.status(403).json({ error: 'Write access to the pantry is required.', code: 403 });
     }
+    if (touchesPantry && !mayWriteModule(req, 'pantry')) {
+      return res.status(403).json({ error: 'Write access to the pantry is required.', code: 403 });
+    }
 
     const pantryAccess = touchesPantry ? resolvePantryAccess(db.get()) : null;
     const today = touchesPantry ? householdToday(db.get()) : null;

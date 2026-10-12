@@ -808,6 +808,7 @@
         "recipeScaleLabel": "सामग्री की मात्रा बदलें",
         "deletedToast": "भोजन हटाया गया।",
 <<<<<<< HEAD
+<<<<<<< HEAD
         "recurrenceLabel": "हर सप्ताह दोहराएं",
         "recurrenceWeekly": "साप्ताहिक",
         "cookLabel": "खाना कौन बनाएगा",
@@ -815,6 +816,9 @@
 =======
         "recurrenceLabel": "दोहराएँ",
 >>>>>>> 2b7868654 (My local changes)
+=======
+        "recurrenceLabel": "दोहराएँ",
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
         "recurrenceHint": "Yuvomi आने वाले सप्ताहों में इसी सप्ताह-दिन पर यह भोजन अपने आप जोड़ता है।",
         "recurrenceUntilLabel": "इस तारीख तक दोहराएँ",
         "recurrenceUntilHint": "असीमित दोहराव के लिए खाली छोड़ें।",
@@ -1829,6 +1833,7 @@
         "wallModeOn": "वॉल मोड चालू, {{page}} में दिखता है।",
         "wallModeOff": "वॉल मोड बंद।",
 <<<<<<< HEAD
+<<<<<<< HEAD
         "screensaverIdleLabel": "स्क्रीनसेवर शुरू करें इतने समय बाद",
         "screensaverIdleHint": "फ़ोटो स्क्रीनसेवर शुरू होने से पहले यह डिवाइस कितनी देर बिना छुए रहे। यह सिर्फ़ इसी डिवाइस पर लागू होता है, घर के बाकी डिवाइसों पर नहीं। किसी एडमिन के Immich कनेक्ट करने के बाद लागू होता है।",
         "screensaverIdleSaved": "इस डिवाइस पर स्क्रीनसेवर की प्रतीक्षा: {{delay}}।",
@@ -1838,11 +1843,16 @@
         "screensaverCoverHint": "फ़ोटो स्क्रीन के अंदर समाने के बजाय पूरी स्क्रीन भर देती हैं। किनारे कट जाते हैं, खासकर खड़ी फ़ोटो में। केवल इस डिवाइस पर लागू।",
         "screensaverDeviceSaved": "इस डिवाइस के लिए सहेजा गया। स्क्रीनसेवर के अगली बार शुरू होने पर लागू होगा।",
 =======
+=======
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
         "themeDarkLabel": "गहरा थीम",
         "visualSkinLabel": "दृश्य शैली",
         "visualSkinDefault": "क्लासिक",
         "visualSkinMiddleEarth": "मध्य-पृथ्वी",
+<<<<<<< HEAD
 >>>>>>> 2b7868654 (My local changes)
+=======
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
         "changePassword": "पासवर्ड बदलें",
         "currentPasswordLabel": "वर्तमान पासवर्ड",
         "newPasswordLabel": "नया पासवर्ड",

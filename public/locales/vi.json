@@ -808,6 +808,7 @@
         "recipeScaleLabel": "Cân đối nguyên liệu",
         "deletedToast": "Đã xóa bữa ăn.",
 <<<<<<< HEAD
+<<<<<<< HEAD
         "recurrenceLabel": "Lặp lại hằng tuần",
         "recurrenceWeekly": "Hằng tuần",
         "cookLabel": "Người nấu",
@@ -815,6 +816,9 @@
 =======
         "recurrenceLabel": "Lặp lại",
 >>>>>>> 2b7868654 (My local changes)
+=======
+        "recurrenceLabel": "Lặp lại",
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
         "recurrenceHint": "Yuvomi tự động thêm bữa ăn này vào cùng thứ trong các tuần sau.",
         "recurrenceUntilLabel": "Lặp lại đến",
         "recurrenceUntilHint": "Để trống để lặp lại vô thời hạn.",
@@ -1846,6 +1850,7 @@
         "wallModeOn": "Đã bật chế độ treo tường, xem tại {{page}}.",
         "wallModeOff": "Đã tắt chế độ treo tường.",
 <<<<<<< HEAD
+<<<<<<< HEAD
         "screensaverIdleLabel": "Bắt đầu trình bảo vệ màn hình sau",
         "screensaverIdleHint": "Thời gian thiết bị này không được chạm vào trước khi trình bảo vệ màn hình ảnh bắt đầu. Chỉ áp dụng cho thiết bị này, không áp dụng cho các thiết bị khác trong gia đình. Có hiệu lực khi quản trị viên đã kết nối Immich.",
         "screensaverIdleSaved": "Thời gian chờ trình bảo vệ màn hình trên thiết bị này: {{delay}}.",
@@ -1855,11 +1860,16 @@
         "screensaverCoverHint": "Ảnh lấp đầy toàn bộ màn hình thay vì vừa khít bên trong. Các cạnh bị cắt, nhất là với ảnh dọc. Chỉ áp dụng cho thiết bị này.",
         "screensaverDeviceSaved": "Đã lưu cho thiết bị này. Áp dụng từ lần khởi động tiếp theo của trình bảo vệ màn hình.",
 =======
+=======
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
         "themeDarkLabel": "Chế độ tối",
         "visualSkinLabel": "Phong cách hiển thị",
         "visualSkinDefault": "Cổ điển",
         "visualSkinMiddleEarth": "Trung Địa",
+<<<<<<< HEAD
 >>>>>>> 2b7868654 (My local changes)
+=======
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
         "changePassword": "Đổi mật khẩu",
         "currentPasswordLabel": "Mật khẩu hiện tại",
         "newPasswordLabel": "Mật khẩu mới",

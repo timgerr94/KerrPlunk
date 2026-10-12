@@ -333,6 +333,15 @@ function renderPage(container, preferences, isAdmin) {
           </select>
         </div>
       </div>
+      <div class="settings-card">
+        <div class="form-group">
+          <label class="form-label" for="visual-skin-select">${t('settings.visualSkinLabel')}</label>
+          <select class="form-input" id="visual-skin-select">
+            <option value="default"${skin === 'default' ? ' selected' : ''}>${t('settings.visualSkinDefault')}</option>
+            <option value="middle-earth"${skin === 'middle-earth' ? ' selected' : ''}>${t('settings.visualSkinMiddleEarth')}</option>
+          </select>
+        </div>
+      </div>
       <!-- DER WAND-MODUS WOHNT HIER UND NICHT IM ANPASSEN-PANEL.
            Er ist wie Theme und Sprache GERÄTELOKAL (localStorage) - das
            Anpassen-Panel schreibt dagegen die haushaltweite Widget-Konfiguration

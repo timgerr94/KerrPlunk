@@ -2470,8 +2470,11 @@ function buildModalContent({ mode, date, mealType, meal, fromSlot = false, recip
     </div>
 
 <<<<<<< HEAD
+<<<<<<< HEAD
     ${isEdit ? '' : `
 =======
+=======
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
     ${isEdit && isRecurring ? `
     <div class="meal-recurrence-note">
       <i data-lucide="repeat-2" class="icon-sm" aria-hidden="true"></i>
@@ -2493,7 +2496,10 @@ function buildModalContent({ mode, date, mealType, meal, fromSlot = false, recip
   `;
 
   const createRecurrenceHtml = !isEdit ? `
+<<<<<<< HEAD
 >>>>>>> 2b7868654 (My local changes)
+=======
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
     <div class="meal-recurrence-option">
       <label class="toggle">
         <input type="checkbox" id="modal-repeat">
@@ -2574,6 +2580,8 @@ function buildModalContent({ mode, date, mealType, meal, fromSlot = false, recip
 
     ${createRecurrenceHtml}
 
+    ${createRecurrenceHtml}
+
     ${advancedSection(advancedFieldsHtml, { open: advancedOpen })}
 
     ${canTransfer ? `
@@ -2624,6 +2632,7 @@ async function saveModal(overlay) {
   const recipe_url = overlay.querySelector('#modal-recipe-url').value.trim() || null;
   const recipe_id = overlay.querySelector('#modal-recipe-id')?.value || null;
 <<<<<<< HEAD
+<<<<<<< HEAD
   const cook_user_id = selectedCookId(overlay);
   const repeat_weekly = state.modal?.mode === 'create'
     ? Boolean(overlay.querySelector('#modal-repeat-weekly')?.checked)
@@ -2633,6 +2642,11 @@ async function saveModal(overlay) {
     ? overlay.querySelector('#modal-repeat-frequency')?.value || 'weekly'
     : null;
 >>>>>>> 2b7868654 (My local changes)
+=======
+  const repeat_frequency = state.modal?.mode === 'create' && overlay.querySelector('#modal-repeat')?.checked
+    ? overlay.querySelector('#modal-repeat-frequency')?.value || 'weekly'
+    : null;
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
   const scope = overlay.querySelector('#modal-edit-scope')?.value || 'single';
   // Das Wiederholungs-Ende zählt nur, solange die Serie im Spiel ist: beim
   // Anlegen mit gesetztem Schalter, beim Bearbeiten im Serien-Umfang. Sonst
@@ -2674,10 +2688,14 @@ async function saveModal(overlay) {
 
     if (mode === 'create') {
 <<<<<<< HEAD
+<<<<<<< HEAD
       const res     = await api.post('/meals', { date, meal_type, title, notes, recipe_url, recipe_id, cook_user_id, ingredients, repeat_weekly, repeat_until });
 =======
       const res     = await api.post('/meals', { date, meal_type, title, notes, recipe_url, recipe_id, ingredients, repeat_frequency, repeat_until });
 >>>>>>> 2b7868654 (My local changes)
+=======
+      const res     = await api.post('/meals', { date, meal_type, title, notes, recipe_url, recipe_id, ingredients, repeat_frequency, repeat_until });
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
       state.meals.push(res.data);
     } else {
       if (scope === 'series') {

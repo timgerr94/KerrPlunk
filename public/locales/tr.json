@@ -808,6 +808,7 @@
         "recipeScaleLabel": "Malzemeleri ölçekle",
         "deletedToast": "Öğün silindi.",
 <<<<<<< HEAD
+<<<<<<< HEAD
         "recurrenceLabel": "Haftalık tekrarla",
         "recurrenceWeekly": "Haftalık",
         "cookLabel": "Yemeği yapan",
@@ -815,6 +816,9 @@
 =======
         "recurrenceLabel": "Tekrarla",
 >>>>>>> 2b7868654 (My local changes)
+=======
+        "recurrenceLabel": "Tekrarla",
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
         "recurrenceHint": "Yuvomi bu öğünü gelecek haftalarda aynı hafta gününde otomatik olarak ekler.",
         "recurrenceUntilLabel": "Şu tarihe kadar tekrarla",
         "recurrenceUntilHint": "Sınırsız tekrar için boş bırakın.",
@@ -1829,6 +1833,7 @@
         "wallModeOn": "Duvar modu açık, {{page}} sayfasında görünür.",
         "wallModeOff": "Duvar modu kapalı.",
 <<<<<<< HEAD
+<<<<<<< HEAD
         "screensaverIdleLabel": "Ekran koruyucuyu başlatma süresi",
         "screensaverIdleHint": "Fotoğraf ekran koruyucusu başlamadan önce bu cihazın dokunulmadan kalacağı süre. Yalnızca bu cihaz için geçerlidir, hanenin geri kalanı için değil. Bir yönetici Immich'i bağladığında etkinleşir.",
         "screensaverIdleSaved": "Bu cihazda ekran koruyucu bekleme süresi: {{delay}}.",
@@ -1838,11 +1843,16 @@
         "screensaverCoverHint": "Fotoğraflar ekrana sığdırılmak yerine tüm ekranı doldurur. Kenarlar kırpılır, en çok dikey fotoğraflarda. Yalnızca bu cihaz için geçerlidir.",
         "screensaverDeviceSaved": "Bu cihaz için kaydedildi. Ekran koruyucu bir sonraki başladığında geçerli olur.",
 =======
+=======
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
         "themeDarkLabel": "Koyu mod",
         "visualSkinLabel": "Görsel stil",
         "visualSkinDefault": "Klasik",
         "visualSkinMiddleEarth": "Orta Dünya",
+<<<<<<< HEAD
 >>>>>>> 2b7868654 (My local changes)
+=======
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
         "changePassword": "Şifre değiştir",
         "currentPasswordLabel": "Mevcut şifre",
         "newPasswordLabel": "Yeni şifre",

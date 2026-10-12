@@ -822,6 +822,7 @@
         "recipeScaleLabel": "مقیاس‌بندی مواد",
         "deletedToast": "وعده حذف شد.",
 <<<<<<< HEAD
+<<<<<<< HEAD
         "recurrenceLabel": "تکرار هفتگی",
         "recurrenceWeekly": "هفتگی",
         "cookLabel": "آشپز",
@@ -829,6 +830,9 @@
 =======
         "recurrenceLabel": "تکرار",
 >>>>>>> 2b7868654 (My local changes)
+=======
+        "recurrenceLabel": "تکرار",
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
         "recurrenceHint": "Yuvomi این وعده را در هفته‌های آینده به‌طور خودکار در همان روز هفته اضافه می‌کند.",
         "recurrenceUntilLabel": "تکرار تا",
         "recurrenceUntilHint": "برای تکرار نامحدود خالی بگذارید.",
@@ -1891,6 +1895,7 @@
         "wallModeOn": "حالت دیواری روشن است و در {{page}} دیده می‌شود.",
         "wallModeOff": "حالت دیواری خاموش است.",
 <<<<<<< HEAD
+<<<<<<< HEAD
         "screensaverIdleLabel": "شروع محافظ صفحه پس از",
         "screensaverIdleHint": "مدت زمانی که این دستگاه بدون لمس می‌ماند تا محافظ صفحهٔ عکس شروع شود. فقط برای این دستگاه اعمال می‌شود، نه برای بقیهٔ خانوار. پس از اتصال Immich توسط مدیر فعال می‌شود.",
         "screensaverIdleSaved": "مدت انتظار محافظ صفحه در این دستگاه: {{delay}}.",
@@ -1900,11 +1905,16 @@
         "screensaverCoverHint": "عکس‌ها به‌جای جا شدن در صفحه، کل صفحه را پر می‌کنند. لبه‌ها بریده می‌شوند، به‌ویژه در عکس‌های عمودی. فقط برای این دستگاه اعمال می‌شود.",
         "screensaverDeviceSaved": "برای این دستگاه ذخیره شد. از اجرای بعدی محافظ صفحه اعمال می‌شود.",
 =======
+=======
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
         "themeDarkLabel": "طرح تیره",
         "visualSkinLabel": "سبک ظاهری",
         "visualSkinDefault": "کلاسیک",
         "visualSkinMiddleEarth": "سرزمین میانه",
+<<<<<<< HEAD
 >>>>>>> 2b7868654 (My local changes)
+=======
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
         "changePassword": "تغییر رمز عبور",
         "currentPasswordLabel": "رمز عبور فعلی",
         "newPasswordLabel": "رمز عبور جدید",

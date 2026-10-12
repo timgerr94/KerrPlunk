@@ -9933,6 +9933,7 @@ const MIGRATIONS = [
   {
     version: 231,
 <<<<<<< HEAD
+<<<<<<< HEAD
     description: 'Users: a deactivated account keeps its row (#1381)',
     // WER SPUREN IN GETEILTEN DATEN HINTERLASSEN HAT, WIRD DEAKTIVIERT STATT
     // GELOESCHT (#1381). `DELETE FROM users` liess bis hierher die
@@ -10564,6 +10565,8 @@ const MIGRATIONS = [
     },
   },
 =======
+=======
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
     description: 'Pantry: remember the shopping list used for purchases',
     up(db) {
       const columns = db.prepare('PRAGMA table_info(pantry_items)').all().map((column) => column.name);
@@ -10809,7 +10812,10 @@ const MIGRATIONS = [
       ALTER TABLE meal_recurrence_ingredients ADD COLUMN unit TEXT;
     `,
   },
+<<<<<<< HEAD
 >>>>>>> 2b7868654 (My local changes)
+=======
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
 ];
 
 /**

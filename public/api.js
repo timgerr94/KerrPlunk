@@ -269,6 +269,12 @@ const api = {
     ...opts,
   }),
 
+  request: (method, path, body, opts = {}) => apiFetch(path, {
+    method,
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    ...opts,
+  }),
+
   /**
    * Wie `get`, liefert aber `{ data, fromCache }` statt nur den Rumpf.
    *
@@ -355,10 +361,14 @@ const auth = {
       clearPermissions();
       clearHouseholdSize();
 <<<<<<< HEAD
+<<<<<<< HEAD
       clearInitialsRoster();
 =======
       forgetOfflineSession();
 >>>>>>> ba5d29180 (Commit 10/8/2026)
+=======
+      forgetOfflineSession();
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
       // API-Cache IMMER leeren — auch wenn der Logout-Request offline oder bei
       // nicht erreichbarem Server fehlschlägt. Der Settings-Handler navigiert in
       // seinem finally trotzdem zu /login, daher darf hier kein offline gecachter

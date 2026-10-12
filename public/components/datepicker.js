@@ -30,7 +30,10 @@ import {
 import { api } from '/api.js';
 import { esc } from '/utils/html.js';
 import { todayKey, weekStartIndex, weekdayOrder } from '/utils/date.js';
+<<<<<<< HEAD
 import { swapContent } from '/utils/content-swap.js';
+=======
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
 
 // ── lokale Datums-Helfer (kanonisches ISO, lokale Zeitzone) ──────────────
 const pad2 = (n) => String(n).padStart(2, '0');

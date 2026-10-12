@@ -808,6 +808,7 @@
         "recipeScaleLabel": "Ingrediënten schalen",
         "deletedToast": "Maaltijd verwijderd.",
 <<<<<<< HEAD
+<<<<<<< HEAD
         "recurrenceLabel": "Wekelijks herhalen",
         "recurrenceWeekly": "Wekelijks",
         "cookLabel": "Kookt",
@@ -815,6 +816,9 @@
 =======
         "recurrenceLabel": "Herhalen",
 >>>>>>> 2b7868654 (My local changes)
+=======
+        "recurrenceLabel": "Herhalen",
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
         "recurrenceHint": "Yuvomi voegt deze maaltijd in toekomstige weken automatisch op dezelfde weekdag toe.",
         "recurrenceUntilLabel": "Herhalen tot",
         "recurrenceUntilHint": "Laat leeg om onbeperkt te herhalen.",
@@ -1846,6 +1850,7 @@
         "wallModeOn": "Wandmodus aan, zichtbaar bij {{page}}.",
         "wallModeOff": "Wandmodus uit.",
 <<<<<<< HEAD
+<<<<<<< HEAD
         "screensaverIdleLabel": "Schermbeveiliging starten na",
         "screensaverIdleHint": "Hoe lang dit apparaat onaangeroerd blijft voordat de fotoschermbeveiliging start. Geldt alleen voor dit apparaat, niet voor de rest van het huishouden. Werkt zodra een beheerder Immich heeft gekoppeld.",
         "screensaverIdleSaved": "Wachttijd schermbeveiliging op dit apparaat: {{delay}}.",
@@ -1855,11 +1860,16 @@
         "screensaverCoverHint": "Foto's vullen het hele scherm in plaats van erin te passen. De randen worden bijgesneden, vooral bij staande foto's. Geldt alleen voor dit apparaat.",
         "screensaverDeviceSaved": "Opgeslagen voor dit apparaat. Geldt vanaf de volgende start van de schermbeveiliging.",
 =======
+=======
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
         "themeDarkLabel": "Donkere modus",
         "visualSkinLabel": "Visuele stijl",
         "visualSkinDefault": "Klassiek",
         "visualSkinMiddleEarth": "Midden-aarde",
+<<<<<<< HEAD
 >>>>>>> 2b7868654 (My local changes)
+=======
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
         "changePassword": "Wachtwoord wijzigen",
         "currentPasswordLabel": "Huidig wachtwoord",
         "newPasswordLabel": "Nieuw wachtwoord",

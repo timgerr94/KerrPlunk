@@ -822,6 +822,7 @@
         "recipeScaleLabel": "I-scale ang mga sangkap",
         "deletedToast": "Natanggal na ang pagkain.",
 <<<<<<< HEAD
+<<<<<<< HEAD
         "recurrenceLabel": "Ulitin lingguhan",
         "recurrenceWeekly": "Lingguhan",
         "cookLabel": "Tagaluto",
@@ -829,6 +830,9 @@
 =======
         "recurrenceLabel": "Ulitin",
 >>>>>>> 2b7868654 (My local changes)
+=======
+        "recurrenceLabel": "Ulitin",
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
         "recurrenceHint": "Awtomatikong idinaragdag ng Yuvomi ang pagkaing ito sa parehong araw ng linggo sa mga susunod na linggo.",
         "recurrenceUntilLabel": "Ulitin hanggang",
         "recurrenceUntilHint": "Iwanang blangko para umulit nang walang hanggan.",
@@ -1891,6 +1895,7 @@
         "wallModeOn": "Naka-on ang wall mode, makikita sa {{page}}.",
         "wallModeOff": "Naka-off ang wall mode.",
 <<<<<<< HEAD
+<<<<<<< HEAD
         "screensaverIdleLabel": "Simulan ang screensaver pagkalipas ng",
         "screensaverIdleHint": "Gaano katagal hindi gagalawin ang device na ito bago magsimula ang photo screensaver. Para lang sa device na ito, hindi sa iba pang bahagi ng sambahayan. Magkakabisa kapag naikonekta na ng admin ang Immich.",
         "screensaverIdleSaved": "Paghihintay ng screensaver sa device na ito: {{delay}}.",
@@ -1900,11 +1905,16 @@
         "screensaverCoverHint": "Pinupuno ng mga larawan ang buong screen sa halip na magkasya rito. Napuputol ang mga gilid, lalo na sa mga patayong larawan. Para lang sa device na ito.",
         "screensaverDeviceSaved": "Na-save para sa device na ito. Magkakabisa sa susunod na pagsisimula ng screensaver.",
 =======
+=======
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
         "themeDarkLabel": "Madilim na mode",
         "visualSkinLabel": "Biswal na estilo",
         "visualSkinDefault": "Klasiko",
         "visualSkinMiddleEarth": "Middle-earth",
+<<<<<<< HEAD
 >>>>>>> 2b7868654 (My local changes)
+=======
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
         "changePassword": "Palitan ang password",
         "currentPasswordLabel": "Kasalukuyang password",
         "newPasswordLabel": "Bagong password",

@@ -5,14 +5,20 @@
  */
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 import { api, auth, isAbortError } from '/api.js';
 import { canAccessNavModule, navModuleAccess, setExtensionNavMap } from '/permissions.js';
 =======
+=======
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
 import { api, auth } from '/api.js';
 import {
   canAccessNavModule, navModuleAccess, setExtensionNavMap, getPermissions, setPermissions,
 } from '/permissions.js';
+<<<<<<< HEAD
 >>>>>>> ba5d29180 (Commit 10/8/2026)
+=======
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
 import { setExtensionModules, selectThirdPartyModuleList } from '/utils/extension-widgets.js';
 import { initExtensionI18n, moduleDisplayLabel, reloadExtensionLocales } from '/utils/extension-i18n.js';
 import { clearApiCache, onServiceWorkerUpdate, UPDATE_RELOAD_DELAY_MS } from '/sw-register.js';
@@ -489,6 +495,37 @@ let _thirdPartyModules = [];
 let _moduleOrder = [];
 let _mobileNavOrder = [];
 let _moduleRefreshTimer = null;
+
+function rememberCurrentOfflineSession() {
+  if (!currentUser) return;
+  rememberOfflineSession({
+    user: currentUser,
+    permissions: getPermissions(),
+    householdSize: getHouseholdSize(),
+    othersCanRead: getOtherReaders(),
+    preferences: {
+      disabled_modules: [..._disabledModules],
+      hidden_modules: [..._hiddenModules],
+      module_order: _moduleOrder,
+      mobile_nav_order: _mobileNavOrder,
+    },
+  });
+}
+
+function restoreOfflineSession(snapshot) {
+  _offlineSessionActive = true;
+  currentUser = snapshot.user;
+  setPermissions(snapshot.permissions);
+  setHouseholdSize(snapshot.householdSize);
+  setOtherReaders(snapshot.othersCanRead);
+
+  const preferences = snapshot.preferences;
+  _disabledModules = new Set(Array.isArray(preferences.disabled_modules) ? preferences.disabled_modules : []);
+  _hiddenModules = new Set(Array.isArray(preferences.hidden_modules) ? preferences.hidden_modules : []);
+  _moduleOrder = Array.isArray(preferences.module_order) ? preferences.module_order : [];
+  _mobileNavOrder = Array.isArray(preferences.mobile_nav_order) ? preferences.mobile_nav_order : [];
+  _preferencesLoaded = true;
+}
 
 function rememberCurrentOfflineSession() {
   if (!currentUser) return;
@@ -5194,6 +5231,7 @@ if (/iPhone|iPad|iPod/.test(navigator.userAgent)) {
     await initI18n();
     initExtensionI18n();
 <<<<<<< HEAD
+<<<<<<< HEAD
     try {
       const v = await version;
       routerState._setupRequired = v?.setup_required === true;
@@ -5203,6 +5241,8 @@ if (/iPhone|iPad|iPod/.test(navigator.userAgent)) {
     } catch {
       routerState._setupRequired = false; // Fail-safe: kein Setup erzwingen
 =======
+=======
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
     if (navigator.onLine !== false) {
       try {
         const v = await api.get('/version');
@@ -5214,7 +5254,10 @@ if (/iPhone|iPad|iPod/.test(navigator.userAgent)) {
       }
     } else {
       _setupRequired = false;
+<<<<<<< HEAD
 >>>>>>> ba5d29180 (Commit 10/8/2026)
+=======
+>>>>>>> ba5d29180fc00ba72286877e4345c225406d7248
     }
     // Was die erste Navigation nicht abgeholt hat, verfaellt mit ihr: eine
     // spaetere Anmeldung faende sonst die Antwort einer frueheren Sitzung vor.
