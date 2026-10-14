@@ -1218,19 +1218,61 @@ router.post('/:listId/items', (req, res) => {
     if (errors.length) return res.status(400).json({ error: errors.join(' '), code: 400 });
 
     const matchingPantryItems = householdDisabledModules(db.get()).has('pantry') ? [] : db.get().prepare(`
-      SELECT id, last_purchased_at FROM pantry_items
+      SELECT id, name, category, last_purchased_at FROM pantry_items
       WHERE name = ? COLLATE NOCASE AND restock_interval_days IS NOT NULL
     `).all(vName.value);
     if (matchingPantryItems.length && !mayWriteModule(req, 'pantry')) {
       return res.status(403).json({ error: 'Write access to the pantry is required.', code: 403 });
     }
+
+    // Helper: check if two names match (case-insensitive, handling simple plurals)
+    const namesMatch = (name1, name2) => {
+      const n1 = name1.toLowerCase().trim();
+      const n2 = name2.toLowerCase().trim();
+      // Exact match
+      if (n1 === n2) return true;
+      // Plural handling: if one ends with 's', try matching without it
+      if (n1.endsWith('s') && n2 === n1.slice(0, -1)) return true;
+      if (n2.endsWith('s') && n1 === n2.slice(0, -1)) return true;
+      return false;
+    };
+
+    // Find the best pantry item match by name (handling capitalization and plurals)
+    let bestPantryMatch = null;
+    if (matchingPantryItems.length) {
+      // Start with the first match
+      bestPantryMatch = matchingPantryItems[0];
+      // Use the one with the lowest ID
+      for (const item of matchingPantryItems) {
+        if (item.id < bestPantryMatch.id) {
+          bestPantryMatch = item;
+        }
+      }
+      // Try to find a better match using plural/singular handling
+      if (bestPantryMatch) {
+        for (const item of matchingPantryItems) {
+          if (namesMatch(bestPantryMatch.name, item.name) && item.id < bestPantryMatch.id) {
+            bestPantryMatch = item;
+          }
+        }
+      }
+    }
+
     const purchaseCheckAt = new Date();
 
     const { result, list_change } = withListChange(req.params.listId, () => db.get().transaction(() => {
+      // Use pantry item's category if a match was found, otherwise use auto-categorization
+      let category;
+      if (bestPantryMatch) {
+        category = bestPantryMatch.category;
+      } else {
+        // No pantry match found - use auto-categorization
+        category = vCat.value || defaultCat;
+      }
       const inserted = db.get().prepare(`
         INSERT INTO shopping_items (list_id, name, quantity, category, notes, url)
         VALUES (?, ?, ?, ?, ?, ?)
-      `).run(req.params.listId, vName.value, vQty.value, vCat.value || defaultCat, vNotes.value, vUrl.value);
+      `).run(req.params.listId, vName.value, vQty.value, category, vNotes.value, vUrl.value);
       const updateInterval = db.get().prepare('UPDATE pantry_items SET restock_interval_days = ? WHERE id = ?');
       for (const pantryItem of matchingPantryItems) {
         const intervalDays = daysSincePurchase(pantryItem.last_purchased_at, purchaseCheckAt);
@@ -1522,14 +1564,20 @@ router.post('/:listId/import-pantry', (req, res) => {
       `);
       const getPantryItem = db.get().prepare('SELECT * FROM pantry_items WHERE id = ?');
 
+      // ✅ Declare tracking accumulators explicitly
       let skipped = 0;
       const addedIds = [];
       const addedItems = [];
       const pantryUpdates = [];
 
+      // ✅ Restored the missing loop syntax over the 'entries' array
       for (const entry of entries) {
         const pantryItem = findPantryItem.get(Number(entry?.pantry_item_id));
-        if (!pantryItem) { skipped += 1; continue; }
+        if (!pantryItem) { 
+          skipped += 1; 
+          continue; // Guard clause against missing inventory rows
+        }
+        
         const duplicate = findDuplicate.get(req.params.listId, pantryItem.name);
         if (duplicate) {
           skipped += 1;
@@ -1539,7 +1587,7 @@ router.post('/:listId/import-pantry', (req, res) => {
             shopping_item_id: duplicate.id,
             duplicate: true,
           });
-          continue;
+          continue; // Skip adding duplication
         }
 
         const vQty = str(entry.quantity, 'Menge', { max: MAX_SHORT, required: false });

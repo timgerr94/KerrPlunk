@@ -70,5 +70,20 @@ function matchKeywords(text) {
  * @returns {string} Name aus shopping_categories, oder 'Sonstiges' als Fallback.
  */
 export function categorizeIngredient({ labelName, foodName } = {}) {
-  return matchKeywords(labelName) || matchKeywords(foodName) || FALLBACK_CATEGORY;
+  // Zuerst versuchen mit dem Originaltext (ganze Wort-Übereinstimmung)
+  const result1 = matchKeywords(labelName) || matchKeywords(foodName);
+  if (result1) return result1;
+  
+  // Falls nichts gefunden wurde: einfache Plural-zu-Singular-Umwandlung versuchen
+  // (z.B. "apples" -> "apple", "peaches" -> "peach")
+  const singularize = (text) => text.replace(/s$/, '');
+  const singularLabelName = labelName ? singularize(labelName) : null;
+  const singularFoodName = foodName ? singularize(foodName) : null;
+  
+  // Nochmal mit der Singularform versuchen
+  const result2 = matchKeywords(singularLabelName) || matchKeywords(singularFoodName);
+  if (result2) return result2;
+  
+  // Falls auch das nicht funktioniert, unter 'Sonstiges' landen
+  return FALLBACK_CATEGORY;
 }

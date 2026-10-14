@@ -10,6 +10,7 @@ import * as db from '../db.js';
 import { str, num, collectErrors, MAX_TITLE, MAX_TEXT, MAX_SHORT } from '../middleware/validate.js';
 import { normalizeRecipeMealTypes } from '../../public/utils/recipe-meal-types.js';
 import { ingredientMatchKey } from '../../public/utils/ingredient-match-key.js';
+import { categorizeIngredient } from '../services/recipe-providers/categorize.js';
 import { getAdapter } from '../services/recipe-providers/index.js';
 import { dataUrlContentMatches } from '../utils/file-signature.js';
 import { mayReadModule, mayWriteModule } from '../permissions.js';
@@ -230,7 +231,16 @@ router.post('/', (req, res) => {
         const name = String(ing.name || '').trim().slice(0, MAX_TITLE);
         const quantity = String(ing.quantity || '').trim().slice(0, MAX_SHORT) || null;
         const unit = String(ing.unit || '').trim().slice(0, MAX_SHORT) || null;
-        const category = String(ing.category || '').trim().slice(0, MAX_SHORT) || 'Sonstiges';
+        // Automatic category matching using the same logic as Shopping List,
+        // but only if the user hasn't already set a specific category
+        let category;
+        if (ing.category && ing.category.trim() && ing.category.trim() !== 'Sonstiges') {
+          // User has already selected a category - preserve it
+          category = String(ing.category).trim().slice(0, MAX_SHORT) || 'Sonstiges';
+        } else {
+          // No user-selected category - run automatic matching
+          category = String(categorizeIngredient({ foodName: name }) || 'Sonstiges').trim().slice(0, MAX_SHORT) || 'Sonstiges';
+        }
         if (name) insertIng.run(rid, name, quantity, unit, category);
       }
 
@@ -304,7 +314,17 @@ router.put('/:id', (req, res) => {
         const name = String(ing.name || '').trim().slice(0, MAX_TITLE);
         const quantity = String(ing.quantity || '').trim().slice(0, MAX_SHORT) || null;
         const unit = String(ing.unit || '').trim().slice(0, MAX_SHORT) || null;
-        const category = String(ing.category || '').trim().slice(0, MAX_SHORT) || 'Sonstiges';
+        // Automatic category matching using the same logic as Shopping List,
+        // but only if the user hasn't already set a specific category
+        let category;
+        if (ing.category && ing.category.trim() && ing.category.trim() !== 'Sonstiges') {
+          // User has already selected a category - preserve it
+          category = String(ing.category).trim().slice(0, MAX_SHORT) || 'Sonstiges';
+        } else {
+          // No user-selected category - run automatic matching
+          const normalizedName = ingredientMatchKey(name);
+          category = String(categorizeIngredient({ foodName: name }) || 'Sonstiges').trim().slice(0, MAX_SHORT) || 'Sonstiges';
+        }
         if (name) insertIng.run(id, name, quantity, unit, category);
       }
 
