@@ -20,7 +20,7 @@ import { str, oneOf, num, date, id as idParam, collectErrors, MAX_TITLE, MAX_TEX
 import { normalizePantryUnit, normalizePantryQuantity } from '../../public/utils/pantry-units.js';
 import { syncPantryExpiryReminder, resolvePantryAccess } from '../services/pantry-reminders.js';
 import { todayKey as householdToday } from '../utils/timezone.js';
-import { mayReadModule } from '../permissions.js';
+import { mayReadModule, mayWriteModule } from '../permissions.js';
 
 const log = createLogger('Pantry');
 const router = express.Router();
@@ -648,6 +648,10 @@ router.delete('/:itemId', (req, res) => {
   try {
     const vId = idParam(req.params.itemId, 'Artikel-ID');
     if (vId.error) return res.status(400).json({ error: vId.error, code: 400 });
+
+    if (!mayWriteModule(req, 'pantry')) {
+      return res.status(403).json({ error: 'Write access to the pantry is required.', code: 403 });
+    }
 
     const removed = db.get().transaction(() => {
       const result = db.get().prepare('DELETE FROM pantry_items WHERE id = ?').run(vId.value);

@@ -1758,6 +1758,13 @@ async function removeItem(item) {
   const rowEl_ = _container?.querySelector(`.pantry-row[data-id="${item.id}"]`);
   if (rowEl_) rowEl_.style.display = 'none';
 
+  // Check if user is offline - if so, show error and don't proceed
+  if (isBrowserOffline()) {
+    window.yuvomi?.showToast(t('common.errorOffline'), 'danger');
+    if (rowEl_) rowEl_.style.display = ''; // Show the row again
+    return;
+  }
+
   scheduleUndoableDelete({
     message: t('pantry.deleted'),
     commit: async ({ keepalive }) => {
