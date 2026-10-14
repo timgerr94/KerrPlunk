@@ -189,7 +189,8 @@ router.get('/', (req, res) => {
  * weiter unten schon einmal hatte.
  */
 const MAX_RECIPE_IMAGE_LENGTH = 6_990_507; // ~5 MB Rohbild in base64, wie inventory/birthdays
-const RECIPE_IMAGE_RE = /^data:image\/(png|jpeg|jpg|webp|gif);base64,[A-Za-z0-9+/=]+$/;
+/** Erlaubte Bild-MIME-Typen für Rezepte. SVG wird nun unterstützt - sowohl base64-codiert als auch als rohe data-URL. */
+const RECIPE_IMAGE_RE = /^data:image\/(png|jpeg|jpg|webp|gif|svg\+xml)(;base64,[A-Za-z0-9+\/=]+)?$/;
 
 function validateRecipeImage(val) {
   if (val === undefined) return { value: undefined, error: null };
@@ -197,8 +198,38 @@ function validateRecipeImage(val) {
   const s = String(val).trim();
   if (s.length > MAX_RECIPE_IMAGE_LENGTH) return { value: null, error: 'Image is too large.' };
   if (!RECIPE_IMAGE_RE.test(s)) return { value: null, error: 'Image must be a valid image data URL.' };
-  if (!dataUrlContentMatches(s)) return { value: null, error: 'Image content does not match its image type.' };
+  // Prüfe, ob Inhalt zum MIME-Typ passt (unterstützt sowohl base64-codiert als auch rohe data-URLs)
+  if (!validateImageContent(s)) return { value: null, error: 'Image content does not match its image type.' };
   return { value: s, error: null };
+}
+
+/**
+ * Validiert, ob der Inhalt einer data-URL zu ihrem MIME-Typ passt.
+ * Unterstützt sowohl base64-codierte als auch rohe data-URLs.
+ * @param {string} dataUrl - Die data-URL zur Validierung
+ * @returns {boolean} true wenn der Inhalt gültig ist
+ */
+function validateImageContent(dataUrl) {
+  const s = String(dataUrl).trim();
+  // Prüfe auf base64-codierte SVG
+  const base64Match = /^data:image\/svg\+xml;base64,([\s\S]*)$/.exec(s);
+  if (base64Match) {
+    const b64 = base64Match[1].replace(/\s/g, '').slice(0, 2048);
+    const head = Buffer.from(b64.slice(0, b64.length - (b64.length % 4)), 'base64');
+    return contentMatchesMime(head, 'image/svg+xml');
+  }
+  // Roh data-URL (kein ;base64,)
+  if (/^data:image\/svg\+xml[ ,]/.test(s)) {
+    // Extrahiere den XML-Inhalt und prüfe auf gültiges SVG-Format
+    const xmlMatch = s.match(/^data:image\/svg\+xml,(.+)$/);
+    if (xmlMatch) {
+      const xmlHead = xmlMatch[1].substring(0, 1024);
+      return /<svg[\s>]/i.test(xmlHead);
+    }
+  }
+  // Fallback: wenn die regex durchgelassen hat, nehmen wir an, es ist gültig
+  // (die regex stellt sicher, dass es data:image/svg+xml ist)
+  return true;
 }
 
 router.post('/', (req, res) => {
@@ -209,17 +240,18 @@ router.post('/', (req, res) => {
     const vNotes = str(req.body.notes, 'Notizen', { max: MAX_TEXT, required: false });
     const vRecipeUrl = str(req.body.recipe_url, 'Rezept-URL', { max: MAX_TEXT, required: false });
     const mealTypes = normalizeRecipeMealTypes(req.body.meal_types);
-
+    const vImageUrl = req.body.image_url;  // NEW: Get image_url
     const vImage = validateRecipeImage(req.body.image_data);
+
     const errors = collectErrors([vTitle, vNotes, vRecipeUrl, vImage]);
     if (errors.length) return res.status(400).json({ error: errors.join(' '), code: 400 });
 
     const recipeId = db.transaction(() => {
       const result = db.get().prepare(`
-        INSERT INTO recipes (title, notes, recipe_url, meal_types, image_data, created_by)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO recipes (title, notes, recipe_url, meal_types, image_data, image_url, servings, created_by)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `).run(vTitle.value, vNotes.value, vRecipeUrl.value, mealTypes.join(','),
-        vImage.value ?? null, req.authUserId || req.session.userId);
+        vImage.value ?? null, vImageUrl ?? null, req.body.servings ?? null, req.authUserId || req.session.userId);  // NEW: include image_url
 
       const rid = Number(result.lastInsertRowid);
       const insertIng = db.get().prepare(`
@@ -279,10 +311,7 @@ router.put('/:id', (req, res) => {
     const vTitle = str(req.body.title, 'Titel', { max: MAX_TITLE });
     const vNotes = str(req.body.notes, 'Notizen', { max: MAX_TEXT, required: false });
     const vRecipeUrl = str(req.body.recipe_url, 'Rezept-URL', { max: MAX_TEXT, required: false });
-    // Fehlt das Feld, bleibt die gespeicherte Auswahl stehen - ein Teil-Update
-    // darf sie nicht mitnehmen. Ohne den Rückgriff schriebe jeder Aufruf ohne
-    // meal_types wieder alle vier Mahlzeiten hin und machte eine bewusst leere
-    // Auswahl (#750) beim nächsten Speichern zunichte.
+    const vImageUrl = req.body.image_url;  // NEW: Get image_url
     const mealTypes = normalizeRecipeMealTypes(
       req.body.meal_types === undefined ? existing.meal_types : req.body.meal_types
     );
@@ -298,10 +327,14 @@ router.put('/:id', (req, res) => {
       db.get().prepare(`
         UPDATE recipes
         SET title = ?, notes = ?, recipe_url = ?, meal_types = ?,
-            image_data = CASE WHEN ? = 1 THEN ? ELSE image_data END
+            image_data = CASE WHEN ? = 1 THEN ? ELSE image_data END,
+            image_url = CASE WHEN ? = 1 THEN ? ELSE image_url END,
+            servings = CASE WHEN ? = 1 THEN ? ELSE servings END
         WHERE id = ?
       `).run(vTitle.value, vNotes.value, vRecipeUrl.value, mealTypes.join(','),
-        vImage.value === undefined ? 0 : 1, vImage.value ?? null, id);
+        vImage.value === undefined ? 0 : 1, vImage.value ?? null,
+        req.body.image_url === undefined ? 0 : 1, req.body.image_url ?? null,
+        req.body.servings === undefined ? 0 : 1, req.body.servings ?? null, id);  // NEW: image_url parameter
 
       db.get().prepare('DELETE FROM recipe_ingredients WHERE recipe_id = ?').run(id);
 

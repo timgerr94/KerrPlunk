@@ -401,6 +401,8 @@ const MIGRATIONS_SQL = {
       title      TEXT    NOT NULL,
       notes      TEXT,
       recipe_url TEXT,
+      servings TEXT,
+      image_url TEXT,
       created_by INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       created_at TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
       updated_at TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))

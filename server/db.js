@@ -1371,6 +1371,8 @@ const MIGRATIONS = [
 
       ALTER TABLE meals ADD COLUMN recipe_id INTEGER REFERENCES recipes(id) ON DELETE SET NULL;
       CREATE INDEX IF NOT EXISTS idx_meals_recipe_id ON meals(recipe_id);
+      ALTER TABLE recipes ADD COLUMN image_url TEXT;
+      ALTER TABLE recipes ADD COLUMN servings TEXT;
     `,
   },
   {
@@ -10175,8 +10177,15 @@ const MIGRATIONS = [
       ALTER TABLE meal_recurrence_ingredients ADD COLUMN unit TEXT;
     `,
   },
+  {
+    version: 239,
+    description: 'Add image_url and servings to recipes table for custom field expansion',
+    up: `
+      ALTER TABLE recipes ADD COLUMN image_url TEXT;
+      ALTER TABLE recipes ADD COLUMN servings TEXT;
+    `,
+  },
 ];
-
 /**
  * Hat ein ANDERER Prozess genau diese Migration inzwischen verbucht? (#1331)
  *
