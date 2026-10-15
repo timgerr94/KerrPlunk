@@ -87,3 +87,29 @@ export function categorizeIngredient({ labelName, foodName } = {}) {
   // Falls auch das nicht funktioniert, unter 'Sonstiges' landen
   return FALLBACK_CATEGORY;
 }
+
+/**
+ * 'Miscellaneous' IST 'Sonstiges' - nur in der englischen Anzeige der Oberflaeche.
+ *
+ * Die Datenbank traegt die gesaeten deutschen Namen (shopping_categories,
+ * Migration v5); die englische Sprache zeigt 'Sonstiges' als 'Miscellaneous'
+ * (public/utils/shopping-categories.js, DEFAULT_CATEGORY_I18N). Ein Importer,
+ * der die englische Oberflaeche abliest oder nachbaut, schickt deshalb das
+ * ANZEIGE-Label - und ein Vergleich wie `category !== 'Sonstiges'` behandelte
+ * es als bewusst gesetzte Kategorie, obwohl der Absender 'keine Kategorie'
+ * meinte: der Wert wurde unveraendert gespeichert und erschien in der
+ * Zutatenzeile als fremder Name, der im Modal auf den ersten Dropdown-Eintrag
+ * zurueckfiel.
+ *
+ * Gross-/Kleinschreibung ist egal ('miscellaneous' trifft ebenfalls). Alles
+ * andere bleibt unberuehrt - einschliesslich anderer unbekannter Namen, die
+ * weiterhin als gesetzte Kategorie durchgehen, so wie es die Route bisher tut.
+ *
+ * @param {any} value Eingabe-Kategorie (meist aus dem Request-Body)
+ * @returns {string} Getrimmter Name; 'Sonstiges' statt 'Miscellaneous'
+ */
+export function normalizeIncomingCategory(value) {
+  const s = String(value ?? '').trim();
+  if (!s) return '';
+  return s.toLowerCase() === 'miscellaneous' ? FALLBACK_CATEGORY : s;
+}

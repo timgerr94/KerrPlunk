@@ -252,6 +252,184 @@ test('PUT /:id: Validierungsfehler → 400', async () => {
 });
 
 // --------------------------------------------------------------------------
+// Neue Felder: cuisine, servings, cookTime, prepTime, diet, tags
+// (Bindungs-Regressions: created_by war zuletzt auf cuisine gerutscht,
+// PUT strzte mit unbenannten Validatoren - beides 500 "Internal error".)
+// --------------------------------------------------------------------------
+test('POST /: neue Felder landen in den richtigen Spalten; created_by bleibt der Akteur', async () => {
+  const r = await call('POST', '/', {
+    title: 'Ratatouille',
+    cuisine: 'Französisch',
+    servings: '4',
+    cookTime: '45 min',
+    prepTime: '20 min',
+    diet: ['vegetarisch'],
+    tags: ['Sommer', 'Gemüse'],
+  });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.equal(r.body.data.cuisine, 'Französisch');
+  assert.equal(r.body.data.servings, '4');
+  const row = db.prepare(`
+    SELECT created_by, cuisine, cookTime, prepTime, diet, tags FROM recipes WHERE id = ?
+  `).get(r.body.data.id);
+  assert.equal(row.created_by, OWNER, 'Nicht-NULL-FK: die UserID muss in created_by stehen');
+  assert.equal(row.cuisine, 'Französisch');
+  assert.equal(row.cookTime, '45 min');
+  assert.equal(row.prepTime, '20 min');
+  assert.deepEqual(JSON.parse(row.diet), ['vegetarisch']);
+  assert.deepEqual(JSON.parse(row.tags), ['Sommer', 'Gemüse']);
+});
+
+test('PUT /:id: neue Felder werden persistiert und ohne sie nicht angefasst', async () => {
+  const created = await call('POST', '/', {
+    title: 'Neue Felder PUT-Basis',
+    cuisine: 'Italienisch',
+    servings: '2',
+    cookTime: '30 min',
+    prepTime: '10 min',
+  });
+  const id = created.body.data.id;
+
+  // Teil-Update ohne die neuen Felder: CASE-WHEN laesst sie stehen.
+  const r1 = await call('PUT', `/${id}`, { title: 'Nur Titel' });
+  assert.equal(r1.status, 200, JSON.stringify(r1.body));
+  let row = db.prepare('SELECT cuisine, servings, cookTime, prepTime FROM recipes WHERE id = ?').get(id);
+  assert.equal(row.cuisine, 'Italienisch');
+  assert.equal(row.servings, '2');
+  assert.equal(row.cookTime, '30 min');
+  assert.equal(row.prepTime, '10 min');
+
+  // Vollstaendiges Update schreibt die Werte um.
+  const r2 = await call('PUT', `/${id}`, {
+    title: 'Neue Felder PUT-Basis',
+    cuisine: 'Spanisch',
+    servings: '6',
+    cookTime: '60 min',
+    prepTime: '15 min',
+  });
+  assert.equal(r2.status, 200, JSON.stringify(r2.body));
+  assert.equal(r2.body.data.cuisine, 'Spanisch');
+  row = db.prepare('SELECT cuisine, servings, cookTime, prepTime FROM recipes WHERE id = ?').get(id);
+  assert.equal(row.cuisine, 'Spanisch');
+  assert.equal(row.servings, '6');
+  assert.equal(row.cookTime, '60 min');
+  assert.equal(row.prepTime, '15 min');
+});
+
+// --------------------------------------------------------------------------
+// notes als Array (API-Import): Eintraege werden zu nummerierten Schritten
+// --------------------------------------------------------------------------
+test('POST /: notes als Array → Eintraege werden zu nummerierten Schritten', async () => {
+  const r = await call('POST', '/', {
+    title: 'Hähnchen-Spieße',
+    notes: [
+      'Mix all of the marinade ingredients together.',
+      'Pan Sear: Cook the vegetables in a hot skillet over medium-high heat for 6–8 minutes. Then add the chicken.\nGrill: Thread marinated chicken onto skewers.\nBroil: Preheat the oven to broil (500°F)',
+    ],
+  });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  const row = db.prepare('SELECT notes FROM recipes WHERE id = ?').get(r.body.data.id);
+  // Nur die ARRAY-Teile werden nummeriert; Zeilenumbrueche INNERHALB eines
+  // Eintrags bleiben Teil desselben Schritts.
+  assert.equal(row.notes,
+    'Step 1.\nMix all of the marinade ingredients together.\n\n'
+    + 'Step 2.\nPan Sear: Cook the vegetables in a hot skillet over medium-high heat for 6–8 minutes. Then add the chicken.\n'
+    + 'Grill: Thread marinated chicken onto skewers.\n'
+    + 'Broil: Preheat the oven to broil (500°F)');
+});
+
+test('POST /: notes als Eintrag-Array → Text bleibt unnummeriert', async () => {
+  const r = await call('POST', '/', { title: 'Ein Schritt', notes: ['Nur ein Schritt.'] });
+  assert.equal(r.status, 201);
+  assert.equal(r.body.data.notes, 'Nur ein Schritt.');
+});
+
+test('POST /: leeres notes-Array → NULL, kein Fehler; leere Eintraege fallen weg', async () => {
+  const leer = await call('POST', '/', { title: 'Leer', notes: [] });
+  assert.equal(leer.status, 201);
+  const rowLeer = db.prepare('SELECT notes FROM recipes WHERE id = ?').get(leer.body.data.id);
+  assert.equal(rowLeer.notes, null);
+
+  const r = await call('POST', '/', { title: 'Löcher', notes: ['  ', 'Erster', '', '  ', 'Zweiter'] });
+  assert.equal(r.status, 201);
+  const row = db.prepare('SELECT notes FROM recipes WHERE id = ?').get(r.body.data.id);
+  // Leere Eintraege bekommen keine eigene Nummer - die Schritte zaehlen, nicht
+  // die Felder.
+  assert.equal(row.notes, 'Step 1.\nErster\n\nStep 2.\nZweiter');
+});
+
+test('PUT /:id: notes als Array ersetzt den Text mit nummerierten Schritten', async () => {
+  const created = await call('POST', '/', { title: 'PUT-Notizen-Basis', notes: 'alter Fließtext' });
+  const id = created.body.data.id;
+  const r = await call('PUT', `/${id}`, {
+    title: 'PUT-Notizen-Basis',
+    notes: ['Schritt eins.', 'Schritt zwei.'],
+  });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  const row = db.prepare('SELECT notes FROM recipes WHERE id = ?').get(id);
+  assert.equal(row.notes, 'Step 1.\nSchritt eins.\n\nStep 2.\nSchritt zwei.');
+});
+
+// --------------------------------------------------------------------------
+// 'Miscellaneous' = 'Sonstiges' (englische Anzeige): Normalisierung vor der
+// Kategorisierung - Miscellaneous-Importe werden AUTOKATEGORISIERT, andere
+// ausdruecklich gesetzte Kategorien bleiben unangetastet.
+// --------------------------------------------------------------------------
+test('POST /: category "Miscellaneous" wird zu Sonstiges normalisiert und autokategorisiert', async () => {
+  const r = await call('POST', '/', {
+    title: 'Misc-Normalisierung POST',
+    ingredients: [
+      // garlic → Produce (ganzes Wort im Namen), Miscellaneous löst es aus
+      { name: 'garlic,', quantity: '3', unit: 'cloves', category: 'Miscellaneous' },
+      // Unbekannter Name ohne Stichwort → bleibt Sonstiges (Fallback)
+      { name: 'XYZ-Sondermehl', category: 'Miscellaneous' },
+      // Kleinschreibung trifft ebenfalls
+      { name: 'XYZ-Sondermilch', category: ' miscellaneous ' },
+    ],
+  });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  const rows = ingredientRows(r.body.data.id);
+  assert.equal(rows[0].category, 'Produce');
+  assert.equal(rows[1].category, 'Sonstiges');
+  assert.equal(rows[2].category, 'Sonstiges');
+});
+
+test('POST /: ausdruecklich gesetzte Kategorien bleiben erhalten', async () => {
+  const r = await call('POST', '/', {
+    title: 'Explizite Kategorie',
+    ingredients: [
+      { name: 'garlic', category: 'Backwaren' },       // gesetzt, NICHT umkategorisiert
+      { name: 'Mehl', category: '' },                   // leer → Autokategorie
+      { name: 'Schokolade', category: 'Produce' },      // fremder aber gültiger Name bleibt stehen
+    ],
+  });
+  assert.equal(r.status, 201);
+  const rows = ingredientRows(r.body.data.id);
+  assert.equal(rows[0].category, 'Backwaren');
+  assert.equal(rows[1].category, 'Backwaren'); // 'Mehl' → Stichwort in Backwaren
+  assert.equal(rows[2].category, 'Produce');
+});
+
+test('PUT /:id: Miscellaneous wird auch beim Ersetzen normalisiert', async () => {
+  const created = await call('POST', '/', {
+    title: 'Misc-Normalisierung PUT-Basis',
+    ingredients: [{ name: 'garlic', category: 'Miscellaneous' }],
+  });
+  const id = created.body.data.id;
+  const r = await call('PUT', `/${id}`, {
+    title: 'Misc-Normalisierung PUT-Basis',
+    ingredients: [
+      { name: 'tomato', category: 'Miscellaneous' },   // → Produce
+      { name: 'XYZ-Nichts', category: 'Miscellaneous' }, // → Sonstiges
+    ],
+  });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  const rows = ingredientRows(id);
+  assert.equal(rows[0].category, 'Produce');
+  assert.equal(rows[1].category, 'Sonstiges');
+});
+
+// --------------------------------------------------------------------------
 // DELETE /:id (Validierung, Auth-Gate, CASCADE)
 // --------------------------------------------------------------------------
 test('DELETE /:id: ungültige ID → 400', async () => {

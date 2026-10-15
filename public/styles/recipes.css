@@ -432,6 +432,16 @@ button.recipe-detail__ingredient-match:hover {
   white-space: pre-wrap;
 }
 
+/* DIE NEUEN FELDER ALS EINE ZEILE (Kueche, Portionen, Zeiten): primaerer
+ * Text im kleineren Schnitt wie die Notizen, getrennt durch Mittelpunkte.
+ * Sie sind Angaben zum Rezept, keine Fussnote - aber auch kein eigener
+ * Abschnitt je Feld, der das Detail in die Laenge ziehen wuerde. */
+.recipe-detail__meta {
+  margin: 0;
+  font-size: var(--type-caption);
+  color: var(--color-text-secondary);
+}
+
 /* Die beiden Kreislauf-Ausgänge, beschriftet. Umbruchfähig, weil bei 320px drei
  * beschriftete Buttons nicht in eine Zeile passen - und ein Label, das umbricht,
  * ist besser als ein Glyph, den man erraten muss. */

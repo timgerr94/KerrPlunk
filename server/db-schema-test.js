@@ -403,6 +403,11 @@ const MIGRATIONS_SQL = {
       recipe_url TEXT,
       servings TEXT,
       image_url TEXT,
+      cuisine TEXT,
+      cookTime TEXT,
+      prepTime TEXT,
+      diet TEXT,
+      tags TEXT,
       created_by INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       created_at TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
       updated_at TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
@@ -827,6 +832,13 @@ const MIGRATIONS_SQL = {
     );
     CREATE INDEX IF NOT EXISTS idx_access_permissions_subject
       ON access_permissions(subject_type, subject_id);
+  `,
+  240: `
+    ALTER TABLE recipes ADD COLUMN cuisine TEXT;
+    ALTER TABLE recipes ADD COLUMN cookTime TEXT;
+    ALTER TABLE recipes ADD COLUMN prepTime TEXT;
+    ALTER TABLE recipes ADD COLUMN diet TEXT;
+    ALTER TABLE recipes ADD COLUMN tags TEXT;
   `,
   76: `
     DROP TRIGGER IF EXISTS trg_search_events_ai;

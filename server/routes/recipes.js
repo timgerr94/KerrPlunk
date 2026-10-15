@@ -10,7 +10,7 @@ import * as db from '../db.js';
 import { str, num, collectErrors, MAX_TITLE, MAX_TEXT, MAX_SHORT } from '../middleware/validate.js';
 import { normalizeRecipeMealTypes } from '../../public/utils/recipe-meal-types.js';
 import { ingredientMatchKey } from '../../public/utils/ingredient-match-key.js';
-import { categorizeIngredient } from '../services/recipe-providers/categorize.js';
+import { categorizeIngredient, normalizeIncomingCategory } from '../services/recipe-providers/categorize.js';
 import { getAdapter } from '../services/recipe-providers/index.js';
 import { dataUrlContentMatches } from '../utils/file-signature.js';
 import { mayReadModule, mayWriteModule } from '../permissions.js';
@@ -34,6 +34,33 @@ function flattenQuantity(quantity, unit) {
   const u = String(unit ?? '').trim();
   if (!u) return q || null;
   return q ? `${q} ${u}` : u;
+}
+
+/* NOTIZEN ALS ARRAY: EIN IMPORTER SCHICKT SCHRITTE, KEINEN FLIESSTEXT.
+ *
+ * Die Spalte `notes` ist ein einzelner Text, aber der API-Import fremder
+ * Systeme liefert die Zubereitung oft als Array - ein Eintrag je Schritt.
+ * `str()` riefe darauf `String(val)` und klebte die Schritte mit Kommas an
+ *einander: aus zwei Schritten wurde ein Satz, und die Reihenfolge blieb zwar
+ *erhalten, die Gliederung aber weg. Genau die soll hier entstehen.
+ *
+ * MEHRERE TEILE WERDEN NUMMERIERT, und zwar nur dann: ein Einzelschritt traegt
+ * keine "Step 1."-Zeile, die niemand bestellt hat, und ein leeres Array ist
+ * wie ein leeres Feld - `null`, kein Fehler. Interne Zeilenumbrueche eines
+ * Eintrags bleiben unangetastet: sie sind Teil desselben Schritts (der Import
+ * liefert z.B. "Pan Sear: ...\nGrill: ..." als EINEN Schritt) und werden nicht
+ * in eigene Schritte zerlegt - das waere Raten ueber den Sinn fremder Texte.
+ *
+ * Die Laengenpruefung (MAX_TEXT) laeuft danach ganz normal in `str()` - ein
+ * Array, das zusammengesetzt laenger als 5000 Zeichen ist, wird wie jeder
+ * andere zu lange Text mit 400 abgewiesen, nicht still gekuerzt.
+ */
+function normalizeRecipeNotes(value) {
+  if (!Array.isArray(value)) return value;
+  const parts = value.map((part) => String(part ?? '').trim()).filter(Boolean);
+  if (parts.length === 0) return null;
+  if (parts.length === 1) return parts[0];
+  return parts.map((text, i) => `Step ${i + 1}.\n${text}`).join('\n\n');
 }
 
 // Nicht-skriptfähige Rasterformate (kein SVG), dieselbe Allowlist wie der
@@ -237,21 +264,29 @@ router.post('/', (req, res) => {
     const { ingredients = [] } = req.body;
 
     const vTitle = str(req.body.title, 'Titel', { max: MAX_TITLE });
-    const vNotes = str(req.body.notes, 'Notizen', { max: MAX_TEXT, required: false });
+    const vNotes = str(normalizeRecipeNotes(req.body.notes), 'Notizen', { max: MAX_TEXT, required: false });
     const vRecipeUrl = str(req.body.recipe_url, 'Rezept-URL', { max: MAX_TEXT, required: false });
     const mealTypes = normalizeRecipeMealTypes(req.body.meal_types);
     const vImageUrl = req.body.image_url;  // NEW: Get image_url
     const vImage = validateRecipeImage(req.body.image_data);
+    const vCuisine = str(req.body.cuisine, 'Cuisine', { max: MAX_TEXT, required: false });
+    const vCookTime = str(req.body.cookTime, 'Cook Time', { max: MAX_TEXT, required: false });
+    const vPrepTime = str(req.body.prepTime, 'Prep Time', { max: MAX_TEXT, required: false });
+    const vDiet = Array.isArray(req.body.diet) ? req.body.diet : [];
+    const vTags = Array.isArray(req.body.tags) ? req.body.tags : [];
 
-    const errors = collectErrors([vTitle, vNotes, vRecipeUrl, vImage]);
+    const errors = collectErrors([vTitle, vNotes, vRecipeUrl, vImage, vCuisine, vCookTime, vPrepTime]);
     if (errors.length) return res.status(400).json({ error: errors.join(' '), code: 400 });
 
     const recipeId = db.transaction(() => {
       const result = db.get().prepare(`
-        INSERT INTO recipes (title, notes, recipe_url, meal_types, image_data, image_url, servings, created_by)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO recipes (title, notes, recipe_url, meal_types, image_data, image_url, servings, cuisine, cookTime, prepTime, diet, tags, created_by)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(vTitle.value, vNotes.value, vRecipeUrl.value, mealTypes.join(','),
-        vImage.value ?? null, vImageUrl ?? null, req.body.servings ?? null, req.authUserId || req.session.userId);  // NEW: include image_url
+        vImage.value ?? null, vImageUrl ?? null, req.body.servings ?? null,
+        vCuisine.value ?? null, vCookTime.value ?? null, vPrepTime.value ?? null,
+        JSON.stringify(vDiet), JSON.stringify(vTags),
+        req.authUserId || req.session.userId);
 
       const rid = Number(result.lastInsertRowid);
       const insertIng = db.get().prepare(`
@@ -264,11 +299,16 @@ router.post('/', (req, res) => {
         const quantity = String(ing.quantity || '').trim().slice(0, MAX_SHORT) || null;
         const unit = String(ing.unit || '').trim().slice(0, MAX_SHORT) || null;
         // Automatic category matching using the same logic as Shopping List,
-        // but only if the user hasn't already set a specific category
+        // but only if the user hasn't already set a specific category.
+        // 'Miscellaneous' ist die englische ANZEIGE von 'Sonstiges' - ein
+        // Importer schickt das Label, nicht den gespeicherten Namen. Ohne die
+        // Uebersetzung blieb es als scheinbar gesetzte Kategorie stehen und
+        // fiel im Modal still auf den ersten Dropdown-Eintrag zurueck.
+        const rawCategory = normalizeIncomingCategory(ing.category);
         let category;
-        if (ing.category && ing.category.trim() && ing.category.trim() !== 'Sonstiges') {
+        if (rawCategory && rawCategory !== 'Sonstiges') {
           // User has already selected a category - preserve it
-          category = String(ing.category).trim().slice(0, MAX_SHORT) || 'Sonstiges';
+          category = rawCategory.slice(0, MAX_SHORT) || 'Sonstiges';
         } else {
           // No user-selected category - run automatic matching
           category = String(categorizeIngredient({ foodName: name }) || 'Sonstiges').trim().slice(0, MAX_SHORT) || 'Sonstiges';
@@ -309,14 +349,18 @@ router.put('/:id', (req, res) => {
     const { ingredients = [] } = req.body;
 
     const vTitle = str(req.body.title, 'Titel', { max: MAX_TITLE });
-    const vNotes = str(req.body.notes, 'Notizen', { max: MAX_TEXT, required: false });
+    const vNotes = str(normalizeRecipeNotes(req.body.notes), 'Notizen', { max: MAX_TEXT, required: false });
     const vRecipeUrl = str(req.body.recipe_url, 'Rezept-URL', { max: MAX_TEXT, required: false });
-    const vImageUrl = req.body.image_url;  // NEW: Get image_url
     const mealTypes = normalizeRecipeMealTypes(
       req.body.meal_types === undefined ? existing.meal_types : req.body.meal_types
     );
     const vImage = validateRecipeImage(req.body.image_data);
-    const errors = collectErrors([vTitle, vNotes, vRecipeUrl, vImage]);
+    const vCuisine = str(req.body.cuisine, 'Cuisine', { max: MAX_TEXT, required: false });
+    const vCookTime = str(req.body.cookTime, 'Cook Time', { max: MAX_TEXT, required: false });
+    const vPrepTime = str(req.body.prepTime, 'Prep Time', { max: MAX_TEXT, required: false });
+    const vDiet = Array.isArray(req.body.diet) ? req.body.diet : [];
+    const vTags = Array.isArray(req.body.tags) ? req.body.tags : [];
+    const errors = collectErrors([vTitle, vNotes, vRecipeUrl, vImage, vCuisine, vCookTime, vPrepTime]);
     if (errors.length) return res.status(400).json({ error: errors.join(' '), code: 400 });
 
     db.transaction(() => {
@@ -329,12 +373,22 @@ router.put('/:id', (req, res) => {
         SET title = ?, notes = ?, recipe_url = ?, meal_types = ?,
             image_data = CASE WHEN ? = 1 THEN ? ELSE image_data END,
             image_url = CASE WHEN ? = 1 THEN ? ELSE image_url END,
-            servings = CASE WHEN ? = 1 THEN ? ELSE servings END
+            servings = CASE WHEN ? = 1 THEN ? ELSE servings END,
+            cuisine = CASE WHEN ? = 1 THEN ? ELSE cuisine END,
+            cookTime = CASE WHEN ? = 1 THEN ? ELSE cookTime END,
+            prepTime = CASE WHEN ? = 1 THEN ? ELSE prepTime END,
+            diet = CASE WHEN ? = 1 THEN ? ELSE diet END,
+            tags = CASE WHEN ? = 1 THEN ? ELSE tags END
         WHERE id = ?
       `).run(vTitle.value, vNotes.value, vRecipeUrl.value, mealTypes.join(','),
         vImage.value === undefined ? 0 : 1, vImage.value ?? null,
         req.body.image_url === undefined ? 0 : 1, req.body.image_url ?? null,
-        req.body.servings === undefined ? 0 : 1, req.body.servings ?? null, id);  // NEW: image_url parameter
+        req.body.servings === undefined ? 0 : 1, req.body.servings ?? null,
+        req.body.cuisine === undefined ? 0 : 1, vCuisine.value ?? null,
+        req.body.cookTime === undefined ? 0 : 1, vCookTime.value ?? null,
+        req.body.prepTime === undefined ? 0 : 1, vPrepTime.value ?? null,
+        req.body.diet === undefined ? 0 : 1, JSON.stringify(vDiet),
+        req.body.tags === undefined ? 0 : 1, JSON.stringify(vTags), id);
 
       db.get().prepare('DELETE FROM recipe_ingredients WHERE recipe_id = ?').run(id);
 
@@ -348,14 +402,15 @@ router.put('/:id', (req, res) => {
         const quantity = String(ing.quantity || '').trim().slice(0, MAX_SHORT) || null;
         const unit = String(ing.unit || '').trim().slice(0, MAX_SHORT) || null;
         // Automatic category matching using the same logic as Shopping List,
-        // but only if the user hasn't already set a specific category
+        // but only if the user hasn't already set a specific category.
+        // 'Miscellaneous' → 'Sonstiges' wie im POST-Zweig (dort begruendet).
+        const rawCategory = normalizeIncomingCategory(ing.category);
         let category;
-        if (ing.category && ing.category.trim() && ing.category.trim() !== 'Sonstiges') {
+        if (rawCategory && rawCategory !== 'Sonstiges') {
           // User has already selected a category - preserve it
-          category = String(ing.category).trim().slice(0, MAX_SHORT) || 'Sonstiges';
+          category = rawCategory.slice(0, MAX_SHORT) || 'Sonstiges';
         } else {
           // No user-selected category - run automatic matching
-          const normalizedName = ingredientMatchKey(name);
           category = String(categorizeIngredient({ foodName: name }) || 'Sonstiges').trim().slice(0, MAX_SHORT) || 'Sonstiges';
         }
         if (name) insertIng.run(id, name, quantity, unit, category);

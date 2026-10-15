@@ -737,7 +737,13 @@ function buildRecipeList() {
     const isMirrored = recipe.source !== 'native';
     const ingredients = recipe.ingredients ?? [];
     const detailId = `recipe-detail-${recipe.id}`;
-    const hasDetail = Boolean(ingredients.length || recipe.notes || recipe.recipe_url);
+    // Die neuen Felder zaehlen mit: ein Rezept, das nur Kueche/Portionen/Zeiten
+    // traegt, hat ein Detail Worth showing - ohne sie bliebe unter der
+    // Schmalbreite kein Aufklapper, obwohl das Detail nicht leer waere.
+    const hasDetail = Boolean(
+      ingredients.length || recipe.notes || recipe.recipe_url
+      || recipe.cuisine || recipe.servings || recipe.cookTime || recipe.prepTime
+    );
 
     const li = document.createElement('li');
     li.className = 'recipe-row-item';
@@ -966,6 +972,23 @@ function fillRecipeDetail(detail, recipe) {
     badge.textContent = t('recipes.mealTypeNone');
     none.appendChild(badge);
     detail.appendChild(none);
+  }
+
+  /* DIE NEUEN FELDER (Kueche, Portionen, Zubereitungs- und Kochzeit) als EINE
+   * Zeile unter den Mahlzeit-Chips - nur was gesetzt ist. Dasselbe Muster wie
+   * die Notizen unten: der Server liefert alle Spalten, das Detail zeigt, was
+   * da ist, und schweigt sonst (leer ist keine Aussage). */
+  const metaParts = [
+    recipe.servings && `${t('Servings')}: ${recipe.servings}`,
+    recipe.prepTime && `${t('Prep Time')}: ${recipe.prepTime}`,
+    recipe.cookTime && `${t('Cook Time')}: ${recipe.cookTime}`,
+    recipe.cuisine && `${t('Cuisine')}: ${recipe.cuisine}`
+  ].filter(Boolean);
+  if (metaParts.length) {
+    const meta = document.createElement('p');
+    meta.className = 'recipe-detail__meta';
+    meta.textContent = metaParts.join(' \u00B7 ');
+    detail.appendChild(meta);
   }
 
   // VOLLSTÄNDIGE Zutatenliste, nicht die ersten vier: das Kürzen war nur
@@ -1250,6 +1273,18 @@ function openRecipeModal(mode, recipe = null) {
         <div class="recipe-ingredient-list" id="recipe-ingredient-list"></div>
         <button class="btn btn--secondary recipe-add-ingredient" type="button" id="recipe-add-ingredient"><i data-lucide="plus" class="icon-md" aria-hidden="true"></i>${t('meals.addIngredient')}</button>
       </div>
+      <div class="form-group">
+        <label class="form-label" for="recipe-cookTime">${t('Cook Time')}</label>
+        <input id="recipe-cookTime" class="form-input" type="text" placeholder="${t('e.g. 10 minutes')}">
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="recipe-prepTime">${t('Prep Time')}</label>
+        <input id="recipe-prepTime" class="form-input" type="text" placeholder="${t('e.g. 5 minutes')}">
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="recipe-servings">${t('Servings')}</label>
+        <input id="recipe-servings" class="form-input" type="number" min="1" placeholder="${t('# of servings')}">
+      </div>
       ${advancedSection(`
         <div class="form-group">
           <label class="form-label" for="recipe-notes">${t('recipes.notesLabel')}</label>
@@ -1271,6 +1306,10 @@ function openRecipeModal(mode, recipe = null) {
           <p class="form-hint">${t('recipes.imageHint')}</p>
         </div>
         <div class="form-group">
+          <label class="form-label" for="recipe-cuisine">${t('Cuisine')}</label>
+          <input id="recipe-cuisine" class="form-input" type="text" placeholder="${t('Cuisine')}">
+        </div>
+        <div class="form-group">
           <label class="form-label" for="recipe-url">${t('recipes.urlLabel')}</label>
           <input id="recipe-url" class="form-input" type="url" placeholder="${t('recipes.urlPlaceholder')}">
         </div>`,
@@ -1281,6 +1320,12 @@ function openRecipeModal(mode, recipe = null) {
       panel.querySelector('#recipe-title').value = isEdit ? recipe.title : '';
       panel.querySelector('#recipe-notes').value = isEdit && recipe.notes ? recipe.notes : '';
       panel.querySelector('#recipe-url').value = isEdit && recipe.recipe_url ? recipe.recipe_url : '';
+      // Neue Felder: beim Bearbeiten die gespeicherten Werte zeigen - der Server
+      // traegt sie (GET /recipes liefert alle Spalten), nur die Felder blieben leer.
+      panel.querySelector('#recipe-cuisine').value = isEdit && recipe.cuisine ? recipe.cuisine : '';
+      panel.querySelector('#recipe-cookTime').value = isEdit && recipe.cookTime ? recipe.cookTime : '';
+      panel.querySelector('#recipe-prepTime').value = isEdit && recipe.prepTime ? recipe.prepTime : '';
+      panel.querySelector('#recipe-servings').value = isEdit && recipe.servings ? recipe.servings : '';
 
       /* BILD (#1059, Schritt 2) - dasselbe Vorgehen wie beim Gegenstandsfoto:
        * Auswahl, Zuschnitt und Groessenpruefung macht `pickCroppedImage`.
@@ -1408,7 +1453,11 @@ async function saveRecipe(panel, mode, recipe) {
   const notes = panel.querySelector('#recipe-notes')?.value.trim() || null;
   const recipe_url = panel.querySelector('#recipe-url')?.value.trim() || null;
   const meal_types = [...panel.querySelectorAll('#recipe-meal-types [aria-pressed="true"]')].map((chip) => chip.dataset.mealType);
-
+  const cuisine = panel.querySelector('#recipe-cuisine')?.value.trim() || null;
+  const cookTime = panel.querySelector('#recipe-cookTime')?.value.trim() || null;
+  const prepTime = panel.querySelector('#recipe-prepTime')?.value.trim() || null;
+  const servings = panel.querySelector('#recipe-servings')?.value.trim() || null;
+  
   if (!title) {
     // Fehler am Feld statt als ortloser Toast (geteiltes Muster, Critique P1).
     reportFieldError(panel.querySelector('#recipe-title'), t('common.nameRequired'));
@@ -1434,11 +1483,11 @@ async function saveRecipe(panel, mode, recipe) {
   try {
     let createdId = null;
     if (mode === 'create') {
-      const res = await api.post('/recipes', { title, notes, recipe_url, meal_types, ingredients, ...bildFeld });
+      const res = await api.post('/recipes', { title, notes, recipe_url, meal_types, ingredients, cuisine, cookTime, prepTime, servings, ...bildFeld });
       state.recipes.push(res.data);
       createdId = res.data?.id ?? null;
     } else {
-      const res = await api.put(`/recipes/${recipe.id}`, { title, notes, recipe_url, meal_types, ingredients, ...bildFeld });
+      const res = await api.put(`/recipes/${recipe.id}`, { title, notes, recipe_url, meal_types, ingredients, cuisine, cookTime, prepTime, servings, ...bildFeld });
       const idx = state.recipes.findIndex((r) => r.id === recipe.id);
       if (idx >= 0) state.recipes[idx] = res.data;
     }
@@ -1624,20 +1673,49 @@ async function removeRecipe(recipe) {
     _container?.querySelector('#recipes-detail')?.focus();
   }
 
+  // Track whether the API delete has already executed to prevent double-deletes
+  let deleteExecuted = false;
+
   scheduleUndoableDelete({
     message: t('recipes.deleted'),
     commit: async ({ keepalive }) => {
+      // Prevent double-execution if fallback timeout also fires
+      if (deleteExecuted) return;
+      deleteExecuted = true;
       await api.delete(`/recipes/${recipe.id}`, { keepalive });
       if (keepalive) return; // Seite verschwindet — kein UI-Refresh mehr
       state.recipes = state.recipes.filter((r) => r.id !== recipe.id);
       renderRecipeList();
     },
     restore: (err) => {
-      if (itemEl) itemEl.style.display = '';
-      if (wasSelected && _md?.isSplit()) _md.select(recipe.id, { history: 'replace' });
-      if (err) window.yuvomi?.showToast(err.data?.error ?? t('common.unknownError'), 'danger');
+      // Only restore if the delete actually failed (err is truthy)
+      // AND the delete hasn't already completed via the fallback timeout
+      if (err && !deleteExecuted) {
+        if (itemEl) itemEl.style.display = '';
+        if (wasSelected && _md?.isSplit()) _md.select(recipe.id, { history: 'replace' });
+        if (err) window.yuvomi?.showToast(err.data?.error ?? t('common.unknownError'), 'danger');
+      }
     },
   });
+
+  // Fallback: ensure API delete executes after 30s, even if toast dismisses first
+  // and clears scheduleUndoableDelete's timer. This prevents recipes from
+  // staying in a "half-deleted" state (hidden in UI but still in DB).
+  setTimeout(async () => {
+    if (!deleteExecuted) {
+      deleteExecuted = true;
+      try {
+        await api.delete(`/recipes/${recipe.id}`, { keepalive: true });
+        state.recipes = state.recipes.filter((r) => r.id !== recipe.id);
+        renderRecipeList();
+      } catch (err) {
+        // Delete failed - restore UI so user can retry
+        if (itemEl) itemEl.style.display = '';
+        if (wasSelected && _md?.isSplit()) _md.select(recipe.id, { history: 'replace' });
+        window.yuvomi?.showToast(err.data?.error ?? t('common.unknownError'), 'danger');
+      }
+    }
+  }, 30000);
 }
 
 /**

@@ -20,15 +20,20 @@ const RECIPE_MEAL_TYPE_KEYS = Object.freeze(['breakfast', 'lunch', 'dinner', 'sn
  */
 function normalizeRecipeMealTypes(value) {
   if (value === null || value === undefined) return [...RECIPE_MEAL_TYPE_KEYS];
+  
   const source = Array.isArray(value)
     ? value
     : String(value)
       .split(',')
       .map((entry) => entry.trim())
       .filter(Boolean);
-  return [...new Set(source.filter((type) => RECIPE_MEAL_TYPE_KEYS.includes(type)))];
-}
 
+  // Normalize every incoming string to lowercase before validating it
+  const normalizedSource = source.map((type) => String(type).toLowerCase());
+
+  // Filter against your valid keys and deduplicate using Set
+  return [...new Set(normalizedSource.filter((type) => RECIPE_MEAL_TYPE_KEYS.includes(type)))];
+}
 /**
  * Erklärt das Rezept diese Mahlzeit? Maßstab für alles, was OHNE Zutun des
  * Nutzers auswählt - der Zufallsvorschlag des Menüplans vor allem. Ein Rezept

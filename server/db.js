@@ -1371,8 +1371,6 @@ const MIGRATIONS = [
 
       ALTER TABLE meals ADD COLUMN recipe_id INTEGER REFERENCES recipes(id) ON DELETE SET NULL;
       CREATE INDEX IF NOT EXISTS idx_meals_recipe_id ON meals(recipe_id);
-      ALTER TABLE recipes ADD COLUMN image_url TEXT;
-      ALTER TABLE recipes ADD COLUMN servings TEXT;
     `,
   },
   {
@@ -10183,6 +10181,17 @@ const MIGRATIONS = [
     up: `
       ALTER TABLE recipes ADD COLUMN image_url TEXT;
       ALTER TABLE recipes ADD COLUMN servings TEXT;
+    `,
+  },
+  {
+    version: 240,
+    description: 'Add cuisine, cookTime, prepTime, diet, and tags to recipes table',
+    up: `
+      ALTER TABLE recipes ADD COLUMN cuisine TEXT;
+      ALTER TABLE recipes ADD COLUMN cookTime TEXT;
+      ALTER TABLE recipes ADD COLUMN prepTime TEXT;
+      ALTER TABLE recipes ADD COLUMN diet TEXT;
+      ALTER TABLE recipes ADD COLUMN tags TEXT;
     `,
   },
 ];
