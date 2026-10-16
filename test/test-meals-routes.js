@@ -756,6 +756,28 @@ test('PATCH /ingredients/:ingId: unit folgt demselben Feld-Vertrag wie quantity'
   assert.equal(nurEinheit.body.data.unit, 'kg');
 });
 
+// Ausgeschriebene Einheiten ziehen ihre Kuerzel wie im Rezept-Router
+// (utils/unit-abbreviations.js) - auf allen drei Schreibwegen der Mahlzeit.
+test('POST/PATCH: ausgeschriebene Einheiten werden zu Kuezeln gezogen', async () => {
+  // 1. Beim Anlegen der Mahlzeit (sanitizedIngredients).
+  const m = (await createMeal({
+    date: '2026-05-24', title: 'Kuerzel-Mahlzeit',
+    ingredients: [{ name: 'Öl', quantity: '2', unit: 'tablespoons' }],
+  })).body.data;
+  assert.equal(m.ingredients[0].unit, 'tbsp');
+
+  // 2. Beim Nachtragen einer einzelnen Zutat.
+  const added = await call('POST', `/${m.id}/ingredients`, { name: 'Vanille', unit: 'teaspoon' });
+  assert.equal(added.body.data.unit, 'tsp');
+
+  // 3. Beim Bearbeiten (PATCH); Unbekanntes bleibt unberuehrt.
+  const ingId = added.body.data.id;
+  const patched = await call('PATCH', `/ingredients/${ingId}`, { unit: 'Esslöffel' });
+  assert.equal(patched.body.data.unit, 'EL');
+  const unknown = await call('PATCH', `/ingredients/${ingId}`, { unit: 'Prise' });
+  assert.equal(unknown.body.data.unit, 'Prise');
+});
+
 test('DELETE /ingredients/:ingId: unbekannt → 404', async () => {
   const r = await call('DELETE', '/ingredients/999999');
   assert.equal(r.status, 404);
@@ -892,6 +914,37 @@ test('POST /week-to-shopping-list: überträgt offene Zutaten der ganzen Woche',
   // erneut → 0
   const r2 = await call('POST', '/week-to-shopping-list', { listId: LIST, week: '2026-11-02' });
   assert.equal(r2.body.data.transferred, 0);
+});
+
+// Vorrats-Kategorie vor Zutaten-Kategorie (services/shopping-pantry-category.js),
+// hier fuer beide Mahlzeit-Transferwege: fuehrt der Haushalt dieselbe Ware schon
+// im Vorrat - MIT Nachkaufregel -, gibt DER seine Kategorie her; ohne Treffer
+// bleibt die geplante Kategorie stehen.
+test('POST /:id + /week-to-shopping-list: Vorrats-Kategorie gewinnt bei gleichem Namen', async () => {
+  db.prepare(`
+    INSERT INTO pantry_items (name, category, restock_interval_days, created_by)
+    VALUES ('Marinade-Gewürz', 'Vorrats-Gewürze', 30, ?)
+  `).run(U);
+
+  // Einzel-Transfer
+  const einzel = (await createMeal({
+    date: '2026-11-09', title: 'Einzel-Vorrat',
+    ingredients: [{ name: 'marinade-gewürz', category: 'Sonstiges' }],
+  })).body.data;
+  const r1 = await call('POST', `/${einzel.id}/to-shopping-list`, { listId: LIST });
+  assert.equal(r1.status, 200);
+  const item1 = db.prepare('SELECT category FROM shopping_items WHERE added_from_meal = ?').get(einzel.id);
+  assert.equal(item1.category, 'Vorrats-Gewürze', 'Vorrat schlägt die geplante Kategorie');
+
+  // Wochen-Transfer
+  const woche = (await createMeal({
+    date: '2026-11-10', title: 'Woche-Vorrat',
+    ingredients: [{ name: 'Marinade-Gewürz', category: 'Geplante-Kategorie' }],
+  })).body.data;
+  const r2 = await call('POST', '/week-to-shopping-list', { listId: LIST, week: '2026-11-09' });
+  assert.equal(r2.status, 200);
+  const item2 = db.prepare('SELECT category FROM shopping_items WHERE added_from_meal = ?').get(woche.id);
+  assert.equal(item2.category, 'Vorrats-Gewürze', 'auch der Wochen-Transfer folgt dem Vorrat');
 });
 
 test.after(() => server.close());

@@ -10,10 +10,12 @@ import * as db from '../db.js';
 import { str, num, collectErrors, MAX_TITLE, MAX_TEXT, MAX_SHORT } from '../middleware/validate.js';
 import { normalizeRecipeMealTypes } from '../../public/utils/recipe-meal-types.js';
 import { ingredientMatchKey } from '../../public/utils/ingredient-match-key.js';
+import { normalizeUnitText } from '../../public/utils/unit-abbreviations.js';
 import { categorizeIngredient, normalizeIncomingCategory } from '../services/recipe-providers/categorize.js';
 import { getAdapter } from '../services/recipe-providers/index.js';
 import { dataUrlContentMatches } from '../utils/file-signature.js';
 import { mayReadModule, mayWriteModule } from '../permissions.js';
+import { pantryCategoryFor } from '../services/shopping-pantry-category.js';
 
 const log = createLogger('Recipes');
 const router = express.Router();
@@ -63,6 +65,56 @@ function normalizeRecipeNotes(value) {
   return parts.map((text, i) => `Step ${i + 1}.\n${text}`).join('\n\n');
 }
 
+/* NAHRWERTE JE PORTION ALS EIN JSON-FREITEXT (v242), WIE DIET UND TAGS.
+ *
+ * Der Importer schickt einen Satz camelCase-Namen mit String-Zahlen
+ * (recipe_import_format_example.json: "calories":"257", "sodium":"1507").
+ * Gespeichert werden die KANONISCHEN Schluessel aus dem Gesundheitsmodul
+ * (server/services/health-nutrition.js#NUTRIENT_KEYS) - dieselben Namen, die
+ * ein spaeterer "ins Gesundheits-Tagebuch"-Weg liest, und dieselbe
+ * EU-Etiketten-Reihenfolge. Zwei Uebersetzungen passieren hier:
+ *
+ * - DER NAME: calories→energy_kcal, carbohydrates→carbs_g, ... - und die
+ *   kanonischen Namen selbst ebenso (ein Client, der zurueckschreibt, was
+ *   GET geliefert hat, schickt bereits energy_kcal).
+ * - NATRIUM ZU SALZ: das Gesundheitsmodell kennt kein sodium_mg; die EU-
+ *   Naehrwerttabelle nennt Salz. Umrechnung mg × 2,5 / 1000, auf eine
+ *   Nachkommastelle gerundet wie auf der Packung (1507 mg → 3,8 g).
+ *   Cholesterin hat im Modell keinen Platz und faellt STILL weg - wie jedes
+ *   unbekannte Feld des Importers (secondaryQuantity, nutrition je Zutat, ...),
+ *   kein 400, das den ganzen Import blockierte.
+ *
+ * String-Zahlen werden gezogen ("257" → 257), alles Nicht-Numerische und
+ * Negative faellt weg; bleibt nichts uebrig, ist das Feld leer (null) - auch
+ * bei ausdruecklich mitgeschicktem leeren Objekt, derselbe Vertrag wie notes.
+ */
+const NUTRITION_FIELD_MAP = new Map([
+  ['calories', 'energy_kcal'], ['energy_kcal', 'energy_kcal'],
+  ['carbohydrates', 'carbs_g'], ['carbs_g', 'carbs_g'],
+  ['protein', 'protein_g'], ['protein_g', 'protein_g'],
+  ['fat', 'fat_g'], ['fat_g', 'fat_g'],
+  ['saturatedFat', 'saturated_fat_g'], ['saturated_fat_g', 'saturated_fat_g'],
+  ['fiber', 'fiber_g'], ['fiber_g', 'fiber_g'],
+  ['sugar', 'sugar_g'], ['sugar_g', 'sugar_g'],
+  // mg → g Salz, × 2,5 ÷ 1000, eine Nachkommastelle wie auf dem Etikett.
+  ['sodium', 'salt_g'],
+]);
+
+function normalizeRecipeNutrition(value) {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== 'object' || Array.isArray(value)) return null;
+  const out = {};
+  for (const [raw, rawVal] of Object.entries(value)) {
+    const target = NUTRITION_FIELD_MAP.get(raw);
+    if (!target) continue; // unbekannter Naehrwert: still weglassen, kein 400
+    let n = Number(String(rawVal).replace(',', '.'));
+    if (!Number.isFinite(n) || n < 0) continue;
+    if (raw === 'sodium') n = Math.round(n * 2.5 / 100) / 10;
+    out[target] = n;
+  }
+  return Object.keys(out).length ? out : null;
+}
+
 // Nicht-skriptfähige Rasterformate (kein SVG), dieselbe Allowlist wie der
 // DMS-Vorschau-Proxy (server/routes/dms.js) - dort wie hier landet ein
 // Content-Type, den ein Drittsystem liefert, direkt im Response-Header.
@@ -80,10 +132,19 @@ function withSource(recipe) {
   // Rezeptliste ein Vielfaches ihrer selbst - fuer eine Vorschau von 32 Pixeln,
   // die ohnehin ueber `GET /recipes/:id/image` kommt. Uebrig bleibt das Flag,
   // das die Oberflaeche wirklich braucht: gibt es eins?
-  const { image_data, ...rest } = recipe;
+  //
+  // DIE NAEHRWERTE kommen als JSON-Text aus der Spalte (v242, wie diet/tags)
+  // und gehen als OBJEKT in die Antwort: sie sind acht benannte Zahlen, keine
+  // Freitext-Liste wie die Tags, und der Browserteil liest sie Feld fuer Feld.
+  const { image_data, nutrition, ...rest } = recipe;
+  let nutritionData = null;
+  if (nutrition) {
+    try { nutritionData = JSON.parse(nutrition); } catch { nutritionData = null; }
+  }
   return {
     ...rest,
     has_own_image: !!image_data,
+    nutrition: nutritionData,
     source: recipe.provider_account_id ? recipe.provider_type : 'native',
   };
 }
@@ -275,29 +336,43 @@ router.post('/', (req, res) => {
     const vDiet = Array.isArray(req.body.diet) ? req.body.diet : [];
     const vTags = Array.isArray(req.body.tags) ? req.body.tags : [];
 
+    // Naehrwerte JE PORTION (v242): der Importer nennt das Feld
+    // `nutritionSummary`, die kanonische Antwort (`nutrition`) schreibt ein
+    // Client unveraendert zurueck - beides ist dasselbe Feld.
+    const nutritionData = normalizeRecipeNutrition(req.body.nutritionSummary ?? req.body.nutrition);
+    const nutritionJson = nutritionData ? JSON.stringify(nutritionData) : null;
+
     const errors = collectErrors([vTitle, vNotes, vRecipeUrl, vImage, vCuisine, vCookTime, vPrepTime]);
     if (errors.length) return res.status(400).json({ error: errors.join(' '), code: 400 });
 
     const recipeId = db.transaction(() => {
       const result = db.get().prepare(`
-        INSERT INTO recipes (title, notes, recipe_url, meal_types, image_data, image_url, servings, cuisine, cookTime, prepTime, diet, tags, created_by)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO recipes (title, notes, recipe_url, meal_types, image_data, image_url, servings, cuisine, cookTime, prepTime, diet, tags, nutrition, created_by)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(vTitle.value, vNotes.value, vRecipeUrl.value, mealTypes.join(','),
         vImage.value ?? null, vImageUrl ?? null, req.body.servings ?? null,
         vCuisine.value ?? null, vCookTime.value ?? null, vPrepTime.value ?? null,
-        JSON.stringify(vDiet), JSON.stringify(vTags),
+        JSON.stringify(vDiet), JSON.stringify(vTags), nutritionJson,
         req.authUserId || req.session.userId);
 
       const rid = Number(result.lastInsertRowid);
       const insertIng = db.get().prepare(`
-        INSERT INTO recipe_ingredients (recipe_id, name, quantity, unit, category)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO recipe_ingredients (recipe_id, name, quantity, unit, note, category)
+        VALUES (?, ?, ?, ?, ?, ?)
       `);
 
       for (const ing of ingredients) {
         const name = String(ing.name || '').trim().slice(0, MAX_TITLE);
         const quantity = String(ing.quantity || '').trim().slice(0, MAX_SHORT) || null;
-        const unit = String(ing.unit || '').trim().slice(0, MAX_SHORT) || null;
+        // Ausgeschriebene Einheiten ("tablespoon") auf ihr Kuerzel ("tbsp")
+        // ziehen - eine Fassung (utils/unit-abbreviations.js, dort begruendet).
+        // Unbekanntes ("cloves") bleibt, wie es ist; die Laengengrenze gilt
+        // danach weiter.
+        const unit = normalizeUnitText(ing.unit)?.slice(0, MAX_SHORT) || null;
+        // Die Notiz einer Zutat ist Zubereitungs-Kontext ("thinly sliced"),
+        // den Importer im eigenen Feld mitschicken - dieselbe Laengenklasse
+        // wie Menge und Einheit (v241).
+        const note = String(ing.note || '').trim().slice(0, MAX_SHORT) || null;
         // Automatic category matching using the same logic as Shopping List,
         // but only if the user hasn't already set a specific category.
         // 'Miscellaneous' ist die englische ANZEIGE von 'Sonstiges' - ein
@@ -313,7 +388,7 @@ router.post('/', (req, res) => {
           // No user-selected category - run automatic matching
           category = String(categorizeIngredient({ foodName: name }) || 'Sonstiges').trim().slice(0, MAX_SHORT) || 'Sonstiges';
         }
-        if (name) insertIng.run(rid, name, quantity, unit, category);
+        if (name) insertIng.run(rid, name, quantity, unit, note, category);
       }
 
       return rid;
@@ -360,6 +435,15 @@ router.put('/:id', (req, res) => {
     const vPrepTime = str(req.body.prepTime, 'Prep Time', { max: MAX_TEXT, required: false });
     const vDiet = Array.isArray(req.body.diet) ? req.body.diet : [];
     const vTags = Array.isArray(req.body.tags) ? req.body.tags : [];
+
+    // Naehrwerte wie im POST-Zweig (dort begruendet): `nutritionSummary` des
+    // Importers und die kanonische Antwort `nutrition` sind dasselbe Feld.
+    // Ist KEINES von beiden mitgeschickt, bleibt der gespeicherte Stand
+    // stehen - derselbe Feld-Vertrag wie cuisine und tags daneben.
+    const nutritionInput = req.body.nutritionSummary ?? req.body.nutrition;
+    const nutritionData = normalizeRecipeNutrition(nutritionInput);
+    const nutritionJson = nutritionData ? JSON.stringify(nutritionData) : null;
+
     const errors = collectErrors([vTitle, vNotes, vRecipeUrl, vImage, vCuisine, vCookTime, vPrepTime]);
     if (errors.length) return res.status(400).json({ error: errors.join(' '), code: 400 });
 
@@ -378,7 +462,8 @@ router.put('/:id', (req, res) => {
             cookTime = CASE WHEN ? = 1 THEN ? ELSE cookTime END,
             prepTime = CASE WHEN ? = 1 THEN ? ELSE prepTime END,
             diet = CASE WHEN ? = 1 THEN ? ELSE diet END,
-            tags = CASE WHEN ? = 1 THEN ? ELSE tags END
+            tags = CASE WHEN ? = 1 THEN ? ELSE tags END,
+            nutrition = CASE WHEN ? = 1 THEN ? ELSE nutrition END
         WHERE id = ?
       `).run(vTitle.value, vNotes.value, vRecipeUrl.value, mealTypes.join(','),
         vImage.value === undefined ? 0 : 1, vImage.value ?? null,
@@ -388,19 +473,24 @@ router.put('/:id', (req, res) => {
         req.body.cookTime === undefined ? 0 : 1, vCookTime.value ?? null,
         req.body.prepTime === undefined ? 0 : 1, vPrepTime.value ?? null,
         req.body.diet === undefined ? 0 : 1, JSON.stringify(vDiet),
-        req.body.tags === undefined ? 0 : 1, JSON.stringify(vTags), id);
+        req.body.tags === undefined ? 0 : 1, JSON.stringify(vTags),
+        nutritionInput === undefined ? 0 : 1, nutritionJson, id);
 
       db.get().prepare('DELETE FROM recipe_ingredients WHERE recipe_id = ?').run(id);
 
       const insertIng = db.get().prepare(`
-        INSERT INTO recipe_ingredients (recipe_id, name, quantity, unit, category)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO recipe_ingredients (recipe_id, name, quantity, unit, note, category)
+        VALUES (?, ?, ?, ?, ?, ?)
       `);
 
       for (const ing of ingredients) {
         const name = String(ing.name || '').trim().slice(0, MAX_TITLE);
         const quantity = String(ing.quantity || '').trim().slice(0, MAX_SHORT) || null;
-        const unit = String(ing.unit || '').trim().slice(0, MAX_SHORT) || null;
+        // Ausgeschriebene Einheiten auf ihr Kuerzel ziehen wie im POST-Zweig
+        // (dort begruendet).
+        const unit = normalizeUnitText(ing.unit)?.slice(0, MAX_SHORT) || null;
+        // Notiz wie im POST-Zweig (dort begruendet, v241).
+        const note = String(ing.note || '').trim().slice(0, MAX_SHORT) || null;
         // Automatic category matching using the same logic as Shopping List,
         // but only if the user hasn't already set a specific category.
         // 'Miscellaneous' → 'Sonstiges' wie im POST-Zweig (dort begruendet).
@@ -413,7 +503,7 @@ router.put('/:id', (req, res) => {
           // No user-selected category - run automatic matching
           category = String(categorizeIngredient({ foodName: name }) || 'Sonstiges').trim().slice(0, MAX_SHORT) || 'Sonstiges';
         }
-        if (name) insertIng.run(id, name, quantity, unit, category);
+        if (name) insertIng.run(id, name, quantity, unit, note, category);
       }
 
       // VERWAISTE ZUORDNUNGEN ABRAEUMEN, IN DERSELBEN TRANSAKTION (#1314).
@@ -633,7 +723,12 @@ router.post('/:id/to-shopping-list', (req, res) => {
       for (const ing of ingredients) {
         const key = ing.name.trim().toLowerCase();
         if (present.has(key)) { skipped += 1; continue; }
-        const info = insertItem.run(vList.value, ing.name, flattenQuantity(ing.quantity, ing.unit), ing.category || 'Sonstiges');
+        // Fuehrt der Haushalt dieselbe Ware schon im Vorrat (mit Nachkauf-
+        // regel), gibt DER seine Kategorie her - wie beim manuellen Anlegen
+        // eines Artikels, damit dieselbe Ware nicht je nach Weg in zwei
+        // Kategorien landet. Ohne Treffer bleibt die Zutaten-Kategorie stehen.
+        const category = pantryCategoryFor(req, ing.name) ?? (ing.category || 'Sonstiges');
+        const info = insertItem.run(vList.value, ing.name, flattenQuantity(ing.quantity, ing.unit), category);
         present.add(key);
         addedIds.push(Number(info.lastInsertRowid));
       }

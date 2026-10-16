@@ -24,7 +24,7 @@ export function mealsPaths() {
       post: op({
         summary: 'Transfer meal ingredients to shopping list',
         tag: 'Meals',
-        description: 'Creates shopping items, so it requires write access to the `shopping` module in addition to `meals` - a credential scoped to the meal plan alone is refused with 403. Each ingredient\'s `quantity` and `unit` are joined into the shopping item\'s single `quantity` text ("500" + "g" becomes "500 g"); the unit is not a separate field there.',
+        description: 'Creates shopping items, so it requires write access to the `shopping` module in addition to `meals` - a credential scoped to the meal plan alone is refused with 403. Each ingredient\'s `quantity` and `unit` are joined into the shopping item\'s single `quantity` text ("500" + "g" becomes "500 g"); the unit is not a separate field there. The category comes from a pantry row of the same name when one exists with a restock interval - like manually adding the item - and only then falls back to the ingredient\'s stored category.',
         params: [idParam()],
         stateChanging: true,
         requestBody: jsonBody(null),
@@ -40,7 +40,7 @@ export function mealsPaths() {
       post: op({
         summary: 'Transfer weekly meal ingredients to shopping list',
         tag: 'Meals',
-        description: 'Creates shopping items, so it requires write access to the `shopping` module in addition to `meals` - a credential scoped to the meal plan alone is refused with 403. Each ingredient\'s `quantity` and `unit` are joined into the shopping item\'s single `quantity` text, the same rule as the single-meal transfer.',
+        description: 'Creates shopping items, so it requires write access to the `shopping` module in addition to `meals` - a credential scoped to the meal plan alone is refused with 403. Each ingredient\'s `quantity` and `unit` are joined into the shopping item\'s single `quantity` text, the same rule as the single-meal transfer. The category follows the same pantry rule as the single-meal transfer, too: a same-name pantry row with a restock interval wins over the planned category.',
         stateChanging: true,
         requestBody: jsonBody(null),
         responses: {

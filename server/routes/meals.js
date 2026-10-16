@@ -11,6 +11,8 @@ import { str, oneOf, date, num, collectErrors, MAX_TITLE, MAX_TEXT, MAX_SHORT, D
 import { addDays, mealWeekday, datesForTemplateInRange } from '../services/meal-recurrence.js';
 import { todayKey } from '../utils/timezone.js';
 import { mayWriteModule } from '../permissions.js';
+import { pantryCategoryFor } from '../services/shopping-pantry-category.js';
+import { normalizeUnitText } from '../../public/utils/unit-abbreviations.js';
 
 const log = createLogger('Meals');
 
@@ -75,7 +77,9 @@ function sanitizedIngredients(ingredients) {
       quantity: String(ing.quantity || '').trim().slice(0, MAX_SHORT) || null,
       // Freitext wie auf recipe_ingredients (v238) - die Mahlzeit traegt Menge
       // und Einheit getrennt, damit der Weg Rezept <-> Mahlzeit verlustfrei ist.
-      unit: String(ing.unit || '').trim().slice(0, MAX_SHORT) || null,
+      // Ausgeschriebene Einheiten ziehen die Kuerzel-Fassung wie im Rezept-
+      // Router (utils/unit-abbreviations.js, dort begruendet).
+      unit: normalizeUnitText(ing.unit)?.slice(0, MAX_SHORT) || null,
       category: String(ing.category || '').trim().slice(0, MAX_SHORT) || 'Sonstiges',
     }))
     .filter((ing) => ing.name);
@@ -763,9 +767,11 @@ router.post('/:id/ingredients', (req, res) => {
     if (!name || !name.trim())
       return res.status(400).json({ error: 'Name ist erforderlich', code: 400 });
 
+    // Kuerzel wie bei sanitizedIngredients() - dieselbe Regel, dieselbe Fassung.
+    const normalizedUnit = normalizeUnitText(unit)?.slice(0, MAX_SHORT) || null;
     const result = db.get().prepare(`
       INSERT INTO meal_ingredients (meal_id, name, quantity, unit, category) VALUES (?, ?, ?, ?, ?)
-    `).run(mealId, name.trim(), quantity?.trim() || null, unit?.trim() || null, String(category || '').trim() || 'Sonstiges');
+    `).run(mealId, name.trim(), quantity?.trim() || null, normalizedUnit, String(category || '').trim() || 'Sonstiges');
 
     const ing = db.get().prepare(
       'SELECT * FROM meal_ingredients WHERE id = ?'
@@ -803,7 +809,9 @@ router.patch('/ingredients/:ingId', (req, res) => {
     `).run(
       name?.trim() ?? null,
       quantity !== undefined ? (quantity?.trim() || null) : ing.quantity,
-      unit !== undefined ? (unit?.trim() || null) : ing.unit,
+      // Kuerzel-Fassung auch hier (utils/unit-abbreviations.js); ein Weglassen
+      // des Felds laesst die gespeicherte Einheit stehen wie bisher.
+      unit !== undefined ? (normalizeUnitText(unit)?.slice(0, MAX_SHORT) || null) : ing.unit,
       category !== undefined ? (String(category || '').trim() || 'Sonstiges') : null,
       on_shopping_list !== undefined ? (on_shopping_list ? 1 : 0) : null,
       ingId
@@ -930,7 +938,11 @@ router.post('/:id/to-shopping-list', (req, res) => {
 
       const ids = [];
       for (const ing of ingredients) {
-        const info = insertItem.run(listId, ing.name, flattenQuantity(ing.quantity, ing.unit), ing.category || 'Sonstiges', mealId);
+        // Vorrats-Kategorie vor der Zutaten-Kategorie, wie beim Rezept-Transfer
+        // (dort begruendet): fuehrt der Haushalt dieselbe Ware schon im Vorrat
+        // (mit Nachkaufregel), gibt DER seine Kategorie her.
+        const category = pantryCategoryFor(req, ing.name) ?? (ing.category || 'Sonstiges');
+        const info = insertItem.run(listId, ing.name, flattenQuantity(ing.quantity, ing.unit), category, mealId);
         markDone.run(ing.id);
         ids.push(Number(info.lastInsertRowid));
       }
@@ -996,7 +1008,10 @@ router.post('/week-to-shopping-list', (req, res) => {
 
       const ids = [];
       for (const ing of ingredients) {
-        const info = insertItem.run(listId, ing.name, flattenQuantity(ing.quantity, ing.unit), ing.category || 'Sonstiges', ing.meal_id);
+        // Vorrats-Kategorie vor der Zutaten-Kategorie wie beim Einzel-Transfer
+        // darueber (dort begruendet).
+        const category = pantryCategoryFor(req, ing.name) ?? (ing.category || 'Sonstiges');
+        const info = insertItem.run(listId, ing.name, flattenQuantity(ing.quantity, ing.unit), category, ing.meal_id);
         markDone.run(ing.id);
         ids.push(Number(info.lastInsertRowid));
       }

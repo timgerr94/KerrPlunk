@@ -6494,9 +6494,25 @@ textarea::placeholder {
   grid-template-areas: "name name name remove" "qty unit cat .";
 }
 
+/* Rezept-Modal MIT Notiz (v241): die Notiz steht in der NAMENS-Zeile, schmaler
+ * als der Name - sie ist Kontext des Namens ("large onion, thinly — sliced"),
+ * nicht vier vollgrosse Felder in einer Reihe. Zweite Zeile: Menge, Einheit
+ * (eine Spalte), Kategorie ueber die letzten zwei - ihr Langtext ("Fleisch
+ * & Eier") braucht die Breite staerker als das kurze "tbsp". */
+.ingredient-row--with-unit.ingredient-row--with-note {
+  grid-template-columns: minmax(0, 3fr) minmax(0, 1.4fr) minmax(0, 1.4fr) minmax(0, 1.4fr) auto;
+  grid-template-areas: "name name note note remove" "qty unit cat cat .";
+}
+
 .ingredient-row__name {
   grid-area: name;
   min-width: 0;
+}
+
+.ingredient-row__note {
+  grid-area: note;
+  min-width: 0;
+  font-size: var(--type-body);
 }
 
 .ingredient-row__qty {
@@ -7723,7 +7739,10 @@ textarea::placeholder {
 .swipe-row {
   position: relative;
   overflow: hidden;
-  /* Verhindert ungewolltes Flackern auf iOS */
+  /* Verhindert ungewolltes Flackern auf iOS. Standard-Eigenschaft mitgefuehrt
+   * wie bei backdrop-filter: das -webkit- allein ist Alt-Blink/WebKit, Firefox
+   * liest die unprefixed (und seine -webkit-Alias nur aus Kompatibilitaet). */
+  backface-visibility: hidden;
   -webkit-backface-visibility: hidden;
 }
 

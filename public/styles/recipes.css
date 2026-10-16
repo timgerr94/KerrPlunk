@@ -394,6 +394,15 @@
   gap: var(--space-1) var(--space-2);
 }
 
+/* Zubereitungs-Hinweis einer Zutat (v241, "thinly sliced"): leiser als der
+ * Name, aber kursiv statt grau - es ist Kochanweisung, keine Fussnote, und die
+ * Farbe Grau gehoert den Systemzeilen darunter. */
+.recipe-detail__ingredient-note {
+  font-style: italic;
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+}
+
 /* Die bestaetigte Zuordnung zu einer Vorratszeile (#1314). Als Knopf, wenn das
  * Konto den Vorrat schreiben darf, sonst als stiller Text - derselbe Platz,
  * dieselbe Groesse, damit der Zustand nicht springt. */
@@ -440,6 +449,26 @@ button.recipe-detail__ingredient-match:hover {
   margin: 0;
   font-size: var(--type-caption);
   color: var(--color-text-secondary);
+}
+
+/* NAEHRWERTE JE PORTION (v242): dieselbe Zeilen-Grammatik wie die Meta-Angaben
+ * darueber - eine Zeile, Mittelpunkte, sekundaere Farbe - mit zwei
+ * Ausnahmen: tabellarische Ziffern (acht Zahlen in einer Reihe springen
+ * sonst in der Breite), und Umbruch zwischen den Paaren statt mitten im
+ * Wert (Label, Zahl und Einheit bleiben zusammen). */
+.recipe-detail__nutrition {
+  margin: 0;
+  font-size: var(--type-caption);
+  color: var(--color-text-secondary);
+  font-variant-numeric: tabular-nums;
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: var(--space-2);
+  row-gap: var(--space-0h);
+}
+
+.recipe-detail__nutrition-label {
+  font-weight: var(--font-weight-medium);
 }
 
 /* Die beiden Kreislauf-Ausgänge, beschriftet. Umbruchfähig, weil bei 320px drei

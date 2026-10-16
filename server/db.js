@@ -10194,6 +10194,47 @@ const MIGRATIONS = [
       ALTER TABLE recipes ADD COLUMN tags TEXT;
     `,
   },
+  {
+    version: 241,
+    description: 'Recipe ingredients: free-text note next to name, quantity and unit',
+    up: `
+      -- FREITEXT, KEIN ENUM, wie quantity/unit (v237): die Notiz einer Zutat ist
+      -- Zubereitungs-Kontext ("thinly sliced", "minced"), den Importer fremder
+      -- Systeme im eigenen Feld mitschicken (recipe_import_format_example.json).
+      -- NULL (Altbestand) und '' sind gleichbedeutend "keine Notiz genannt".
+      --
+      -- NUR recipe_ingredients, nicht meal_ingredients: die Notiz ist Teil des
+      -- Rezepts, nicht des Essensplans. Anders als unit (v238, dort begruendet)
+      -- hat das Mahlzeiten-Modal kein Notiz-Feld; eine Spalte ohne jede Les-
+      -- oder Schreibstelle waere toter Speicher.
+      ALTER TABLE recipe_ingredients ADD COLUMN note TEXT;
+    `,
+  },
+  {
+    version: 242,
+    description: 'Recipes: per-serving nutrition summary as JSON next to diet and tags',
+    up: `
+      -- EIN JSON-FREITEXT, KEINE ACHT REAL-SPALTEN - dasselbe Muster wie diet
+      -- und tags unmittelbar daneben: die Werte kommen aus einem einzigen Feld
+      -- eines Importers (recipe_import_format_example.json, "nutritionSummary"),
+      -- ein PUT ersetzt sie als Ganzes, und ein spaeterer neuer Naehrwert ist
+      -- eine Zeile in der Normalisierer-Funktion, kein Tabellen-Rebuild.
+      --
+      -- PER SERVING, nicht pro Rezept: so kommen die Importer (und die
+      -- Naehrwerttabelle auf der Packung), und die Portionenzaahl steht als
+      -- eigenes Feld daneben. Die Schluessel im JSON sind die kanonischen aus
+      -- server/services/health-nutrition.js#NUTRIENT_KEYS (energy_kcal, ...),
+      -- damit ein spaeterer "ins Gesundheits-Tagebuch"-Weg dieselben Namen
+      -- liest wie das Gesundheitsmodul selbst - der Importer-Satz
+      -- (calories, carbohydrates, sodium, ...) wird beim Schreiben gemappt,
+      -- Natrium nach EU-Etiketten-Konvention zu Salz (mg × 2,5 / 1000).
+      --
+      -- NULL (Altbestand) heisst "keine Naehrwerte genannt". Kein CHECK: SQLite
+      -- wuerde sonst bei jeder Erweiterung rebuilden; die Gueltigkeit prueft
+      -- die Route (normalizeRecipeNutrition).
+      ALTER TABLE recipes ADD COLUMN nutrition TEXT;
+    `,
+  },
 ];
 /**
  * Hat ein ANDERER Prozess genau diese Migration inzwischen verbucht? (#1331)

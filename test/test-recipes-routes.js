@@ -168,6 +168,166 @@ test('POST/PUT /: unit wird getrennt von quantity gespeichert und gelesen', asyn
   ]);
 });
 
+// Ausgeschriebene Einheiten werden beim Speichern auf ihr Kuerzel gezogen
+// (utils/unit-abbreviations.js); Unbekanntes bleibt unberuehrt.
+test('POST /: ausgeschriebene Einheiten werden zu Kuezeln', async () => {
+  const r = await call('POST', '/', {
+    title: 'Kuerzel-Rezept',
+    ingredients: [
+      { name: 'Öl', quantity: '2', unit: 'tablespoons' },   // → tbsp
+      { name: 'Salz', quantity: '1', unit: 'Tsp.' },        // Punkt + Kleinschreibung → tsp
+      { name: 'Mehl', quantity: '500', unit: 'Grams' },     // → g
+      { name: 'Butter', quantity: 'Esslöffel' },            // Einheit ohne Menge → EL
+      { name: 'Knoblauch', quantity: '3', unit: 'cloves' }, // unbekannt → bleibt
+    ],
+  });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  const rows = db.prepare('SELECT name, unit FROM recipe_ingredients WHERE recipe_id = ? ORDER BY id ASC').all(r.body.data.id);
+  assert.deepEqual(rows.map((x) => [x.name, x.unit]), [
+    ['Öl', 'tbsp'],
+    ['Salz', 'tsp'],
+    ['Mehl', 'g'],
+    ['Butter', 'EL'],
+    ['Knoblauch', 'cloves'],
+  ]);
+});
+
+test('PUT /:id: Einheiten werden beim Ersetzen ebenfalls gezogen', async () => {
+  const created = await call('POST', '/', {
+    title: 'Kuerzel-PUT-Basis',
+    ingredients: [{ name: 'Zucker', quantity: '1', unit: 'tablespoon' }],
+  });
+  const id = created.body.data.id;
+  const r = await call('PUT', `/${id}`, {
+    title: 'Kuerzel-PUT-Basis',
+    ingredients: [
+      { name: 'Zucker', quantity: '1', unit: 'teaspoons' },  // → tsp
+      { name: 'Wasser', quantity: '500', unit: 'milliliters' }, // → ml
+    ],
+  });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  const rows = db.prepare('SELECT unit FROM recipe_ingredients WHERE recipe_id = ? ORDER BY id ASC').all(id);
+  assert.deepEqual(rows.map((x) => x.unit), ['tsp', 'ml']);
+});
+
+// v241: Zubereitungs-Hinweis je Zutat. Das Original-Beispiel eines Importers
+// (recipe_import_format_example.json) schickt eine Notiz im eigenen Feld und
+// dazu Felder, die KerrPlunk nicht kennt - die muessen lautlos ignoriert werden.
+test('POST /: Notiz je Zutat wird gespeichert, unbekannte Felder ignoriert', async () => {
+  const r = await call('POST', '/', {
+    title: 'Notiz-Rezept',
+    ingredients: [
+      { name: 'large onion, thinly', quantity: '1', unit: '', secondaryQuantity: '', secondaryUnit: '', note: 'sliced', category: 'Produce', nutrition: {} },
+      { name: 'Mehl', quantity: '500', unit: 'g' }, // ohne Notiz → NULL
+    ],
+  });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  const rows = db.prepare('SELECT name, note FROM recipe_ingredients WHERE recipe_id = ? ORDER BY id ASC').all(r.body.data.id);
+  assert.deepEqual(rows, [
+    { name: 'large onion, thinly', note: 'sliced' },
+    { name: 'Mehl', note: null },
+  ]);
+  // Die Antwort traegt die Notiz mit (SELECT * uebernimmt die neue Spalte).
+  assert.equal(r.body.data.ingredients[0].note, 'sliced');
+});
+
+test('PUT /:id: Notizen werden beim Ersetzen mitgeschrieben und ueberschrieben', async () => {
+  const created = await call('POST', '/', {
+    title: 'Notiz-PUT-Basis',
+    ingredients: [{ name: 'Zwiebel', note: 'gewürfelt' }],
+  });
+  const id = created.body.data.id;
+
+  // Ersetzen: neue Notiz, alte weg; leere Notiz loescht (wie quantity/unit).
+  const r = await call('PUT', `/${id}`, {
+    title: 'Notiz-PUT-Basis',
+    ingredients: [
+      { name: 'Zwiebel', note: 'in Ringe geschnitten' },
+      { name: 'Knoblauch', note: '  ' },
+    ],
+  });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  const rows = db.prepare('SELECT name, note FROM recipe_ingredients WHERE recipe_id = ? ORDER BY id ASC').all(id);
+  assert.deepEqual(rows, [
+    { name: 'Zwiebel', note: 'in Ringe geschnitten' },
+    { name: 'Knoblauch', note: null },
+  ]);
+});
+
+// --------------------------------------------------------------------------
+// Naehrwerte je Portion (v242): nutritionSummary des Importers wird auf die
+// kanonischen Schluessel des Gesundheitsmoduls gemappt, Natrium zu Salz
+// umgerechnet (mg × 2,5 / 1000, EU-Etikett), Unbekanntes faellt still weg.
+// --------------------------------------------------------------------------
+test('POST /: nutritionSummary wird gemappt, Natrium zu Salz umgerechnet', async () => {
+  const r = await call('POST', '/', {
+    title: 'Naehrwert-Rezept',
+    servings: 4,
+    nutritionSummary: {
+      calories: '257', carbohydrates: '23', protein: '21', fat: '10',
+      saturatedFat: '1', cholesterol: '54', sodium: '1507', fiber: '2', sugar: '17',
+    },
+  });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  // DB: JSON-Text mit kanonischen Schluesseln, Cholesterin weg.
+  const row = db.prepare('SELECT nutrition FROM recipes WHERE id = ?').get(r.body.data.id);
+  assert.deepEqual(JSON.parse(row.nutrition), {
+    energy_kcal: 257, carbs_g: 23, protein_g: 21, fat_g: 10,
+    saturated_fat_g: 1, fiber_g: 2, sugar_g: 17,
+    salt_g: 3.8, // 1507 mg × 2,5 / 1000, eine Nachkommastelle wie auf dem Etikett
+  });
+  // Antwort: geparstes Objekt, kein JSON-String.
+  assert.deepEqual(r.body.data.nutrition, JSON.parse(row.nutrition));
+});
+
+test('POST /: kanonische Schluessel laufen unveraendert durch (Rueckschreiben der Antwort)', async () => {
+  const r = await call('POST', '/', {
+    title: 'Kanonisch',
+    nutrition: { energy_kcal: 100, salt_g: 1.2 }, // nicht nutritionSummary
+  });
+  assert.equal(r.status, 201);
+  assert.deepEqual(r.body.data.nutrition, { energy_kcal: 100, salt_g: 1.2 });
+});
+
+test('POST /: leeres und ungueltiges nutritionSummary → NULL statt Fehler', async () => {
+  const leer = await call('POST', '/', { title: 'Leer n', nutritionSummary: {} });
+  assert.equal(leer.status, 201);
+  assert.equal(leer.body.data.nutrition, null);
+
+  const muell = await call('POST', '/', {
+    title: 'Muell n',
+    nutritionSummary: { calories: 'viel', protein: -5, cholesterol: 10 },
+  });
+  assert.equal(muell.status, 201); // kein 400 blockiert den Import
+  assert.equal(muell.body.data.nutrition, null); // nichts Gueltiges uebrig
+});
+
+test('PUT /:id: nutrition ersetzt als Ganzes, weggelassen laesst stehen, leer loescht', async () => {
+  const created = await call('POST', '/', {
+    title: 'Naehrwert-PUT-Basis',
+    nutritionSummary: { calories: '257', sodium: '1507' },
+  });
+  const id = created.body.data.id;
+
+  // Weggelassen (Teil-Update): steht bleibt.
+  const keep = await call('PUT', `/${id}`, { title: 'Naehrwert-PUT-Basis' });
+  assert.equal(keep.status, 200);
+  assert.deepEqual(keep.body.data.nutrition, { energy_kcal: 257, salt_g: 3.8 });
+
+  // Mitgeschickt: ersetzt als Ganzes - alte Werte weg, auch die verschwundenen.
+  const replace = await call('PUT', `/${id}`, {
+    title: 'Naehrwert-PUT-Basis',
+    nutrition: { energy_kcal: 300 },
+  });
+  assert.equal(replace.status, 200);
+  assert.deepEqual(replace.body.data.nutrition, { energy_kcal: 300 });
+
+  // Ausdruecklich geleert: null.
+  const clear = await call('PUT', `/${id}`, { title: 'Naehrwert-PUT-Basis', nutritionSummary: {} });
+  assert.equal(clear.status, 200);
+  assert.equal(clear.body.data.nutrition, null);
+});
+
 // --------------------------------------------------------------------------
 // GET / (Aggregation, Join, Sortierung)
 // --------------------------------------------------------------------------
@@ -595,6 +755,42 @@ test('POST /:id/to-shopping-list: Nicht-Eigentümer darf übernehmen (kein owner
   actor = { id: OWNER, role: 'member' };
   assert.equal(r.status, 200);
   assert.equal(r.body.data.transferred, 1);
+});
+
+// Vorrats-Kategorie vor Zutaten-Kategorie (services/shopping-pantry-category.js):
+// Fuehrt der Haushalt dieselbe Ware schon im Vorrat - MIT Nachkaufregel, wie bei
+// der Handanlage -, gibt DER seine Kategorie her. Ohne Treffer bleibt die
+// Zutaten-Kategorie stehen, und ein Vorratseintrag OHNE Nachkaufregel zaehlt
+// nicht - die Handanlage vergleicht aus denselben Gruenden genauso.
+test('POST /:id/to-shopping-list: Vorrats-Kategorie gewinnt bei gleichem Namen', async () => {
+  const listId = newList('Transfer Vorrat');
+  db.prepare(`
+    INSERT INTO pantry_items (name, category, restock_interval_days, created_by)
+    VALUES ('Olivenöl', 'Vorrats-Öle', 14, ?)
+  `).run(OWNER);
+  // Ohne Nachkaufregel: vom Haushalt nie als "kaufe ich nach" behauptet.
+  db.prepare(`
+    INSERT INTO pantry_items (name, category, created_by)
+    VALUES ('Sesam', 'Vorrats-ohne-Regel', ?)
+  `).run(OWNER);
+
+  const created = await call('POST', '/', {
+    title: 'Vorrats-Transfer',
+    ingredients: [
+      { name: 'olivenöl', category: 'Produce' },      // Gross/Klein ignoriert → Vorrat gewinnt
+      { name: 'Sesam', category: 'Sonstiges' },       // keine Regel am Vorrat → Zutaten-Kategorie
+      { name: 'Kreuzkümmel', category: 'Gewürze' },   // gar kein Vorrat → Zutaten-Kategorie
+    ],
+  });
+  const r = await call('POST', `/${created.body.data.id}/to-shopping-list`, { listId });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+
+  const items = shoppingItems(listId);
+  assert.deepEqual(items.map((i) => [i.name, i.category]), [
+    ['olivenöl', 'Vorrats-Öle'],
+    ['Sesam', 'Sonstiges'],
+    ['Kreuzkümmel', 'Gewürze'],
+  ]);
 });
 
 // Der Rezept-Transfer ist der Pfad, der am meisten auf einmal ueberträgt - eine

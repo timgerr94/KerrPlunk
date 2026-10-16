@@ -16,20 +16,24 @@ import { DEFAULT_CATEGORY_NAME, categoryLabel } from '/utils/shopping-categories
  * @param {string} [opts.name]       Zutatenname
  * @param {string} [opts.quantity]   Menge
  * @param {string} [opts.unit]       Einheit (nur Rezepte; ohne Angabe bleibt das Feld weg)
+ * @param {string} [opts.note]       Zubereitungs-Hinweis ("thinly sliced"; nur Rezepte)
  * @param {number|string|null} [opts.id]  Bestehende Zutaten-ID (für Update-Sync)
  * @param {string} [opts.category]   Wunsch-Kategorie
- * @param {Array<{name:string}>} [opts.categories]  Verfügbare Kategorien (bereits gefiltert)
+ * @param {Array<{name:string}>} [opts.categories] Verfügbare Kategorien (bereits gefiltert)
  * @param {boolean} [opts.withUnit]  Einheiten-Feld rendern (Rezept-Modal: true, Mahlzeiten: nein)
+ * @param {boolean} [opts.withNote]  Notiz-Feld rendern (Rezept-Modal: true, Mahlzeiten: nein)
  * @returns {string} HTML-String einer `.ingredient-row`
  */
 export function ingredientRowHTML({
   name = '',
   quantity = '',
   unit = '',
+  note = '',
   id = null,
   category = DEFAULT_CATEGORY_NAME,
   categories = [],
   withUnit = false,
+  withNote = false,
 } = {}) {
   const resolvedCategory = categories.some((c) => c.name === category)
     ? category
@@ -48,9 +52,17 @@ export function ingredientRowHTML({
     ? `<input type="text" class="form-input ingredient-row__unit" placeholder="${t('meals.ingredientUnitPlaceholder')}" value="${esc(unit)}">`
     : '';
 
+  // Notiz-Feld nach demselben Vertrag wie die Einheit: nur Rezepte. Es steht
+  // in der Namens-Zeile (layout.css#--with-note) statt in der Menge-Zeile -
+  // es gehoert zum Namen ("large onion, thinly — sliced"), nicht zur Zahl.
+  const noteInput = withNote
+    ? `<input type="text" class="form-input ingredient-row__note" placeholder="${t('meals.ingredientNotePlaceholder')}" value="${esc(note)}">`
+    : '';
+
   return `
-    <div class="ingredient-row${withUnit ? ' ingredient-row--with-unit' : ''}" data-ing-id="${id ?? ''}">
+    <div class="ingredient-row${withUnit ? ' ingredient-row--with-unit' : ''}${withNote ? ' ingredient-row--with-note' : ''}" data-ing-id="${id ?? ''}">
       <input type="text" class="form-input ingredient-row__name" placeholder="${t('meals.ingredientNamePlaceholder')}" value="${esc(name)}">
+      ${noteInput}
       <input type="text" class="form-input ingredient-row__qty" placeholder="${t('meals.ingredientQtyPlaceholder')}" value="${esc(quantity)}">
       ${unitInput}
       <select class="form-input ingredient-row__cat" aria-label="${t('meals.ingredientCategoryLabel')}">${catOptions}</select>

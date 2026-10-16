@@ -53,6 +53,11 @@ const SHARED_ISOMORPHIC = new Set([
   'public/utils/ingredient-match-key.js',
   'public/utils/contact-name.js',
   'public/utils/pantry-units.js',
+  // Ausgeschriebene Einheiten ("tablespoon") auf ihr Kuerzel ("tbsp") ziehen.
+  // Rezept- und Mahlzeit-Router normieren beim Schreiben; ein Formular kann
+  // dieselbe Map fuer eine Vorschau nutzen. Rein: trim, lowercase, Map-Lookup -
+  // kein DOM, kein Node.
+  'public/utils/unit-abbreviations.js',
   // #1074: Ziffern fremder Systeme nach ASCII. Client und Server lesen dieselben
   // Mengentexte („۲۵۰ g") - der Client, um eine Zutat zu skalieren, der Server,
   // um sie beim Uebertrag in die Einkaufsliste zusammenzuzaehlen. Zwei Fassungen

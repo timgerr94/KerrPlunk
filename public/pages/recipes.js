@@ -14,6 +14,7 @@ import { popoverMenuHtml, installPopoverMenus } from '/utils/popover-menu.js';
 import { ingredientRowHTML } from '/utils/ingredient-row.js';
 import { scheduleUndoableDelete, expandIn, collapseOut } from '/utils/ux.js';
 import { normalizeRecipeMealTypes, RECIPE_MEAL_TYPE_KEYS } from '/utils/recipe-meal-types.js';
+import { NUTRIENTS } from '/utils/health-nutrition.js';
 import { mealPayloadFromRecipe } from '/utils/recipe-to-meal.js';
 import { todayKey } from '/utils/date.js';
 import '/components/datepicker.js';
@@ -743,6 +744,7 @@ function buildRecipeList() {
     const hasDetail = Boolean(
       ingredients.length || recipe.notes || recipe.recipe_url
       || recipe.cuisine || recipe.servings || recipe.cookTime || recipe.prepTime
+      || recipe.nutrition
     );
 
     const li = document.createElement('li');
@@ -991,6 +993,38 @@ function fillRecipeDetail(detail, recipe) {
     detail.appendChild(meta);
   }
 
+  /* NAEHRWERTE JE PORTION (v242) - EINE Zeile unter den Meta-Angaben, in der
+   * Reihenfolge der EU-Etiketten-Tabelle (utils/health-nutrition.js#NUTRIENTS,
+   * dieselbe Liste wie das Gesundheitsmodul). Nur was gesetzt ist; ein Rezept
+   * ohne Werte schweigt. Der Server liefert das Feld als Objekt (nutrition:
+   * { energy_kcal, ... }) oder null - geparst, nicht als JSON-String. */
+  const nutrition = recipe.nutrition;
+  if (nutrition && typeof nutrition === 'object') {
+    const parts = NUTRIENTS
+      .map((n) => {
+        const v = nutrition[n.key];
+        return Number.isFinite(v) ? `${t(n.labelKey)}: ${v} ${t(n.unitKey)}` : null;
+      })
+      .filter(Boolean);
+    if (parts.length) {
+      const nutritionEl = document.createElement('p');
+      nutritionEl.className = 'recipe-detail__nutrition';
+      // JE PAAR EIN SPAN, nicht ein Textknoten: das Flex-Layout unten bricht
+      // zwischen den Paaren um, nie mitten in "23 g" - Label, Zahl und
+      // Einheit bleiben zusammen.
+      const label = document.createElement('span');
+      label.className = 'recipe-detail__nutrition-label';
+      label.textContent = t('recipes.nutritionLabel');
+      nutritionEl.appendChild(label);
+      for (const part of parts) {
+        const span = document.createElement('span');
+        span.textContent = part;
+        nutritionEl.appendChild(span);
+      }
+      detail.appendChild(nutritionEl);
+    }
+  }
+
   // VOLLSTÄNDIGE Zutatenliste, nicht die ersten vier: das Kürzen war nur
   // nötig, um die Kartenhöhe zu bändigen. Ein Detail, das sich öffnet, hat
   // keinen Grund, etwas zu verschweigen.
@@ -1086,6 +1120,14 @@ function ingredientsSectionEl(recipe) {
     const amount = [ing.quantity, ing.unit].filter(Boolean).join(' ');
     label.textContent = amount ? `${amount} · ${ing.name}` : ing.name;
     item.appendChild(label);
+    // Zubereitungs-Hinweis (v241) - leiser als der Name, wie er im Modal auch
+    // nur Kontext des Namens ist. Leer ist keine Aussage und bleibt stumm.
+    if (ing.note) {
+      const noteEl = document.createElement('span');
+      noteEl.className = 'recipe-detail__ingredient-note';
+      noteEl.textContent = ing.note;
+      item.appendChild(noteEl);
+    }
     ul.appendChild(item);
   }
   section.appendChild(ul);
@@ -1412,14 +1454,16 @@ function openRecipeModal(mode, recipe = null) {
           name: i.name,
           quantity: i.quantity ?? '',
           unit: i.unit ?? '',
+          note: i.note ?? '',
           category: i.category ?? DEFAULT_CATEGORY_NAME,
           categories: mealCategories(),
           withUnit: true,
+          withNote: true,
         })).join(''));
       }
 
       panel.querySelector('#recipe-add-ingredient')?.addEventListener('click', () => {
-        ingList.insertAdjacentHTML('beforeend', ingredientRowHTML({ categories: mealCategories(), withUnit: true }));
+        ingList.insertAdjacentHTML('beforeend', ingredientRowHTML({ categories: mealCategories(), withUnit: true, withNote: true }));
         if (window.lucide) window.lucide.createIcons({ el: ingList });
       });
 
@@ -1469,8 +1513,11 @@ async function saveRecipe(panel, mode, recipe) {
     const name = row.querySelector('.ingredient-row__name')?.value.trim() || '';
     const quantity = row.querySelector('.ingredient-row__qty')?.value.trim() || null;
     const unit = row.querySelector('.ingredient-row__unit')?.value.trim() || null;
+    // Zubereitungs-Hinweis ("thinly sliced") - nur im Rezept-Modal vorhanden,
+    // optionales `?.` haelt eine fremde Zeile (Mahlzeiten) ohne das Feld gueltig.
+    const note = row.querySelector('.ingredient-row__note')?.value.trim() || null;
     const category = row.querySelector('.ingredient-row__cat')?.value || DEFAULT_CATEGORY_NAME;
-    if (name) ingredients.push({ name, quantity, unit, category });
+    if (name) ingredients.push({ name, quantity, unit, note, category });
   });
 
   // Nur mitschicken, wenn der Nutzer das Bild angefasst hat: ein fehlendes Feld

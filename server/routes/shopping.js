@@ -26,6 +26,7 @@ import { householdTimeZone, utcToWall, todayKey as householdToday } from '../uti
 import { mayReadModule, mayWriteModule } from '../permissions.js';
 import { householdDisabledModules } from '../services/household-modules.js';
 import { categorizeIngredient } from '../services/recipe-providers/categorize.js';
+import { pantryCategoryFor } from '../services/shopping-pantry-category.js';
 import { syncPantryExpiryReminder, resolvePantryAccess } from '../services/pantry-reminders.js';
 
 const log = createLogger('Shopping');
@@ -1471,7 +1472,12 @@ router.post('/:listId/import-meal-plan', (req, res) => {
       const markDone = db.get().prepare('UPDATE meal_ingredients SET on_shopping_list = 1 WHERE id = ?');
 
       for (const item of aggregated) {
-        insertItem.run(req.params.listId, item.name, item.quantity, item.category, item.added_from_meal);
+        // Vorrats-Kategorie vor der Zutaten-Kategorie, wie bei allen Uebertragen
+        // der Kueche (services/shopping-pantry-category.js, dort begruendet):
+        // fuehrt der Haushalt dieselbe Ware schon im Vorrat (mit Nachkaufregel),
+        // gibt DER seine Kategorie her. Ohne Treffer bleibt die geplanten Kategorie.
+        const category = pantryCategoryFor(req, item.name) ?? item.category;
+        insertItem.run(req.params.listId, item.name, item.quantity, category, item.added_from_meal);
       }
       for (const ingredient of ingredients) {
         markDone.run(ingredient.id);
