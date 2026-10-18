@@ -588,6 +588,26 @@
 .rw-switch input { accent-color: var(--color-accent); width: 18px; height: 18px; }
 .rw-switch--compact { margin-left: auto; }
 
+/* Lottie-Overlay beim Einloesen (utils/lottie-overlay.js): Vollbild, klick-
+ * durchlaessig, rein dekorativ (aria-hidden). Die Buehne begrenzt das SVG auf
+ * 60vmin, damit auch 1000x1000-Animationen (sush-listening.json) nicht die
+ * ganze Flaeche zubetonieren; loesst sich in utils/lottie-overlay.js nach dem
+ * Abspielen von selbst ab. */
+.rw-lottie-overlay {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+.rw-lottie-overlay__stage { width: 60vmin; height: 60vmin; }
+.rw-lottie-overlay__stage svg { width: 100%; height: 100%; }
+@media (prefers-reduced-motion: reduce) {
+  /* Der Overlay spielt ohnehin nicht (utils/lottie-overlay.js prueft zuerst) -
+     dies ist der Riegel dafuer, dass die Buehne selbst keine Reste zeigt. */
+  .rw-lottie-overlay { display: none; }
+}
+
 /* `.btn--sm` STEHT IN layout.css (2026-09-24), samt seiner Touch-Hoehe.
  * Hier lebte die Variante als „global additiv", aber der Router laedt dieses
  * Blatt nur auf /rewards - in Einstellungen, Aufgaben, Gesundheit, Kalender

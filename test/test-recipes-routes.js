@@ -106,6 +106,22 @@ test('POST /: meal_types werden dedupliziert und Ungültiges verworfen', async (
   assert.equal(row.meal_types, 'lunch,dinner');
 });
 
+// Treat-Umbenennung (2026-10): Der Schluessel bleibt 'snack' (DB-CHECK,
+// Eignung, Feeds), nur das englische Etikett heisst "Treat". Importer
+// schreiben aber das Wort, das sie meinen - "Dessert", "Treat" oder "Snack"
+// meinen denselben Slot und ziehen auf ihn; alle Gross-/Kleinschreibungen.
+test('POST /: Dessert/Treat/Snack-Aliase ziehen alle auf snack', async () => {
+  const r = await call('POST', '/', {
+    title: 'Kuchen',
+    meal_types: ['Dessert', 'treat', 'SNACK', 'dessert'],
+  });
+  assert.equal(r.status, 201);
+  // Alle vier Eingaben ziehen auf denselben Schluessel und fallen zusammen.
+  assert.deepEqual(r.body.data.meal_types, ['snack']);
+  const row = db.prepare('SELECT meal_types FROM recipes WHERE id = ?').get(r.body.data.id);
+  assert.equal(row.meal_types, 'snack');
+});
+
 
 test('POST /: Zutaten-Regeln - leerer Name übersprungen, quantity leer→null, category-Default, Slicing', async () => {
   const longName = 'N'.repeat(250);
@@ -229,6 +245,64 @@ test('POST /: Notiz je Zutat wird gespeichert, unbekannte Felder ignoriert', asy
   ]);
   // Die Antwort traegt die Notiz mit (SELECT * uebernimmt die neue Spalte).
   assert.equal(r.body.data.ingredients[0].note, 'sliced');
+});
+
+// v243: Zweitangabe je Zutat - Gewichtsaequivalent zur primaeren Menge, in
+// ZWEI Spalten wie die primaere Aufteilung (dort begruendet: ein spaeteres
+// Skalieren rechnet an der Zahl). Leerer String ist "keine Angabe" wie
+// ueberall; die kanonischen Schluessel laufen ebenso durch (Rueckschreiben).
+test('POST /: secondaryQuantity/secondaryUnit werden getrennt gespeichert', async () => {
+  const r = await call('POST', '/', {
+    title: 'Zweitangaben',
+    ingredients: [
+      { name: 'almond flour', quantity: '0.5', unit: 'cup', secondaryQuantity: '48', secondaryUnit: 'g' },
+      { name: 'Honig', quantity: '2', unit: 'tbsp', secondary_quantity: '30', secondary_unit: 'g' }, // kanonisch
+      { name: 'Salz', quantity: '1', unit: 'tsp', secondaryQuantity: '', secondaryUnit: '' },         // leer → NULL
+    ],
+  });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  const rows = db.prepare(`
+    SELECT name, secondary_quantity, secondary_unit FROM recipe_ingredients
+    WHERE recipe_id = ? ORDER BY id ASC
+  `).all(r.body.data.id);
+  assert.deepEqual(rows, [
+    { name: 'almond flour', secondary_quantity: '48', secondary_unit: 'g' },
+    { name: 'Honig', secondary_quantity: '30', secondary_unit: 'g' },
+    { name: 'Salz', secondary_quantity: null, secondary_unit: null },
+  ]);
+  // Die Antwort traegt beide Felder (SELECT * uebernimmt die neuen Spalten).
+  assert.deepEqual(
+    [r.body.data.ingredients[0].secondary_quantity, r.body.data.ingredients[0].secondary_unit],
+    ['48', 'g'],
+  );
+});
+
+test('PUT /:id: Zweitangaben werden beim Ersetzen uebernommen und geleert', async () => {
+  const created = await call('POST', '/', {
+    title: 'Zweitangaben-PUT-Basis',
+    ingredients: [{ name: 'Mehl', quantity: '1', unit: 'cup', secondaryQuantity: '120', secondaryUnit: 'g' }],
+  });
+  const id = created.body.data.id;
+  assert.equal(created.body.data.ingredients[0].secondary_quantity, '120');
+
+  // PUT ersetzt die Zutatenliste: neue Zweitangabe statt der alten, und eine
+  // leere loescht (derselbe Vertrag wie quantity/unit).
+  const r = await call('PUT', `/${id}`, {
+    title: 'Zweitangaben-PUT-Basis',
+    ingredients: [
+      { name: 'Zucker', quantity: '0.5', unit: 'cup', secondaryQuantity: '100', secondaryUnit: 'g' },
+      { name: 'Mehl', quantity: '1', unit: 'cup', secondaryQuantity: '', secondaryUnit: '' },
+    ],
+  });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  const rows = db.prepare(`
+    SELECT name, secondary_quantity FROM recipe_ingredients
+    WHERE recipe_id = ? ORDER BY id ASC
+  `).all(id);
+  assert.deepEqual(rows, [
+    { name: 'Zucker', secondary_quantity: '100' },
+    { name: 'Mehl', secondary_quantity: null },
+  ]);
 });
 
 test('PUT /:id: Notizen werden beim Ersetzen mitgeschrieben und ueberschrieben', async () => {
@@ -474,6 +548,115 @@ test('PUT /:id: neue Felder werden persistiert und ohne sie nicht angefasst', as
   assert.equal(row.servings, '6');
   assert.equal(row.cookTime, '60 min');
   assert.equal(row.prepTime, '15 min');
+});
+
+// --------------------------------------------------------------------------
+// diet (v243): Die Antwort traegt ein ARRAY (withSource parst den JSON-Text),
+// und der Server zieht Importer-Schreibweisen best-effort auf die kanonischen
+// Schluessel - Unbekanntes bleibt wortgetreu, Dubletten nach der Normalisierung
+// fallen zusammen (utils/recipe-diets.js, dort begruendet).
+// --------------------------------------------------------------------------
+test('POST /: diet kommt als Array zurueck, nicht als JSON-String', async () => {
+  const r = await call('POST', '/', { title: 'Diet-Array', diet: ['vegan'] });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.deepEqual(r.body.data.diet, ['vegan'], 'die Antwort parst den JSON-Text');
+});
+
+test('POST /: Importer-Varianten werden normalisiert, Unbekanntes bleibt wortgetreu', async () => {
+  const r = await call('POST', '/', {
+    title: 'Diet-Normalisierung',
+    diet: ['gf', 'Dairy Free', 'VEGAN', 'mediterranean', ''],
+  });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.deepEqual(r.body.data.diet, [
+    'gluten-free',  // gf → Langform
+    'dairy-free',   // Leerzeichen → Bindestrich, Kleinschreibung
+    'vegan',        // Gross-/Kleinschreibung egal
+    'mediterranean', // unbekannt: wortgetreu statt geraten
+  ], 'leere Eintraege fallen weg');
+  const row = db.prepare('SELECT diet FROM recipes WHERE id = ?').get(r.body.data.id);
+  assert.deepEqual(JSON.parse(row.diet), ['gluten-free', 'dairy-free', 'vegan', 'mediterranean']);
+});
+
+test('POST /: normalisierte Dubletten fallen zusammen', async () => {
+  const r = await call('POST', '/', {
+    title: 'Diet-Dubletten',
+    diet: ['gluten-free', 'gf', 'gluten free', 'Gluten-Free'],
+  });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.deepEqual(r.body.data.diet, ['gluten-free']);
+});
+
+test('PUT /:id: diet ersetzt als Ganzes, weggelassen laesst stehen', async () => {
+  const created = await call('POST', '/', {
+    title: 'Diet-PUT-Basis',
+    diet: ['vegan', 'gf'],
+  });
+  const id = created.body.data.id;
+  assert.deepEqual(created.body.data.diet, ['vegan', 'gluten-free']);
+
+  // Weggelassen (Teil-Update): steht bleibt.
+  const keep = await call('PUT', `/${id}`, { title: 'Diet-PUT-Basis' });
+  assert.equal(keep.status, 200);
+  assert.deepEqual(keep.body.data.diet, ['vegan', 'gluten-free']);
+
+  // Mitgeschickt: ersetzt als Ganzes.
+  const replace = await call('PUT', `/${id}`, { title: 'Diet-PUT-Basis', diet: ['pescatarian'] });
+  assert.equal(replace.status, 200, JSON.stringify(replace.body));
+  assert.deepEqual(replace.body.data.diet, ['pescatarian']);
+});
+
+// v244: Abschnittstitel je Zutat ("Dry Ingredients", "Cream Cheese Glaze") -
+// eine Eigenschaft der ZEILE, keine eigene Tabelle; die Ordnung der id-Spalte
+// ist die Ordnung des Rezepts, und die Anzeige gruppiert nach FOLGE.
+test('POST /: section wird je Zutat gespeichert, fehlende bleiben NULL', async () => {
+  const r = await call('POST', '/', {
+    title: 'Abschnitte',
+    ingredients: [
+      { name: 'Mehl', quantity: '2', unit: 'cups', section: 'Dry Ingredients' },
+      { name: 'Zucker', quantity: '1', section: 'Dry Ingredients' }, // derselbe Folgetitel: keine neue Gruppe
+      { name: 'Butter', quantity: '0.5', unit: 'cup', section: 'Glaze' },
+      { name: 'Wasser', quantity: '1' },                               // ohne Abschnitt → NULL
+    ],
+  });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  const rows = db.prepare(`
+    SELECT name, section FROM recipe_ingredients
+    WHERE recipe_id = ? ORDER BY id ASC
+  `).all(r.body.data.id);
+  assert.deepEqual(rows, [
+    { name: 'Mehl', section: 'Dry Ingredients' },
+    { name: 'Zucker', section: 'Dry Ingredients' },
+    { name: 'Butter', section: 'Glaze' },
+    { name: 'Wasser', section: null },
+  ]);
+  // Die Antwort traegt den Abschnitt je Zutat (SELECT * uebernimmt die Spalte).
+  assert.equal(r.body.data.ingredients[0].section, 'Dry Ingredients');
+});
+
+test('PUT /:id: Abschnitte ueberstehen das Ersetzen, leere loeschen', async () => {
+  const created = await call('POST', '/', {
+    title: 'Abschnitte-PUT-Basis',
+    ingredients: [{ name: 'Mehl', section: 'Dry Ingredients' }],
+  });
+  const id = created.body.data.id;
+
+  const r = await call('PUT', `/${id}`, {
+    title: 'Abschnitte-PUT-Basis',
+    ingredients: [
+      { name: 'Mehl', section: 'Dry Ingredients' },
+      { name: 'Butter', section: '' }, // leer → NULL, wie quantity/unit
+    ],
+  });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  const rows = db.prepare(`
+    SELECT name, section FROM recipe_ingredients
+    WHERE recipe_id = ? ORDER BY id ASC
+  `).all(id);
+  assert.deepEqual(rows, [
+    { name: 'Mehl', section: 'Dry Ingredients' },
+    { name: 'Butter', section: null },
+  ]);
 });
 
 // --------------------------------------------------------------------------

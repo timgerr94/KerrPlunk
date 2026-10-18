@@ -28,11 +28,37 @@ function normalizeRecipeMealTypes(value) {
       .map((entry) => entry.trim())
       .filter(Boolean);
 
-  // Normalize every incoming string to lowercase before validating it
-  const normalizedSource = source.map((type) => String(type).toLowerCase());
+  // Normalize every incoming string to lowercase before validating it, und
+  // ziehe Alias-Namen ("dessert", "treat") auf ihren kanonischen Schluessel.
+  const normalizedSource = source.map((type) => canonicalMealType(type));
 
   // Filter against your valid keys and deduplicate using Set
   return [...new Set(normalizedSource.filter((type) => RECIPE_MEAL_TYPE_KEYS.includes(type)))];
+}
+
+/* ALIAS-NAMEN FUER 'snack' BEI DER NORMALISIERUNG (Treat-Umbenennung, 2026-10).
+ *
+ * Der SCHLUESSEL bleibt 'snack' - er steht in der DB unter einer CHECK-
+ * Constraint (meals.meal_type), in recipe_ingredients-Eignung, Filtern und
+ * Feeds; nur das englische ETIKETT heisst jetzt "Treat" (meals.typeSnack).
+ * Importer schreiben aber das Wort, das sie meinen: "Dessert" (die haeufigste
+ * Vokabel fuer Kuchen-Rezepte), "Treat" selbst oder weiterhin "Snack". Alle
+ * drei meinen denselben Slot, und keins davon ist ein Raten - es sind die
+ * gelaeufigen Namen fuer dieselbe Sache, wie "gf" fuer gluten-free.
+ *
+ * Die Map steht bewusst HIER und nicht im Server allein: dieselbe Funktion
+ * laeuft im Rezept-Modal (Client) und in den Routen (Server) - eine Fassung,
+ * sonst nimmt der Import "dessert" per API an, das Modal aber nicht.
+ * Unbekanntes faellt weiterhin still weg (kein Fehler, kein Raten).
+ */
+const MEAL_TYPE_ALIASES = new Map([
+  ['treat', 'snack'],
+  ['dessert', 'snack'],
+]);
+
+function canonicalMealType(raw) {
+  const key = String(raw ?? '').trim().toLowerCase();
+  return MEAL_TYPE_ALIASES.get(key) ?? key;
 }
 /**
  * Erklärt das Rezept diese Mahlzeit? Maßstab für alles, was OHNE Zutun des

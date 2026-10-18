@@ -547,6 +547,8 @@ export const SETTINGS_SECTIONS = freezeEntries([
     descriptionKey: 'settings.sheetRewardsDescription',
     options: [
       'settings.rewardsApprovalLabel',
+      'settings.rewardsCelebrationLabel',
+      'settings.rewardsHistoryClear',
       'settings.rewardsDefaultPointsLabel',
     ],
     adminOnly: true,

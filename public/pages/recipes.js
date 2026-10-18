@@ -14,6 +14,7 @@ import { popoverMenuHtml, installPopoverMenus } from '/utils/popover-menu.js';
 import { ingredientRowHTML } from '/utils/ingredient-row.js';
 import { scheduleUndoableDelete, expandIn, collapseOut } from '/utils/ux.js';
 import { normalizeRecipeMealTypes, RECIPE_MEAL_TYPE_KEYS } from '/utils/recipe-meal-types.js';
+import { RECIPE_DIET_KEYS, recipeDietLabelKey } from '/utils/recipe-diets.js';
 import { NUTRIENTS } from '/utils/health-nutrition.js';
 import { mealPayloadFromRecipe } from '/utils/recipe-to-meal.js';
 import { todayKey } from '/utils/date.js';
@@ -25,12 +26,17 @@ import { mealTypeList, ensureMealTypeNames } from '/utils/meal-types.js';
 import { recipeThumbEl } from '/utils/recipe-thumb.js';
 import { navModuleAccess } from '/permissions.js';
 import { mountMasterDetail, splitViewDetailHtml, detailPaneHeaderEl } from '/utils/master-detail.js';
+import { attachOverlay, dropOverlay } from '/utils/overlay-history.js';
 
 let _container = null;
 /** Handle des geteilten Suchfelds (setValue/clear), gesetzt in render(). */
 let _search = null;
 /** Handle von Liste + Detail (utils/master-detail.js), gesetzt in render(). */
 let _md = null;
+/* Das offene Rezept-Vollbild ({ id, overlay, body, overlayToken, onKeydown,
+ * trigger }) oder null - ein Handle je Seite, ein zweites Oeffnen raeumt das
+ * erste ab (openRecipeFullscreen). */
+let _fullscreen = null;
 
 const state = {
   recipes: [],
@@ -359,7 +365,8 @@ export async function render(container, { signal } = {}) {
 
   // An der Huelle, nicht an der Liste: die Kreislauf-Ausgaenge und die
   // Vorrats-Zuordnung stehen in der Spalten-Darstellung in der Detailspalte,
-  // mit denselben `data-action`-Knoepfen wie im Aufklapper.
+  // mit denselben `data-action`-Knoepfen wie im Aufklapper - und im Vollbild
+  // (openRecipeFullscreen) haengt derselbe Delegierte am Overlay.
   split.addEventListener('click', async (e) => {
     // Der Hauptknopf der Zeile: in der Spalte waehlt er aus, darunter klappt
     // er auf oder oeffnet das Formular - der Baustein entscheidet ueber open().
@@ -370,41 +377,7 @@ export async function render(container, { signal } = {}) {
       return;
     }
 
-    const actionBtn = e.target.closest('[data-action]');
-    if (!actionBtn) return;
-
-    const recipeId = Number(actionBtn.dataset.id);
-    const recipe = state.recipes.find((r) => r.id === recipeId);
-    if (!recipe) return;
-
-    if (actionBtn.dataset.action === 'edit') {
-      openRecipeModal('edit', recipe);
-      return;
-    }
-
-    if (actionBtn.dataset.action === 'edit') {
-      openRecipeModal('edit', recipe);
-      return;
-    }
-
-    if (actionBtn.dataset.action === 'delete') {
-      await removeRecipe(recipe);
-      return;
-    }
-
-    if (actionBtn.dataset.action === 'duplicate') {
-      await duplicateRecipe(recipe);
-      return;
-    }
-
-    if (actionBtn.dataset.action === 'to-shopping') {
-      await transferRecipe(recipe, actionBtn);
-      return;
-    }
-
-    if (actionBtn.dataset.action === 'add-to-meals') {
-      await planRecipe(recipe, actionBtn);
-    }
+    await handleDetailAction(e);
   });
 
   // Kein eigener keydown-Handler mehr: das Aufklappen sitzt auf einem echten
@@ -485,6 +458,9 @@ function renderRecipeList({ repaint = false } = {}) {
   buildRecipeList();
   syncRowMode();
   _md?.refresh({ repaint });
+  // Das Vollbild steht ausserhalb der Spaltenwurzel: ein Neuaufbau der Liste
+  // haelt es mit (sonst zeigte es den Stand vor dem Speichern im Formular).
+  refreshFullscreenDetail();
 }
 
 /* LISTE + DETAIL (Breitenregel, Regime 2 - DESIGN.md)
@@ -544,29 +520,252 @@ function mountRecipeDetail(root, signal) {
 function renderRecipePane(id, body) {
   const recipe = state.recipes.find((r) => String(r.id) === String(id));
   if (!recipe) return false;
-  // Dieselbe Regel wie die Zeilenaktionen: gespiegelte Rezepte sind
-  // schreibgeschuetzt, Duplizieren legt eine eigene Kopie an.
-  const isMirrored = recipe.source !== 'native';
-  const actions = [
-    !isMirrored && {
-      label: t('common.edit'), icon: 'pencil', id: 'recipes-detail-edit',
-      onClick: () => openRecipeModal('edit', recipe),
-    },
-    {
-      label: t('recipes.duplicate'), icon: 'copy', variant: 'ghost', iconOnly: true,
-      onClick: () => duplicateRecipe(recipe),
-    },
-    !isMirrored && {
-      label: t('common.delete'), icon: 'trash-2', variant: 'ghost', iconOnly: true,
-      onClick: () => removeRecipe(recipe),
-    },
-  ].filter(Boolean);
 
   const detail = document.createElement('div');
   detail.className = 'recipe-detail recipe-detail--pane';
   fillRecipeDetail(detail, recipe);
-  body.replaceChildren(detailPaneHeaderEl({ title: recipe.title, actions }), detail);
+  body.replaceChildren(
+    detailPaneHeaderEl({ title: recipe.title, actions: detailHeaderActions(recipe) }),
+    detail,
+  );
   return undefined;
+}
+
+/**
+ * Die Kopf-Aktionen eines Rezeptdetails - EINE Quelle fuer Spalte und Vollbild,
+ * damit beide Koepfe dieselben Ausgaenge fuehren und keine Flaeche eine eigene
+ * Version entwickelt, die auseinanderlaufen koennte. Gespiegelte Rezepte sind
+ * schreibgeschuetzt (dieselbe Regel wie die Zeilenaktionen).
+ *
+ * DOPPELTE GEWICHTE IN DER SPALTE: Duplizieren und Loeschen verwalten das
+ * Rezept als Datensatz - sie gehoeren an die Liste, ueber der man den
+ * Ueberblick behaelt. Das Vollbild ist die Leseflaeche zum Kochen; sein Kopf
+ * fuehrt deshalb nur Bearbeiten (gespiegelte Rezepte: keins). Den Schliess-
+ * Knopf haengt openRecipeFullscreen selbst an. Ein Rezept, das aus anderem
+ * Grund verschwindet (Live-Feed, Loeschen aus der Spalte hinter dem
+ * Vollbild), nimmt refreshFullscreenDetail() die Ansicht mit - derselbe Weg,
+ * kein zweiter im Kopf.
+ */
+function detailHeaderActions(recipe, { fullscreen = false } = {}) {
+  const isMirrored = recipe.source !== 'native';
+  return [
+    !isMirrored && {
+      label: t('common.edit'), icon: 'pencil', id: fullscreen ? 'recipe-fullscreen-edit' : 'recipes-detail-edit',
+      onClick: () => openRecipeModal('edit', recipe),
+    },
+    !fullscreen && {
+      label: t('recipes.fullscreenLabel'), icon: 'maximize', variant: 'ghost', iconOnly: true,
+      id: 'recipes-detail-fullscreen',
+      onClick: ({ button }) => openRecipeFullscreen(recipe.id, button),
+    },
+    !fullscreen && {
+      label: t('recipes.duplicate'), icon: 'copy', variant: 'ghost', iconOnly: true,
+      onClick: () => duplicateRecipe(recipe),
+    },
+    !fullscreen && !isMirrored && {
+      label: t('common.delete'), icon: 'trash-2', variant: 'ghost', iconOnly: true,
+      onClick: () => removeRecipe(recipe),
+    },
+  ].filter(Boolean);
+}
+
+/**
+ * Ein Klick auf einen `data-action`-Knopf des Detailinhalts: EIN delegierter
+ * Handler fuer alle Orte desselben Inhalts - Aufklapper, Detailspalte,
+ * Vollbild. Der Zeilen-Hauptknopf gehoert ihm nicht: der entscheidet zwischen
+ * Spalte (auswaehlen) und Aufklapper (aufklappen) und bleibt am split-view.
+ */
+async function handleDetailAction(e) {
+  const actionBtn = e.target.closest('[data-action]');
+  if (!actionBtn) return;
+
+  const recipeId = Number(actionBtn.dataset.id);
+  const recipe = state.recipes.find((r) => r.id === recipeId);
+  if (!recipe) return;
+
+  if (actionBtn.dataset.action === 'edit') {
+    openRecipeModal('edit', recipe);
+    return;
+  }
+
+  if (actionBtn.dataset.action === 'delete') {
+    await removeRecipe(recipe);
+    return;
+  }
+
+  if (actionBtn.dataset.action === 'duplicate') {
+    await duplicateRecipe(recipe);
+    return;
+  }
+
+  if (actionBtn.dataset.action === 'to-shopping') {
+    await transferRecipe(recipe, actionBtn);
+    return;
+  }
+
+  if (actionBtn.dataset.action === 'add-to-meals') {
+    await planRecipe(recipe, actionBtn);
+  }
+}
+
+/* VOLLBILD DES REZEPTS - die Leseflaeche ueber der Seite.
+ *
+ * Die Detailspalte ist schmal, und ein Rezept liest sich beim Kochen besser
+ * ohne Liste daneben: der Ausgang im Spaltenkopf (`maximize`) hebt dasselbe
+ * Detail auf die ganze Flaeche. Das ist KEIN zweiter Weg zur Information -
+ * der Kanon, der openRecipeReadModal einriss, gilt weiter: der Inhalt kommt
+ * aus fillRecipeDetail, derselbe Baustein wie im Aufklapper und in der
+ * Spalte; nur die Flaeche ist eine andere.
+ *
+ * Der Kopf fuehrt nur Bearbeiten und Schliessen (detailHeaderActions mit
+ * `fullscreen: true` - Duplizieren und Loeschen bleiben an der Liste, wo der
+ * Ueberblick ist); die Aktionsknopfe im Koerper (Einplanen, Einkaufsliste)
+ * laufen ueber denselben Delegierten (handleDetailAction). Die Zurueck-Geste
+ * schliesst das Vollbild statt die Seite zu verlassen (#871), Escape ebenso,
+ * der Fokus kehrt zum Ausloeser zurueck, und jeder Neuaufbau der Liste haelt
+ * die Ansicht auf dem Stand der Seite (refreshFullscreenDetail).
+ */
+function openRecipeFullscreen(id, trigger) {
+  // Ein vorheriges geht zuerst zu, wie openModal nur ein Modal kennt.
+  closeRecipeFullscreen({ focus: false });
+  const recipe = state.recipes.find((r) => String(r.id) === String(id));
+  if (!recipe) return;
+
+  const overlay = document.createElement('div');
+  overlay.className = 'recipe-fullscreen';
+  overlay.id = 'recipe-fullscreen';
+  overlay.setAttribute('role', 'dialog');
+  overlay.setAttribute('aria-modal', 'true');
+  // Der Rezepttitel benennt die Ansicht - dasselbe Wort, das im Kopf steht.
+  overlay.setAttribute('aria-label', recipe.title);
+
+  const head = detailPaneHeaderEl({
+    title: recipe.title,
+    actions: [
+      ...detailHeaderActions(recipe, { fullscreen: true }),
+      {
+        label: t('common.close'), icon: 'x', variant: 'ghost', iconOnly: true,
+        id: 'recipe-fullscreen-close',
+        onClick: () => closeRecipeFullscreen(),
+      },
+    ],
+  });
+  head.classList.add('recipe-fullscreen__head');
+
+  const body = document.createElement('div');
+  body.className = 'recipe-fullscreen__body';
+  fillFullscreenBody(body, recipe);
+
+  overlay.append(head, body);
+  document.body.appendChild(overlay);
+
+  const onKeydown = (e) => {
+    if (e.key === 'Escape') closeRecipeFullscreen();
+  };
+  document.addEventListener('keydown', onKeydown);
+  // Der Anschluss der Zurueck-Geste (#871): derselbe wie bei den
+  // Modul-Overlays nebenan. Das Token meldet closeRecipeFullscreen selbst ab;
+  // der Beobachter von attachOverlay faengt jeden anderen Weg, auf dem der
+  // Knoten aus dem Dokument faellt.
+  const overlayToken = attachOverlay(overlay, () => closeRecipeFullscreen());
+  overlay.addEventListener('click', handleDetailAction);
+
+  _fullscreen = {
+    id: String(id), overlay, body,
+    overlayToken, onKeydown,
+    trigger: trigger ?? document.activeElement,
+  };
+  if (window.lucide) window.lucide.createIcons({ el: overlay });
+  overlay.querySelector('#recipe-fullscreen-close')?.focus();
+}
+
+/** Der Koerper des Vollbilds: das Detail des Rezepts, wie es Spalte und
+ * Aufklapper zeigen - ein Baustein, drei Flaechen.
+ *
+ * KOCHBUCH-GESTALT: ab 60rem stehen die Zutaten in einer eigenen, ruhigen
+ * Spalte links und der Rest (Notizen, Naehrwerte, Planen/Einkauf) rechts -
+ * dieselbe Teilung wie ein aufgeschlagenes Kochbuch, jede Flaeche scrollt
+ * fuer sich, und eine lange Zutatenliste laeuft nicht vom Zubereitungstext
+ * weg. Das geschieht hier durch UMSIEDELN, nicht durch einen zweiten Builder:
+ * fillRecipeDetail baut das Detail als Ganzes (der Kanon - keine zweite
+ * Quelle fuer denselben Inhalt), und der Zutaten-Abschnitt wandert als
+ * KNOTEN in die linke Flaeche; renderIngredientSections() sucht ihn per
+ * querySelector und findet ihn in jeder Tiefe weiter.
+ *
+ * Ohne Zutaten gibt es keine linke Flaeche: zurueck kommt das Detail allein,
+ * und der Koerper bleibt der eine Scrollport im Lesemass.
+ */
+function recipeFullscreenDetail(recipe) {
+  const detail = document.createElement('div');
+  detail.className = 'recipe-detail recipe-detail--fullscreen';
+  fillRecipeDetail(detail, recipe);
+
+  const ingredients = detail.querySelector('.recipe-detail__ingredients-section');
+  if (!ingredients) return detail;
+
+  const left = document.createElement('div');
+  left.className = 'recipe-fullscreen__ingredients';
+  left.appendChild(ingredients);
+
+  const right = document.createElement('div');
+  right.className = 'recipe-fullscreen__rest';
+  right.appendChild(detail);
+
+  const panes = document.createDocumentFragment();
+  panes.append(left, right);
+  return panes;
+}
+
+/** Setzt den Koerper des Vollbilds auf ein Rezept und merkt die Gestalt am
+ * Koerper an: die Teilung in zwei Flaechen traegt das CSS an der Klasse
+ * (`--split`, ab 60rem zwei Spalten mit eigenem Lauf), nicht an einem
+ * Zustand, den ein Renderer vergessen koennte. Beide Wege - das Oeffnen und
+ * der Neuaufbau (refreshFullscreenDetail) - laufen darueber. */
+function fillFullscreenBody(body, recipe) {
+  const content = recipeFullscreenDetail(recipe);
+  const split = content.nodeType === Node.DOCUMENT_FRAGMENT_NODE;
+  body.replaceChildren(content);
+  body.classList.toggle('recipe-fullscreen__body--split', split);
+}
+
+function closeRecipeFullscreen({ focus = true } = {}) {
+  const fs = _fullscreen;
+  if (!fs) return;
+  _fullscreen = null;
+  dropOverlay(fs.overlayToken);
+  document.removeEventListener('keydown', fs.onKeydown);
+  fs.overlay.remove();
+  // Den Ausloeser zurueckholen, wenn er noch steht - ein Renderer kann ihn
+  // inzwischen ersetzt haben (dasselbe Warum wie der Fokus-Restore in
+  // modal.js: `.focus()` auf einem abgehaengten Knoten ist ein stilles No-op).
+  if (focus && fs.trigger?.isConnected) fs.trigger.focus();
+}
+
+/**
+ * Haelt das offene Vollbild auf dem Stand der Seite. Jeder Neuaufbau der
+ * Liste (Speichern im Formular, Filterwahl) zeichnet die Spalte neu - das
+ * Vollbild haengt ausserhalb ihrer Wurzel und wuerde sonst den Stand von
+ * vor der Aenderung zeigen. Ein Rezept, das die Liste nicht mehr fuehrt,
+ * nimmt die Ansicht ganz mit (Loeschen laeuft ueber die Spalte hinter dem
+ * Vollbild; dieser Weg faengt jeden anderen ab).
+ */
+function refreshFullscreenDetail() {
+  const fs = _fullscreen;
+  if (!fs) return;
+  // Ein Renderer oder die Navigation haben das Overlay schon abgeraeumt -
+  // nur das Handle steht noch. Sein Token ist dann laengst abgemeldet.
+  if (!fs.overlay.isConnected) {
+    _fullscreen = null;
+    dropOverlay(fs.overlayToken);
+    return;
+  }
+  const recipe = state.recipes.find((r) => String(r.id) === fs.id);
+  if (!recipe) {
+    closeRecipeFullscreen();
+    return;
+  }
+  fillFullscreenBody(fs.body, recipe);
+  if (window.lucide) window.lucide.createIcons({ el: fs.body });
 }
 
 /**
@@ -976,15 +1175,14 @@ function fillRecipeDetail(detail, recipe) {
     detail.appendChild(none);
   }
 
-  /* DIE NEUEN FELDER (Kueche, Portionen, Zubereitungs- und Kochzeit) als EINE
+  /* DIE NEUEN FELDER (Portionen, Zubereitungs- und Kochzeit) als EINE
    * Zeile unter den Mahlzeit-Chips - nur was gesetzt ist. Dasselbe Muster wie
    * die Notizen unten: der Server liefert alle Spalten, das Detail zeigt, was
    * da ist, und schweigt sonst (leer ist keine Aussage). */
   const metaParts = [
     recipe.servings && `${t('Servings')}: ${recipe.servings}`,
     recipe.prepTime && `${t('Prep Time')}: ${recipe.prepTime}`,
-    recipe.cookTime && `${t('Cook Time')}: ${recipe.cookTime}`,
-    recipe.cuisine && `${t('Cuisine')}: ${recipe.cuisine}`
+    recipe.cookTime && `${t('Cook Time')}: ${recipe.cookTime}`
   ].filter(Boolean);
   if (metaParts.length) {
     const meta = document.createElement('p');
@@ -993,11 +1191,49 @@ function fillRecipeDetail(detail, recipe) {
     detail.appendChild(meta);
   }
 
-  /* NAEHRWERTE JE PORTION (v242) - EINE Zeile unter den Meta-Angaben, in der
-   * Reihenfolge der EU-Etiketten-Tabelle (utils/health-nutrition.js#NUTRIENTS,
-   * dieselbe Liste wie das Gesundheitsmodul). Nur was gesetzt ist; ein Rezept
-   * ohne Werte schweigt. Der Server liefert das Feld als Objekt (nutrition:
-   * { energy_kcal, ... }) oder null - geparst, nicht als JSON-String. */
+  /* KUECHE UND DIET ALS EIGENE ZEILE darunter (v243): Die Kueche benennt die
+   * Herkunft des Rezepts, die Diets die Einschraenkungen - dieselbe Frage auf
+   * demselben Blatt, deshalb eine Zeile. OHNE LABELS: "Indian · vegan" liest
+   * sich selbst (dieselbe Antwort wie bei Menge/Einheit der Zutatenzeile), und
+   * die Zeile darueber zeigt den Wert nur mit Praefix, wo das Wort fehlt -
+   * Servings und Zeiten brauchen es, eine Kueche nicht. Kuratierte Diets
+   * uebersetzt, Importer-Vokabular wortgetreu, Diets mit Komma untereinander,
+   * die beiden Gruppen mit Mittelpunkt wie die Werte der Zeile darueber.
+   * Nur was gesetzt ist; ohne beide schweigt die Zeile. */
+  const dietList = Array.isArray(recipe.diet) ? recipe.diet : [];
+  const herkunftParts = [
+    recipe.cuisine,
+    dietList.length && dietList.map((d) => (RECIPE_DIET_KEYS.includes(d) ? t(recipeDietLabelKey(d)) : d)).join(', '),
+  ].filter(Boolean);
+  if (herkunftParts.length) {
+    const herkunft = document.createElement('p');
+    herkunft.className = 'recipe-detail__meta recipe-detail__meta--cuisine';
+    herkunft.textContent = herkunftParts.join(' \u00B7 ');
+    detail.appendChild(herkunft);
+  }
+
+  // VOLLSTÄNDIGE Zutatenliste, nicht die ersten vier: das Kürzen war nur
+  // nötig, um die Kartenhöhe zu bändigen. Ein Detail, das sich öffnet, hat
+  // keinen Grund, etwas zu verschweigen.
+  if (ingredients.length) detail.appendChild(ingredientsSectionEl(recipe));
+
+  if (recipe.notes) {
+    const section = detailSectionEl(t('recipes.notesLabel'));
+    const notes = document.createElement('p');
+    notes.className = 'recipe-detail__notes';
+    notes.textContent = recipe.notes;
+    section.appendChild(notes);
+    detail.appendChild(section);
+  }
+
+  /* NAEHRWERTE JE PORTION (v242) - UNTER DEN NOTIZEN, als Abschluss der
+   * Zubereitung: die Reihenfolge im Detail folgt dem Kochvorgang - Zutaten
+   * erst kaufen, dann nach Notizen zubereiten, was dabei herauskommt steht
+   * zuletzt als Zeile. EU-Etiketten-Reihenfolge aus
+   * utils/health-nutrition.js#NUTRIENTS (dieselbe Liste wie das
+   * Gesundheitsmodul); nur was gesetzt ist, ein Rezept ohne Werte schweigt.
+   * Der Server liefert das Feld als Objekt (nutrition: { energy_kcal, ... })
+   * oder null - geparst, nicht als JSON-String. */
   const nutrition = recipe.nutrition;
   if (nutrition && typeof nutrition === 'object') {
     const parts = NUTRIENTS
@@ -1023,20 +1259,6 @@ function fillRecipeDetail(detail, recipe) {
       }
       detail.appendChild(nutritionEl);
     }
-  }
-
-  // VOLLSTÄNDIGE Zutatenliste, nicht die ersten vier: das Kürzen war nur
-  // nötig, um die Kartenhöhe zu bändigen. Ein Detail, das sich öffnet, hat
-  // keinen Grund, etwas zu verschweigen.
-  if (ingredients.length) detail.appendChild(ingredientsSectionEl(recipe));
-
-  if (recipe.notes) {
-    const section = detailSectionEl(t('recipes.notesLabel'));
-    const notes = document.createElement('p');
-    notes.className = 'recipe-detail__notes';
-    notes.textContent = recipe.notes;
-    section.appendChild(notes);
-    detail.appendChild(section);
   }
 
   // Die beiden Kreislauf-Ausgänge stehen im Detail, nicht in der Zeile, und
@@ -1109,7 +1331,21 @@ function ingredientsSectionEl(recipe) {
   section.dataset.recipeId = String(recipe.id);
   const ul = document.createElement('ul');
   ul.className = 'recipe-detail__ingredients';
+  /* ABSCHNITTE ALS FOLGE (v244): Eine Ueberschrift entsteht, wenn der Wert der
+   * Zeile davor ein ANDERER ist - derselbe Name an zwei Stellen ergibt zwei
+   * Gruppen, weil der Importer sie so schickte, und eine Zeile ohne Abschnitt
+   * hat keine. Die Ordnung ist die der Liste (ORDER BY id ASC auf dem Server),
+   * nicht die des Alphabets. */
+  let prevSection = '';
   for (const ing of ingredients) {
+    const section = ing.section ?? '';
+    if (section && section !== prevSection) {
+      const group = document.createElement('li');
+      group.className = 'recipe-detail__ingredient-group';
+      group.textContent = section;
+      ul.appendChild(group);
+    }
+    prevSection = section;
     const item = document.createElement('li');
     item.className = 'recipe-detail__ingredient';
     const label = document.createElement('span');
@@ -1117,8 +1353,14 @@ function ingredientsSectionEl(recipe) {
     // Menge und Einheit stehen getrennt gespeichert (v237), aber zusammen
     // gelesen wie bisher: "500 g · Mehl". Fehlt die Menge und nur die Einheit
     // ist gesetzt, bleibt die Einheit sichtbar statt zu verschwinden.
+    // DIE ZWEITANGABE (v243) IN KLAMMERN DAHINTER - "0.5 cup (48 g)": sie ist
+    // dasselbe Mass in einer anderen Zaehlung (Gewicht statt Volumen), kein
+    // zweiter Wert daneben. Leere Klammern entstehen nie: die Klammer steht
+    // nur, wenn mindestens eine der beiden Angaben gesetzt ist.
     const amount = [ing.quantity, ing.unit].filter(Boolean).join(' ');
-    label.textContent = amount ? `${amount} · ${ing.name}` : ing.name;
+    const secondary = [ing.secondary_quantity, ing.secondary_unit].filter(Boolean).join(' ');
+    const amountText = amount && secondary ? `${amount} (${secondary})` : amount;
+    label.textContent = amountText ? `${amountText} · ${ing.name}` : ing.name;
     item.appendChild(label);
     // Zubereitungs-Hinweis (v241) - leiser als der Name, wie er im Modal auch
     // nur Kontext des Namens ist. Leer ist keine Aussage und bleibt stumm.
@@ -1134,10 +1376,14 @@ function ingredientsSectionEl(recipe) {
   return section;
 }
 
-/** Baut jeden Zutaten-Abschnitt dieses Rezepts neu (Aufklapper + Spalte). */
+/** Baut jeden Zutaten-Abschnitt dieses Rezepts neu (Aufklapper + Spalte + Vollbild). */
 function renderIngredientSections(recipe) {
-  const sections = _container?.querySelectorAll(
-    `.recipe-detail__ingredients-section[data-recipe-id="${CSS.escape(String(recipe.id))}"]`) ?? [];
+  // Beide Wurzeln desselben Inhalts: die Seite (Aufklapper und Spalte) und
+  // das Vollbild, das ausserhalb von ihr am Body haengt.
+  const sections = [_container, _fullscreen?.body]
+    .filter(Boolean)
+    .flatMap((root) => [...root.querySelectorAll(
+      `.recipe-detail__ingredients-section[data-recipe-id="${CSS.escape(String(recipe.id))}"]`)]);
   for (const el of sections) el.replaceWith(ingredientsSectionEl(recipe));
   if (sections.length && window.lucide) window.lucide.createIcons({ el: _container });
 }
@@ -1352,6 +1598,18 @@ function openRecipeModal(mode, recipe = null) {
           <input id="recipe-cuisine" class="form-input" type="text" placeholder="${t('Cuisine')}">
         </div>
         <div class="form-group">
+          <span class="form-label" id="recipe-diet-label">${t('recipes.dietLabel')}</span>
+          <!-- UMSCHALT-CHIPS WIE BEI DEN MAHLZEITEN darueber - dieselbe Frage
+               ("trifft alles zu, was passt"), dieselbe Grammatik
+               (.filter-chip + aria-pressed). Die chips des kuratierten Sechser-
+               Sets kommen aus RECIPE_DIET_KEYS (utils/recipe-diets.js); ein
+               gespeicherter Wert AUSSERHALB dessen (Importer-Vokabular, das
+               die Normalisierung nicht kannte) kommt beim Bearbeiten als
+               eigener gepresster Chip dazu - desselbe Muster laesst ihn
+               sichtbar, speicherbar und abwaehlbar, ohne ihn zu verlieren. -->
+          <div class="recipe-diet-chips" id="recipe-diet" role="group" aria-labelledby="recipe-diet-label"></div>
+        </div>
+        <div class="form-group">
           <label class="form-label" for="recipe-url">${t('recipes.urlLabel')}</label>
           <input id="recipe-url" class="form-input" type="url" placeholder="${t('recipes.urlPlaceholder')}">
         </div>`,
@@ -1368,6 +1626,32 @@ function openRecipeModal(mode, recipe = null) {
       panel.querySelector('#recipe-cookTime').value = isEdit && recipe.cookTime ? recipe.cookTime : '';
       panel.querySelector('#recipe-prepTime').value = isEdit && recipe.prepTime ? recipe.prepTime : '';
       panel.querySelector('#recipe-servings').value = isEdit && recipe.servings ? recipe.servings : '';
+
+      /* DIET: das kuratierte Sechser-Set als Chips, gespeicherte Werte dahinter,
+       * die ausserhalb davon liegen (der Server speichert jedes Importer-Vokabular
+       * wortgetreu). Ein Wert, der doppelt vorkommt - normalisiert AND gespeichert,
+       * wie "gluten-free" neben "gf" vor der Server-Normalisierung -, belegt nur
+       * den Chip, der schon da ist. */
+      const dietWrap = panel.querySelector('#recipe-diet');
+      const savedDiet = isEdit && Array.isArray(recipe.diet) ? recipe.diet : [];
+      const extraDiets = savedDiet.filter((d) => !RECIPE_DIET_KEYS.includes(d));
+      const dietChipLabel = (d) => (RECIPE_DIET_KEYS.includes(d) ? t(recipeDietLabelKey(d)) : d);
+      if (dietWrap) {
+        dietWrap.insertAdjacentHTML('beforeend', [...RECIPE_DIET_KEYS, ...extraDiets].map((d) => `
+          <button type="button" class="filter-chip recipe-diet-chips__chip${savedDiet.includes(d) ? ' filter-chip--active' : ''}" data-diet="${esc(d)}" aria-pressed="${savedDiet.includes(d) ? 'true' : 'false'}">${esc(dietChipLabel(d))}</button>
+        `).join(''));
+        dietWrap.addEventListener('click', (e) => {
+          const chip = e.target.closest('[data-diet]');
+          if (!chip) return;
+          const on = chip.getAttribute('aria-pressed') !== 'true';
+          chip.setAttribute('aria-pressed', String(on));
+          // OPTISCHER AKTIVZUSTAND WIE BEI DEN MAHLZEIT-CHIPS darueber: der
+          // Kanon traegt ihn an der Klasse .filter-chip--active (filter-chip.css),
+          // nicht am aria-Attribut - die Mahlzeiten setzen beide zusammen, und
+          // ohne die Klasse bleibt ein gepresster Diet-Chip im Ruhezustand stehen.
+          chip.classList.toggle('filter-chip--active', on);
+        });
+      }
 
       /* BILD (#1059, Schritt 2) - dasselbe Vorgehen wie beim Gegenstandsfoto:
        * Auswahl, Zuschnitt und Groessenpruefung macht `pickCroppedImage`.
@@ -1450,16 +1734,36 @@ function openRecipeModal(mode, recipe = null) {
 
       const ingList = panel.querySelector('#recipe-ingredient-list');
       if (isEdit && recipe.ingredients?.length) {
-        ingList.insertAdjacentHTML('beforeend', recipe.ingredients.map((i) => ingredientRowHTML({
-          name: i.name,
-          quantity: i.quantity ?? '',
-          unit: i.unit ?? '',
-          note: i.note ?? '',
-          category: i.category ?? DEFAULT_CATEGORY_NAME,
-          categories: mealCategories(),
-          withUnit: true,
-          withNote: true,
-        })).join(''));
+        /* ABSCHNITTS-TITEL ZWISCHEN DEN ZEILEN (v244): Die Ueberschrift entsteht
+         * an jedem FOLGEWECHSEL des section-Werts (run-grouping, gleiche Regel
+         * wie im Detail) - derselbe Name an zwei Stellen ergibt zwei Titel,
+         * weil der Importer zwei Gruppen meinte. Nicht editierbar: kein Feld,
+         * nur Text. Die Zeile darunter traegt den Wert als data-Attribut und
+         * reicht ihn beim Speichern mit (dasselbe wie die Zweitangabe, siehe
+         * saveRecipe). */
+        const rowsHtml = [];
+        let prevSection = '';
+        for (const i of recipe.ingredients) {
+          const section = i.section ?? '';
+          if (section && section !== prevSection) {
+            rowsHtml.push(`<div class="recipe-section-heading" role="presentation">${esc(section)}</div>`);
+          }
+          prevSection = section;
+          rowsHtml.push(ingredientRowHTML({
+            name: i.name,
+            quantity: i.quantity ?? '',
+            unit: i.unit ?? '',
+            note: i.note ?? '',
+            section,
+            secondaryQuantity: i.secondary_quantity ?? '',
+            secondaryUnit: i.secondary_unit ?? '',
+            category: i.category ?? DEFAULT_CATEGORY_NAME,
+            categories: mealCategories(),
+            withUnit: true,
+            withNote: true,
+          }));
+        }
+        ingList.insertAdjacentHTML('beforeend', rowsHtml.join(''));
       }
 
       panel.querySelector('#recipe-add-ingredient')?.addEventListener('click', () => {
@@ -1471,6 +1775,15 @@ function openRecipeModal(mode, recipe = null) {
         const btn = e.target.closest('[data-action="remove-ingredient"]');
         if (!btn) return;
         btn.closest('.ingredient-row')?.remove();
+        // Ein Abschnitts-Titel, dessen letzte Zeile verschwand, haengt leer:
+        // auessere ihn. Ein Titel zaehlt als leer, wenn unmittelbar nach ihm
+        // wieder ein Titel oder das Ende der Liste kommt.
+        [...ingList.children()].forEach((el) => {
+          if (el.classList.contains('recipe-section-heading')
+            && (!el.nextElementSibling || el.nextElementSibling.classList.contains('recipe-section-heading'))) {
+            el.remove();
+          }
+        });
       });
 
       panel.querySelector('#recipe-cancel')?.addEventListener('click', closeModal);
@@ -1501,6 +1814,9 @@ async function saveRecipe(panel, mode, recipe) {
   const cookTime = panel.querySelector('#recipe-cookTime')?.value.trim() || null;
   const prepTime = panel.querySelector('#recipe-prepTime')?.value.trim() || null;
   const servings = panel.querySelector('#recipe-servings')?.value.trim() || null;
+  // Diet: alle gepressten Chips (kuratiert + Importer-Extras) in Klickreihen-
+  // folge des Nutzers; der Server normalisiert ohnehin und zieht Dubletten zusammen.
+  const diet = [...panel.querySelectorAll('#recipe-diet [aria-pressed="true"]')].map((chip) => chip.dataset.diet);
   
   if (!title) {
     // Fehler am Feld statt als ortloser Toast (geteiltes Muster, Critique P1).
@@ -1509,6 +1825,14 @@ async function saveRecipe(panel, mode, recipe) {
   }
 
   const ingredients = [];
+  /* ZWEITANGABE UND ABSCHNITT (v243/v244) HABEN KEIN FELD IM MODAL - aber der
+   * PUT ersetzt die ganze Zutatenliste, und ohne Mitgeben fielen sie bei jedem
+   * Speichern weg. Sie reisen als DATA-ATTRIBUT AN DER ZEILE (gerendert beim
+   * Oeffnen, ingredient-row.js), nicht an einem Namens-Lookup: der Anker ist
+   * die Zeile selbst, und damit sind DUPLETTE NAMEN kein Fehler - "hot water"
+   * kann in zwei Abschnitten mit verschiedenen Zweitangaben stehen, und jede
+   * Zeile behaelt ihre eigene. Eine NEUE Zeile (+ Zutat) hat keine Attribute
+   * und speichert folglich ohne Zweitangabe und ohne Abschnitt. */
   panel.querySelectorAll('.ingredient-row').forEach((row) => {
     const name = row.querySelector('.ingredient-row__name')?.value.trim() || '';
     const quantity = row.querySelector('.ingredient-row__qty')?.value.trim() || null;
@@ -1517,7 +1841,11 @@ async function saveRecipe(panel, mode, recipe) {
     // optionales `?.` haelt eine fremde Zeile (Mahlzeiten) ohne das Feld gueltig.
     const note = row.querySelector('.ingredient-row__note')?.value.trim() || null;
     const category = row.querySelector('.ingredient-row__cat')?.value || DEFAULT_CATEGORY_NAME;
-    if (name) ingredients.push({ name, quantity, unit, note, category });
+    // dataset ist camelCase: data-secondary-quantity -> secondaryQuantity.
+    const secondaryQuantity = row.dataset.secondaryQuantity || null;
+    const secondaryUnit = row.dataset.secondaryUnit || null;
+    const section = row.dataset.section || null;
+    if (name) ingredients.push({ name, quantity, unit, note, category, secondaryQuantity, secondaryUnit, section });
   });
 
   // Nur mitschicken, wenn der Nutzer das Bild angefasst hat: ein fehlendes Feld
@@ -1530,11 +1858,11 @@ async function saveRecipe(panel, mode, recipe) {
   try {
     let createdId = null;
     if (mode === 'create') {
-      const res = await api.post('/recipes', { title, notes, recipe_url, meal_types, ingredients, cuisine, cookTime, prepTime, servings, ...bildFeld });
+      const res = await api.post('/recipes', { title, notes, recipe_url, meal_types, ingredients, cuisine, cookTime, prepTime, servings, diet, ...bildFeld });
       state.recipes.push(res.data);
       createdId = res.data?.id ?? null;
     } else {
-      const res = await api.put(`/recipes/${recipe.id}`, { title, notes, recipe_url, meal_types, ingredients, cuisine, cookTime, prepTime, servings, ...bildFeld });
+      const res = await api.put(`/recipes/${recipe.id}`, { title, notes, recipe_url, meal_types, ingredients, cuisine, cookTime, prepTime, servings, diet, ...bildFeld });
       const idx = state.recipes.findIndex((r) => r.id === recipe.id);
       if (idx >= 0) state.recipes[idx] = res.data;
     }

@@ -11,6 +11,7 @@ import { str, num, collectErrors, MAX_TITLE, MAX_TEXT, MAX_SHORT } from '../midd
 import { normalizeRecipeMealTypes } from '../../public/utils/recipe-meal-types.js';
 import { ingredientMatchKey } from '../../public/utils/ingredient-match-key.js';
 import { normalizeUnitText } from '../../public/utils/unit-abbreviations.js';
+import { normalizeRecipeDiet } from '../../public/utils/recipe-diets.js';
 import { categorizeIngredient, normalizeIncomingCategory } from '../services/recipe-providers/categorize.js';
 import { getAdapter } from '../services/recipe-providers/index.js';
 import { dataUrlContentMatches } from '../utils/file-signature.js';
@@ -136,15 +137,28 @@ function withSource(recipe) {
   // DIE NAEHRWERTE kommen als JSON-Text aus der Spalte (v242, wie diet/tags)
   // und gehen als OBJEKT in die Antwort: sie sind acht benannte Zahlen, keine
   // Freitext-Liste wie die Tags, und der Browserteil liest sie Feld fuer Feld.
-  const { image_data, nutrition, ...rest } = recipe;
+  //
+  // DIET DAGEGEN ALS ARRAY (und nicht wie tags als JSON-String): das Modal
+  // baut daraus Umschalt-Chips und das Detail eine Kommaliste - zwei Stellen,
+  // die je JSON.parse riefen und an einem kaputten Wert stianden. Diet ist
+  // eine kurze Liste bekannter Werte, kein Freitext. `tags` bleibt bewusst
+  // String: sein Verbraucher ist ungeklaert, und ein halber Umbau waere die
+  // zweite Fassung derselben Frage.
+  const { image_data, nutrition, diet, ...rest } = recipe;
   let nutritionData = null;
   if (nutrition) {
     try { nutritionData = JSON.parse(nutrition); } catch { nutritionData = null; }
+  }
+  let dietList = [];
+  if (diet) {
+    try { dietList = JSON.parse(diet); } catch { dietList = []; }
+    if (!Array.isArray(dietList)) dietList = [];
   }
   return {
     ...rest,
     has_own_image: !!image_data,
     nutrition: nutritionData,
+    diet: dietList,
     source: recipe.provider_account_id ? recipe.provider_type : 'native',
   };
 }
@@ -333,7 +347,13 @@ router.post('/', (req, res) => {
     const vCuisine = str(req.body.cuisine, 'Cuisine', { max: MAX_TEXT, required: false });
     const vCookTime = str(req.body.cookTime, 'Cook Time', { max: MAX_TEXT, required: false });
     const vPrepTime = str(req.body.prepTime, 'Prep Time', { max: MAX_TEXT, required: false });
-    const vDiet = Array.isArray(req.body.diet) ? req.body.diet : [];
+    // Diet: kuratierte Schluessel plus Importer-Varianten ("gf"), Best-Effort
+    // gezogen (utils/recipe-diets.js, dort begruendet) - Unbekanntes bleibt
+    // wortgetreu statt wegzufallen; Duplikate nach der Normalisierung fallen
+    // still zusammen.
+    const vDiet = (Array.isArray(req.body.diet) ? req.body.diet : [])
+      .map(normalizeRecipeDiet).filter(Boolean);
+    const vDietList = [...new Set(vDiet)];
     const vTags = Array.isArray(req.body.tags) ? req.body.tags : [];
 
     // Naehrwerte JE PORTION (v242): der Importer nennt das Feld
@@ -352,13 +372,13 @@ router.post('/', (req, res) => {
       `).run(vTitle.value, vNotes.value, vRecipeUrl.value, mealTypes.join(','),
         vImage.value ?? null, vImageUrl ?? null, req.body.servings ?? null,
         vCuisine.value ?? null, vCookTime.value ?? null, vPrepTime.value ?? null,
-        JSON.stringify(vDiet), JSON.stringify(vTags), nutritionJson,
+        JSON.stringify(vDietList), JSON.stringify(vTags), nutritionJson,
         req.authUserId || req.session.userId);
 
       const rid = Number(result.lastInsertRowid);
       const insertIng = db.get().prepare(`
-        INSERT INTO recipe_ingredients (recipe_id, name, quantity, unit, note, category)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO recipe_ingredients (recipe_id, name, quantity, unit, secondary_quantity, secondary_unit, note, section, category)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       for (const ing of ingredients) {
@@ -369,10 +389,24 @@ router.post('/', (req, res) => {
         // Unbekanntes ("cloves") bleibt, wie es ist; die Laengengrenze gilt
         // danach weiter.
         const unit = normalizeUnitText(ing.unit)?.slice(0, MAX_SHORT) || null;
+        // Zweitangabe (v243): Importer schicken ein Gewichtsaequivalent zur
+        // primaeren Menge ("0.5 cup" plus "48 g") im camelCase-Paar; die
+        // kanonischen Schluessel (secondary_quantity) laufen ebenso durch - ein
+        // Client, der zurueckschreibt, was GET geliefert hat, schickt sie schon.
+        // Zwei Spalten wie die primaere Aufteilung (v237, dort begruendet:
+        // ein spaeteres Skalieren rechnet an der Zahl, nicht am Text).
+        const secondaryQuantity = String(ing.secondaryQuantity ?? ing.secondary_quantity ?? '').trim().slice(0, MAX_SHORT) || null;
+        const secondaryUnit = normalizeUnitText(ing.secondaryUnit ?? ing.secondary_unit)?.slice(0, MAX_SHORT) || null;
         // Die Notiz einer Zutat ist Zubereitungs-Kontext ("thinly sliced"),
         // den Importer im eigenen Feld mitschicken - dieselbe Laengenklasse
         // wie Menge und Einheit (v241).
         const note = String(ing.note || '').trim().slice(0, MAX_SHORT) || null;
+        // ABSCHNITT (v244): Importer schicken die Gruppe als Feld je Zutat
+        // ("Dry Ingredients", "Cream Cheese Glaze") - die Liste bleibt FLACH,
+        // die Reihenfolge der Eintraege bleibt die des Rezepts, und die
+        // Anzeige gruppiert nach FOLGE, nicht nach Wert. Freitext wie der Name,
+        // dieselbe Laengenklasse; NULL/'' = ohne Ueberschrift.
+        const section = String(ing.section || '').trim().slice(0, MAX_SHORT) || null;
         // Automatic category matching using the same logic as Shopping List,
         // but only if the user hasn't already set a specific category.
         // 'Miscellaneous' ist die englische ANZEIGE von 'Sonstiges' - ein
@@ -388,7 +422,7 @@ router.post('/', (req, res) => {
           // No user-selected category - run automatic matching
           category = String(categorizeIngredient({ foodName: name }) || 'Sonstiges').trim().slice(0, MAX_SHORT) || 'Sonstiges';
         }
-        if (name) insertIng.run(rid, name, quantity, unit, note, category);
+        if (name) insertIng.run(rid, name, quantity, unit, secondaryQuantity, secondaryUnit, note, section, category);
       }
 
       return rid;
@@ -433,7 +467,11 @@ router.put('/:id', (req, res) => {
     const vCuisine = str(req.body.cuisine, 'Cuisine', { max: MAX_TEXT, required: false });
     const vCookTime = str(req.body.cookTime, 'Cook Time', { max: MAX_TEXT, required: false });
     const vPrepTime = str(req.body.prepTime, 'Prep Time', { max: MAX_TEXT, required: false });
-    const vDiet = Array.isArray(req.body.diet) ? req.body.diet : [];
+    // Diet wie im POST-Zweig (dort begruendet): Normalisierung Best-Effort,
+    // Duplikate fallen nach dem Ziehen still zusammen.
+    const vDiet = (Array.isArray(req.body.diet) ? req.body.diet : [])
+      .map(normalizeRecipeDiet).filter(Boolean);
+    const vDietList = [...new Set(vDiet)];
     const vTags = Array.isArray(req.body.tags) ? req.body.tags : [];
 
     // Naehrwerte wie im POST-Zweig (dort begruendet): `nutritionSummary` des
@@ -472,15 +510,15 @@ router.put('/:id', (req, res) => {
         req.body.cuisine === undefined ? 0 : 1, vCuisine.value ?? null,
         req.body.cookTime === undefined ? 0 : 1, vCookTime.value ?? null,
         req.body.prepTime === undefined ? 0 : 1, vPrepTime.value ?? null,
-        req.body.diet === undefined ? 0 : 1, JSON.stringify(vDiet),
+        req.body.diet === undefined ? 0 : 1, JSON.stringify(vDietList),
         req.body.tags === undefined ? 0 : 1, JSON.stringify(vTags),
         nutritionInput === undefined ? 0 : 1, nutritionJson, id);
 
       db.get().prepare('DELETE FROM recipe_ingredients WHERE recipe_id = ?').run(id);
 
       const insertIng = db.get().prepare(`
-        INSERT INTO recipe_ingredients (recipe_id, name, quantity, unit, note, category)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO recipe_ingredients (recipe_id, name, quantity, unit, secondary_quantity, secondary_unit, note, section, category)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       for (const ing of ingredients) {
@@ -489,8 +527,13 @@ router.put('/:id', (req, res) => {
         // Ausgeschriebene Einheiten auf ihr Kuerzel ziehen wie im POST-Zweig
         // (dort begruendet).
         const unit = normalizeUnitText(ing.unit)?.slice(0, MAX_SHORT) || null;
+        // Zweitangabe wie im POST-Zweig (dort begruendet, v243).
+        const secondaryQuantity = String(ing.secondaryQuantity ?? ing.secondary_quantity ?? '').trim().slice(0, MAX_SHORT) || null;
+        const secondaryUnit = normalizeUnitText(ing.secondaryUnit ?? ing.secondary_unit)?.slice(0, MAX_SHORT) || null;
         // Notiz wie im POST-Zweig (dort begruendet, v241).
         const note = String(ing.note || '').trim().slice(0, MAX_SHORT) || null;
+        // Abschnitt wie im POST-Zweig (dort begruendet, v244).
+        const section = String(ing.section || '').trim().slice(0, MAX_SHORT) || null;
         // Automatic category matching using the same logic as Shopping List,
         // but only if the user hasn't already set a specific category.
         // 'Miscellaneous' → 'Sonstiges' wie im POST-Zweig (dort begruendet).
@@ -503,7 +546,7 @@ router.put('/:id', (req, res) => {
           // No user-selected category - run automatic matching
           category = String(categorizeIngredient({ foodName: name }) || 'Sonstiges').trim().slice(0, MAX_SHORT) || 'Sonstiges';
         }
-        if (name) insertIng.run(id, name, quantity, unit, note, category);
+        if (name) insertIng.run(id, name, quantity, unit, secondaryQuantity, secondaryUnit, note, section, category);
       }
 
       // VERWAISTE ZUORDNUNGEN ABRAEUMEN, IN DERSELBEN TRANSAKTION (#1314).

@@ -1,11 +1,29 @@
 import { api } from '/api.js';
 import { t } from '/i18n.js';
+import { esc } from '/utils/html.js';
 import { confirmModal } from '/components/modal.js';
 import { toggleRowHtml } from '/settings/components.js';
 import { getPreferences, savePreferences } from '/settings/preferences-cache.js';
 
 // Spiegelt MAX_POINTS in server/routes/tasks.js.
 const MAX_TASK_POINTS = 10000;
+
+// Die Jubel-Arten beim Einloesen - derselbe Wertebereich wie in
+// services/rewards.js (Server) und utils/confetti.js (Browser): drei Stellen,
+// ein Satz Schluessel, damit keine von ihnen eine eigene Wahrheit entwickelt.
+const CELEBRATION_MODES = ['off', 'confetti', 'fireworks', 'stars'];
+const CELEBRATION_LABEL_KEYS = {
+  off: 'settings.rewardsCelebrationOff',
+  confetti: 'settings.rewardsCelebrationConfetti',
+  fireworks: 'settings.rewardsCelebrationFireworks',
+  stars: 'settings.rewardsCelebrationStars',
+};
+
+function celebrationOf(preferences) {
+  return CELEBRATION_MODES.includes(preferences.rewards_celebration)
+    ? preferences.rewards_celebration
+    : 'confetti';
+}
 
 // KEIN AN/AUS-SCHALTER MEHR (Re-Critique 2026-09-27, A7 P1-3): "Belohnungen
 // aktivieren" stand hier UND in Aktive Module - zwei Schalter fuer denselben
@@ -25,6 +43,30 @@ function renderPage(container, preferences) {
           checked: preferences.rewards_require_approval !== false,
           attrs: { id: 'rewards-require-approval' },
         })}
+      </div>
+      <div class="settings-card">
+        <h2 class="settings-card__title">${t('settings.rewardsCelebrationTitle')}</h2>
+        <p class="form-hint">${t('settings.rewardsCelebrationHint')}</p>
+        <!-- EIN SPEICHERMODELL AUF DER SEITE: die Auswahl wirkt sofort wie der
+             Freigabe-Schalter daneben, ohne eigenen Speichern-Knopf. -->
+        <div class="form-group">
+          <label class="form-label" for="rewards-celebration">${t('settings.rewardsCelebrationLabel')}</label>
+          <select class="form-input" id="rewards-celebration" data-persisted="${esc(celebrationOf(preferences))}">
+            ${CELEBRATION_MODES.map((mode) => `<option value="${mode}"${mode === celebrationOf(preferences) ? ' selected' : ''}>${esc(t(CELEBRATION_LABEL_KEYS[mode]))}</option>`).join('')}
+          </select>
+        </div>
+        ${toggleRowHtml({
+          control: 'switch',
+          label: t('settings.rewardsLottieLabel'),
+          checked: preferences.rewards_lottie === true,
+          attrs: { id: 'rewards-lottie' },
+        })}
+        <p class="settings-card-description">${t('settings.rewardsLottieHint')}</p>
+      </div>
+      <div class="settings-card">
+        <h2 class="settings-card__title">${t('settings.rewardsHistoryTitle')}</h2>
+        <p class="form-hint">${t('settings.rewardsHistoryHint')}</p>
+        <button type="button" class="btn btn--danger-outline" id="rewards-clear-history">${t('settings.rewardsHistoryClear')}</button>
       </div>
       <div class="settings-card">
         <h2 class="settings-card__title">${t('settings.rewardsDefaultPointsTitle')}</h2>
@@ -61,6 +103,62 @@ function bindEvents(container, preferences) {
       window.yuvomi?.showToast(error.message || t('common.errorGeneric'), 'danger');
     } finally {
       approvalToggle.disabled = false;
+    }
+  });
+
+  const celebrationSelect = container.querySelector('#rewards-celebration');
+  celebrationSelect?.addEventListener('change', async () => {
+    const previous = celebrationSelect.dataset.persisted || 'confetti';
+    const next = celebrationSelect.value;
+    celebrationSelect.disabled = true;
+    try {
+      await savePreferences({ rewards_celebration: next });
+      celebrationSelect.dataset.persisted = next;
+      window.yuvomi?.showToast(t('settings.rewardsSaved'), 'success');
+    } catch (error) {
+      celebrationSelect.value = previous;
+      window.yuvomi?.showToast(error.message || t('common.errorGeneric'), 'danger');
+    } finally {
+      celebrationSelect.disabled = false;
+    }
+  });
+
+  const lottieToggle = container.querySelector('#rewards-lottie');
+  lottieToggle?.addEventListener('change', async () => {
+    lottieToggle.disabled = true;
+    try {
+      await savePreferences({ rewards_lottie: lottieToggle.checked });
+      window.yuvomi?.showToast(t('settings.rewardsSaved'), 'success');
+    } catch (error) {
+      lottieToggle.checked = !lottieToggle.checked;
+      window.yuvomi?.showToast(error.message || t('common.errorGeneric'), 'danger');
+    } finally {
+      lottieToggle.disabled = false;
+    }
+  });
+
+  const clearBtn = container.querySelector('#rewards-clear-history');
+  clearBtn?.addEventListener('click', async () => {
+    clearBtn.disabled = true;
+    try {
+      // ZWEIMAL FRAGEN, EINMAL LOESCHEN. Die erste Rueckfrage nennt die
+      // Konsequenz (alle Salden auf 0), die zweite verlangt das ausdrueckliche
+      // Bestätigen - dasselbe Muster wie beim Logout anderer Sessions. Ein
+      // einmaliges "OK" soll niemandem die Punkte aller Kinder wegklicken.
+      const first = await confirmModal(t('settings.rewardsHistoryConfirm'),
+        { confirmLabel: t('settings.rewardsHistoryClear'), danger: true });
+      if (!first) return;
+      const second = await confirmModal(t('settings.rewardsHistoryConfirm2'),
+        { confirmLabel: t('settings.rewardsHistoryClear'), danger: true });
+      if (!second) return;
+      const res = await api.delete('/rewards/history');
+      window.yuvomi?.showToast(
+        t('settings.rewardsHistoryCleared', { ledger: res?.data?.ledger ?? 0, redemptions: res?.data?.redemptions ?? 0 }),
+        'success');
+    } catch (error) {
+      window.yuvomi?.showToast(error.message || t('common.errorGeneric'), 'danger');
+    } finally {
+      clearBtn.disabled = false;
     }
   });
 

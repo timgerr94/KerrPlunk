@@ -9,7 +9,7 @@
 import express from 'express';
 import * as db from '../db.js';
 import { createLogger } from '../logger.js';
-import { getBalance, isEnrolled, postLedger, CATALOG_SELECT, activeCatalog } from '../services/rewards.js';
+import { getBalance, isEnrolled, postLedger, CATALOG_SELECT, activeCatalog, celebrationMode, lottieFiles, lottieEnabled } from '../services/rewards.js';
 import { householdMemberSql, newNonMembers, nonMemberMessage } from '../services/household-members.js';
 import { isAdminRequest } from '../middleware/require-admin.js';
 import { displayActingPerson, isDisplayRequest } from '../services/display-acting.js';
@@ -107,6 +107,14 @@ router.get('/overview', (req, res) => {
     const pointedTaskCount = d.prepare('SELECT COUNT(*) AS n FROM tasks WHERE points > 0').get().n;
     res.json({ data: {
       balances, catalog, pendingCount: pending,
+      // Jubel-Stil des Haushalts - dieselbe Quelle wie die Einstellung in
+      // routes/preferences.js, hier gelesen, damit die Belohnungsseite (und ein
+      // Wandtablett) ihn ohne einen zweiten Request kennt.
+      celebration: celebrationMode(d),
+      // Lottie-Overlay: Schalter und Auswahlliste zusammen - beides kommt aus
+      // demselben Verzeichnis/Config-Schluessel wie in den Einstellungen.
+      lottie: lottieEnabled(d),
+      lottie_files: lottieFiles(),
       isAdmin: isAdminRequest(req), me: actingUser(req),
       setup: { participantCount, catalogCount, pointedTaskCount },
     } });
@@ -589,6 +597,38 @@ router.post('/bonus', requireAdmin, (req, res) => {
     res.status(201).json({ data: { user_id: userId, balance: getBalance(d, userId) } });
   } catch (err) {
     log.error('POST /bonus error:', err);
+    res.status(500).json({ error: 'Internal server error.', code: 500 });
+  }
+});
+
+// --------------------------------------------------------
+// DELETE /history — die gesamte Punkte-Historie loeschen (Admin).
+//
+// Loescht ALLE Buchungen (reward_ledger) und ALLE Einloesungen
+// (reward_redemptions) - nicht aber den Katalog, nicht die Teilnahmen und
+// nicht die Aufgaben. Die Salden fallen damit alle auf 0 zurueck (sie sind
+// die Summe der Buchungen, es gibt keinen separat gepflegten Stand).
+//
+// WARUM BEIDES ZUSAMMEN UND IN EINER TRANSAKTION: jede Einloesung traegt
+// ihre `redeem`-Buchung im Ledger, und Ledger-Zeilen verweisen ueber
+// `redemption_id` auf Einloesungen. Nur eine der beiden Tabellen zu leeren
+// liesse entweder verwaiste Zeilen zurueck. Der Rueckgabewert nennt die Zahl
+// der geloeschten Zeilen - die Rueckfrage der Oberflaeche zeigt sie VOR dem
+// Loeschen nicht, aber der Toast danach bestätigt, dass etwas (und was)
+// passiert ist.
+// --------------------------------------------------------
+router.delete('/history', requireAdmin, (req, res) => {
+  try {
+    const d = db.get();
+    const counts = d.transaction(() => {
+      const ledger = d.prepare('DELETE FROM reward_ledger').run().changes;
+      const redemptions = d.prepare('DELETE FROM reward_redemptions').run().changes;
+      return { ledger, redemptions };
+    })();
+    log.info(`DELETE /history: ${counts.ledger} Ledger-Zeilen, ${counts.redemptions} Einloesungen geloescht (von User ${actingUser(req)})`);
+    res.json({ data: counts });
+  } catch (err) {
+    log.error('DELETE /history error:', err);
     res.status(500).json({ error: 'Internal server error.', code: 500 });
   }
 });

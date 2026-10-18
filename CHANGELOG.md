@@ -24,6 +24,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   as the zones differ; members see it without the button. A browser that reports only UTC or
   no zone never triggers it, and two names for the same zone (Asia/Calcutta and Asia/Kolkata)
   do not count as a difference.
+- **A recipe can take the whole screen — cookbook style.** The detail pane of the recipes
+  module has a "Full screen" button in its header that lifts the selected recipe onto the
+  whole area: ingredients in their own calm column on the left (wide enough for about 25
+  characters per line), notes, nutrition and the planning actions on the right, and each
+  side scrolls on its own — a long ingredient list no longer runs away from the
+  preparation text. Narrow screens and recipes without ingredients keep the single
+  column. The fullscreen header shows only edit and close; duplicate and delete stay with
+  the list, where the overview is. Escape and the back gesture close the view instead of
+  leaving the page (#871), the focus returns to the button that opened it, and every
+  rebuild of the list keeps the view current. The button is translated in all 26
+  languages.
+- **Thin accent-coloured scrollbars everywhere the app scrolls.** The slim,
+  module-tinted scrollbar that the shopping, pantry and recipe lists already had now
+  also covers the main page scroller, the per-page scrollports, the detail pane of every
+  list+detail module, scrolling form dialogs, the sidebar and the recipe fullscreen —
+  each in the colour of its module, surfaces outside a module in the brand colour. On
+  Windows and desktop Firefox these areas showed the full system bar instead.
 
 ### Changed
 

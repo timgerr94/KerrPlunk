@@ -353,6 +353,15 @@ const PAGE_MODULES = [
   '/utils/lucide-icons.js',
   '/utils/sortable.js',
   '/vendor/sortablejs/sortable.esm.min.js',
+  // canvas-confetti: lazy im Belohnungsmodul, aber vorab gecacht - der Jubel
+  // beim Einloesen funktioniert auch offline. Der Wrapper daneben gehoert zu
+  // derselben Einheit wie sortable.js + Bibliothek darueber.
+  '/utils/confetti.js',
+  '/vendor/canvas-confetti/confetti.module.mjs',
+  // Lottie-Overlay im Belohnungsmodul: Player lazy, aber vorab gecacht wie
+  //SortableJS/confetti daneben - der zusaetzliche Jubel geht auch offline.
+  '/utils/lottie-overlay.js',
+  '/vendor/lottie/lottie.min.js',
   // libphonenumber-js: lazy im Kontaktmodul, aber vorab gecacht → Telefon-
   // Formatierung funktioniert auch offline (Kernmodul). Versions-gecacht.
   '/vendor/libphonenumber/core.min.mjs',

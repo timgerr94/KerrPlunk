@@ -51,6 +51,11 @@ const SHARED_ISOMORPHIC = new Set([
   // anders zusammenzieht - und die Zuordnung waere dann einfach weg, ohne
   // Fehler. Rein: trim, Leerraum, toLowerCase, kein DOM und kein Node.
   'public/utils/ingredient-match-key.js',
+  // Die sechs kuratierten Ernaehrungsformen + Best-Effort-Normalisierung
+  // ("gf" -> "gluten-free"). Server normiert beim Schreiben, das Modal baut
+  // aus derselben Liste seine Chips. Rein: trim, lowercase, Map-Lookup - kein
+  // DOM, kein Node.
+  'public/utils/recipe-diets.js',
   'public/utils/contact-name.js',
   'public/utils/pantry-units.js',
   // Ausgeschriebene Einheiten ("tablespoon") auf ihr Kuerzel ("tbsp") ziehen.

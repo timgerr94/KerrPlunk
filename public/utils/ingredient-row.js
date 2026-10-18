@@ -17,6 +17,12 @@ import { DEFAULT_CATEGORY_NAME, categoryLabel } from '/utils/shopping-categories
  * @param {string} [opts.quantity]   Menge
  * @param {string} [opts.unit]       Einheit (nur Rezepte; ohne Angabe bleibt das Feld weg)
  * @param {string} [opts.note]       Zubereitungs-Hinweis ("thinly sliced"; nur Rezepte)
+ * @param {string} [opts.section]       Abschnittstitel ("Dry Ingredients", v244) - nur
+ *                                      lesbar als data-Attribut, kein Feld
+ * @param {string} [opts.secondaryQuantity] Zweitmenge (v243) - data-Attribut, kein Feld:
+ *                                      das Modal editiert sie nicht, aber der PUT ersetzt
+ *                                      die ganze Liste, also reist sie an der Zeile mit
+ * @param {string} [opts.secondaryUnit]    Zweit-Einheit (v243) - dito
  * @param {number|string|null} [opts.id]  Bestehende Zutaten-ID (für Update-Sync)
  * @param {string} [opts.category]   Wunsch-Kategorie
  * @param {Array<{name:string}>} [opts.categories] Verfügbare Kategorien (bereits gefiltert)
@@ -29,6 +35,9 @@ export function ingredientRowHTML({
   quantity = '',
   unit = '',
   note = '',
+  section = '',
+  secondaryQuantity = '',
+  secondaryUnit = '',
   id = null,
   category = DEFAULT_CATEGORY_NAME,
   categories = [],
@@ -60,7 +69,7 @@ export function ingredientRowHTML({
     : '';
 
   return `
-    <div class="ingredient-row${withUnit ? ' ingredient-row--with-unit' : ''}${withNote ? ' ingredient-row--with-note' : ''}" data-ing-id="${id ?? ''}">
+    <div class="ingredient-row${withUnit ? ' ingredient-row--with-unit' : ''}${withNote ? ' ingredient-row--with-note' : ''}" data-ing-id="${id ?? ''}"${section ? ` data-section="${esc(section)}"` : ''}${secondaryQuantity ? ` data-secondary-quantity="${esc(secondaryQuantity)}"` : ''}${secondaryUnit ? ` data-secondary-unit="${esc(secondaryUnit)}"` : ''}>
       <input type="text" class="form-input ingredient-row__name" placeholder="${t('meals.ingredientNamePlaceholder')}" value="${esc(name)}">
       ${noteInput}
       <input type="text" class="form-input ingredient-row__qty" placeholder="${t('meals.ingredientQtyPlaceholder')}" value="${esc(quantity)}">

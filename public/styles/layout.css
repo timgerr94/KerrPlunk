@@ -229,6 +229,67 @@ html.page-swapping .nav-bottom {
   background-color: var(--color-bg);
 }
 
+/* --------------------------------------------------------
+ * Der duenne Akzent-Balken an jedem app-eigenen Scrollport.
+ *
+ * Dieselbe Antwort wie an der Liste (.list-scroller, list-row.css): duenn,
+ * Akzent auf transparenter Spur, abgerundeter Daumen mit sichtbarem Hover.
+ * Bis hierher trugen sie nur die Listen-Module - Hauptscroller (.app-content),
+ * per-Page-Scrollports, die Detailspalten der Liste+Detail-Module und die
+ * Formular-Koerper zeigten auf Windows/Firefox/Chromium den vollen
+ * System-Balken, und der Balken gehoerte damit sichtbar dem Betriebssystem,
+ * nicht der App.
+ *
+ * DER FALLBACK IST DER GRUND, WARUM KEIN BLOESSES --module-accent STEHT: das
+ * Token setzen die SEITEN-Wurzeln (.recipes-page, .notes-page, ...), und ein
+ * Port darueber (.app-content) oder daneben an document.body (Modale) erbt
+ * es nicht - dort faerbt die Marke (--color-accent), innerhalb einer
+ * Modulseite der Modul-Akzent. Beide lesen sich als „die App zieht", keines
+ * als System-Grau.
+ *
+ * .list-scroller bleibt unberuehrt: Einkauf, Vorrat und Rezepte tragen die
+ * identische Regel laengst selbst, und test-shopping prueft sie dort am
+ * Wortlaut. Guard: test:module-scrollbars.
+ * -------------------------------------------------------- */
+.app-content,
+.page-scrollport,
+.split-view__detail,
+.modal-panel__body {
+  scrollbar-width: thin;
+  scrollbar-color: var(--module-accent, var(--color-accent)) transparent;
+}
+
+.app-content::-webkit-scrollbar,
+.page-scrollport::-webkit-scrollbar,
+.split-view__detail::-webkit-scrollbar,
+.modal-panel__body::-webkit-scrollbar {
+  width: 10px;
+}
+
+.app-content::-webkit-scrollbar-track,
+.page-scrollport::-webkit-scrollbar-track,
+.split-view__detail::-webkit-scrollbar-track,
+.modal-panel__body::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.app-content::-webkit-scrollbar-thumb,
+.page-scrollport::-webkit-scrollbar-thumb,
+.split-view__detail::-webkit-scrollbar-thumb,
+.modal-panel__body::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--module-accent, var(--color-accent)) var(--tint-hint), transparent);
+  border: 3px solid transparent;
+  border-radius: var(--radius-full);
+  background-clip: padding-box;
+}
+
+.app-content::-webkit-scrollbar-thumb:hover,
+.page-scrollport::-webkit-scrollbar-thumb:hover,
+.split-view__detail::-webkit-scrollbar-thumb:hover,
+.modal-panel__body::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--module-accent, var(--color-accent)) calc(var(--tint-hint) + var(--tint-state)), transparent);
+}
+
 /* Der Scrollport endet über dem FAB.
  *
  * Der FAB ist `position: fixed` über einem Scrollport und überdeckt damit
@@ -4565,8 +4626,11 @@ p.field-hint--warn[hidden] {
      *
      * `--tint-hint` ist laut tokens.css die Stufe für „Kante, Linie,
      * Scrollbar-Daumen"; die Schreibweise folgt den Modul-Scrollbars in
-     * budget.css, nur ohne `--module-accent` - die Seitenleiste gehört keinem
-     * Modul und darf nicht die Farbe des gerade offenen annehmen.
+     * budget.css, nur mit der MARKE statt `--module-accent` - die Seitenleiste
+     * gehört keinem Modul und darf nicht die Farbe des gerade offenen
+     * annehmen; die Marke hält ihren Balken trotzdem in der Familienfarbe
+     * statt im System-Grau (derselbe Fallback wie an .app-content und den
+     * Modalen).
      *
      * OFFEN, und bewusst nicht behauptet: die `mask-image`-Fades weiter unten
      * liegen auf DIESEM Element, und eine Maske erfasst die Elementbox samt
@@ -4579,12 +4643,12 @@ p.field-hint--warn[hidden] {
      * den Fade von der Maske auf ein überlagertes Gradient-Pseudoelement
      * umzustellen; dann liegt er über dem Inhalt statt über der Box. */
     scrollbar-width: thin;
-    scrollbar-color: color-mix(in srgb, var(--color-border) var(--tint-hint), transparent) transparent;
+    scrollbar-color: color-mix(in srgb, var(--color-accent) var(--tint-hint), transparent) transparent;
   }
   .nav-sidebar__items::-webkit-scrollbar { width: 10px; }
   .nav-sidebar__items::-webkit-scrollbar-track { background: transparent; }
   .nav-sidebar__items::-webkit-scrollbar-thumb {
-    background: color-mix(in srgb, var(--color-border) var(--tint-hint), transparent);
+    background: color-mix(in srgb, var(--color-accent) var(--tint-hint), transparent);
     /* Transparente Border + padding-box: der Daumen wirkt schmaler als die
      * 10px-Spur, ohne dass die Trefffläche schrumpft. */
     border: 3px solid transparent;

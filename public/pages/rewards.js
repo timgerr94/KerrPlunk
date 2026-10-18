@@ -20,6 +20,8 @@ import { renderSkeletonList } from '/utils/skeleton.js';
 import { emptyStateHTML, mountLoadError } from '/utils/empty-state.js';
 import { isNavModuleReadOnly } from '/permissions.js';
 import { isRedeemable, nextRewardGoal } from '/utils/reward-goal.js';
+import { celebrate } from '/utils/confetti.js';
+import { playLottieOverlay } from '/utils/lottie-overlay.js';
 
 const TABS = ['overview', 'catalog', 'ledger'];
 
@@ -828,7 +830,7 @@ async function openRedeemModal(memberId, presetItemId = null) {
         errEl.hidden = true;
         submit.disabled = true;
         try {
-          await api.post('/rewards/redemptions', {
+          const res = await api.post('/rewards/redemptions', {
             catalog_id: Number(itemEl.value),
             user_id: Number(memberEl.value),
             ...(secondMemberEl?.value ? { user_ids: [Number(memberEl.value), Number(secondMemberEl.value)] } : {}),
@@ -836,6 +838,15 @@ async function openRedeemModal(memberId, presetItemId = null) {
           });
           await closeModal({ force: true });
           toast(isAdmin() ? t('rewards.toastRedeemed') : t('rewards.toastRequested'));
+          // NUR DIE ERFUELLUNG JUBELT. Bei eingeschalteter Freigabe steht die
+          // Anfrage auf `pending`, und der Toast ist die ehrliche Meldung -
+          // der Jubel kommt erst mit der Freigabe in decideRedemption(). Der
+          // Status kommt aus der Antwort, nicht aus isAdmin(): ein Haushalt
+          // ohne Freigabe erfuellt auch die Anfrage eines Kindes sofort.
+          if (res?.data?.status === 'fulfilled') {
+            celebrate(state.overview?.celebration);
+            playLottieOverlay(state.overview?.lottie, state.overview?.lottie_files);
+          }
           await refreshActiveTab();
           refocusAfterRender();
         } catch (err) {
@@ -877,6 +888,13 @@ async function decideRedemption(id, action, btn) {
     const msg = action === 'fulfill' ? t('rewards.toastApproved')
       : action === 'reject' ? t('rewards.toastRejected') : t('rewards.toastCancelled');
     toast(msg, action === 'fulfill' ? 'success' : 'default');
+    // DIE FREIGABE IST DER ZWEITE JUBEL-MOMENT: erst hier sind die Punkte
+    // ausgegeben (routes/rewards.js bucht bei reject/cancel per `reversal`
+    // zurueck), die Praemie also wirklich verdient.
+    if (action === 'fulfill') {
+      celebrate(state.overview?.celebration);
+      playLottieOverlay(state.overview?.lottie, state.overview?.lottie_files);
+    }
     await refreshActiveTab();
     // Nur nach der Rueckfrage: "Einloesen" fragt nicht, schliesst also keinen
     // Dialog, und das Nachfassen griffe auf den Merker eines frueheren zurueck (#1083).

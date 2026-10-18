@@ -22,6 +22,9 @@ export function rewardsPaths() {
     '/api/v1/rewards/ledger': {
       get: op({ summary: 'Point transaction history (filter by user_id)', tag: 'Rewards' }),
     },
+    '/api/v1/rewards/history': {
+      delete: op({ summary: 'Clear the entire reward history', tag: 'Rewards', admin: true, stateChanging: true, description: 'Deletes ALL point transactions and ALL redemption requests - balances fall back to 0 for everyone (a balance is the sum of the ledger, there is no separate stored value). The reward catalog, enrollments and tasks are untouched. The frontend asks twice before calling this. Returns `{ data: { ledger, redemptions } }`, the number of deleted rows in each table.' }),
+    },
     '/api/v1/rewards/redemptions': {
       get: op({ summary: 'List redemption requests (filter by status)', tag: 'Rewards' }),
       post: op({ summary: 'Request a redemption (reserves points)', tag: 'Rewards', stateChanging: true, requestBody: jsonBody(null), description: 'Body: { catalog_id, user_id?, note? }. Points are reserved immediately; whether anyone has to approve stays with the household setting. `user_id` redeems on behalf of someone else and is otherwise ignored: an administrator may do it for any member, and a paired wall display must do it, naming the person chosen on the device (#1209). For a display the person is required rather than optional, because the display account takes no part in rewards itself, and it has to be a household member who may write this module. The request is booked as the display having asked and the person having received. A reward whose units are all fulfilled answers 409 with `reason: "out_of_stock"`; nothing is booked, so no points are taken.' }),

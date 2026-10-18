@@ -10,6 +10,8 @@
 import { householdMemberSql } from './household-members.js';
 import { seriesRootOf } from './task-completions.js';
 import { householdTimeZone, todayKey, utcToWall } from '../utils/timezone.js';
+import { readdirSync } from 'node:fs';
+import { join } from 'node:path';
 
 const REWARD_TX = `
   INSERT INTO reward_ledger (user_id, delta, type, reason, task_id, redemption_id, created_by)
@@ -50,6 +52,61 @@ export function activeCatalog(d) {
     WHERE c.is_active = 1
     ORDER BY c.sort_order ASC, c.cost ASC, c.name COLLATE NOCASE ASC
   `).all();
+}
+
+/*
+ * JUBEL BEIM EINLOESEN, HAUSHALTWEIT (sync_config, Schluessel
+ * `rewards_celebration`). Die Oberflaeche spielt ihn im Belohnungsmodul,
+ * wenn eine Einloesung erfuellt wird - sofort oder durch Freigabe -; der
+ * Wert steht dafuer in GET /rewards/overview, damit auch ein Wandtablett
+ * ihn bekommt, dessen /preferences-Antwort die Allowlist in
+ * display-scopes.py als Darstellungsteil abschneidet.
+ *
+ * `off` ist die Ausnahme, nicht der Default: Konfetti ist Dekoration ohne
+ * Nebenwirkungen, ein fehlender Wert gilt deshalb als der klassische Schwung.
+ */
+export const VALID_CELEBRATION_MODES = ['off', 'confetti', 'fireworks', 'stars'];
+export const DEFAULT_CELEBRATION_MODE = 'confetti';
+
+/** Gewaehlter Jubel-Stil des Haushalts - `off`/unbekannt fällt auf den Default. */
+export function celebrationMode(d) {
+  const row = d.prepare("SELECT value FROM sync_config WHERE key = 'rewards_celebration'").get();
+  return VALID_CELEBRATION_MODES.includes(row?.value) ? row.value : DEFAULT_CELEBRATION_MODE;
+}
+
+/*
+ * LOTTIE-OVERLAY ALS ZWEITER, UNABHAENGIGER JUBEL-KANAL (sync_config,
+ * Schluessel `rewards_lottie`, ein/aus). Es laeuft ZUSAETZLICH zum Konfetti-
+ * Stil: der Stil ist die Auswahl darunter, der Overlay der Schalter daneben.
+ *
+ * DIE AUSWAHLLISTE IST DAS VERZEICHNIS public/assets/lottie. Wer - als Admin
+ * oder direkt am Host - dort JSON-Dateien von https://lottiefiles.com ablegt,
+ * erweitert den Zufallspool; nichts ist hartkodiert. Der Browser waehlt daraus
+ * pro Einloesen EINE Datei (utils/lottie-overlay.js).
+ *
+ * NUR NAMEN, KEINE PFADE: die Liste besteht aus reinen Dateinamen ohne
+ * Verzeichnisteile, und unbekannte Zeichen (alles ausser Buchstaben, Ziffern,
+ * Binde-/Unterstrich, Leerzeichen und Punkt) sortiert die Fehler weg - was
+ * bleibt, kann keine URL bauen, die aus dem Verzeichnis hinausfuehrt.
+ */
+const LOTTIE_DIR = join(import.meta.dirname, '..', '..', 'public', 'assets', 'lottie');
+const LOTTIE_NAME_OK = /^[\w\- .]+$/;
+
+/** Dateinamen im Lottie-Verzeichnis, sortiert - leer, wenn es keins gibt. */
+export function lottieFiles() {
+  try {
+    return readdirSync(LOTTIE_DIR)
+      .filter((name) => name.endsWith('.json') && LOTTIE_NAME_OK.test(name))
+      .sort();
+  } catch {
+    return []; // Verzeichnis fehlt oder ist unlesbar - der Overlay bleibt aus
+  }
+}
+
+/** Lottie-Overlay-Schalter des Haushalts (Default aus: Opt-in). */
+export function lottieEnabled(d) {
+  const row = d.prepare("SELECT value FROM sync_config WHERE key = 'rewards_lottie'").get();
+  return row?.value === '1';
 }
 
 /** Aktueller Punktestand eines Mitglieds (Summe aller Ledger-Buchungen). */

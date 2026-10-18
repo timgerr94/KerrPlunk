@@ -384,13 +384,15 @@
   font-size: var(--type-body);
   color: var(--color-text-primary);
   font-variant-numeric: tabular-nums;
-  /* Zutat links, Vorrats-Zuordnung rechts, und bei 320px untereinander statt
-   * abgeschnitten: ein Vorratsname ist so lang, wie der Haushalt ihn getippt
-   * hat. */
+  /* FLEX-START STATT SPACE-BETWEEN: der Zubereitungs-Hinweis (v241) gehoert
+   * unmittelbar neben den Namen, dem er Kontext gibt ("Zwiebel — gewuerfelt"),
+   * nicht an den rechten Rand. Die Vorrats-Zuordnung haelt ihren Platz am
+   * Zeilenende ueber margin-inline-start:auto weiter unten - der Raum zwischen
+   * ihr und dem Namen gehoert dem Umbruch (flex-wrap), nicht dem Verteiler. */
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: var(--space-1) var(--space-2);
 }
 
@@ -403,10 +405,50 @@
   color: var(--color-text-secondary);
 }
 
+/* ABSCHNITTS-TITEL DER ZUTATEN (v244, "Dry Ingredients"): ein Listeneintrag
+ * ohne Aufzaehlungszeichen, eine Stufe ueber der Zutatenzeile - Sektionshaeufig
+ * wie der .recipe-detail__section-title, aber kompakt, weil er ZWISCHEN den
+ * Zeilen steht statt einen eigenen Abschnitt zu eroeffnen. Kein Wort "Zutaten"
+ * dahinter: der Abschnittkopf der Liste steht schon darueber. */
+.recipe-detail__ingredient-group {
+  list-style: none;
+  margin-top: var(--space-2);
+  font-size: var(--type-caption);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--color-text-tertiary);
+}
+
+/* Der erste Titel braucht keinen Abstand nach oben - er haengte sonst unter
+ * dem Abschnittskopf der Liste. */
+.recipe-detail__ingredient-group:first-child {
+  margin-top: 0;
+}
+
+/* Dasselbe Vokabular im MODAL (v244): die Titel stehen dort zwischen den
+ * .ingredient-row-Zeilen, nicht editierbar - kein Feld, nur Text. recipes.css
+ * laedt der Router auf der Rezepte-Route, das Modal gehoert ihr. */
+.recipe-section-heading {
+  margin: var(--space-3) 0 var(--space-1);
+  font-size: var(--type-caption);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--color-text-tertiary);
+}
+
+.recipe-section-heading:first-child {
+  margin-top: 0;
+}
+
 /* Die bestaetigte Zuordnung zu einer Vorratszeile (#1314). Als Knopf, wenn das
  * Konto den Vorrat schreiben darf, sonst als stiller Text - derselbe Platz,
  * dieselbe Groesse, damit der Zustand nicht springt. */
 .recipe-detail__ingredient-match {
+  /* Seit flex-start oben (v241-Notiz neben dem Namen) haelt der Auto-Rand die
+   * Zuordnung allein am rechten Rand der Zeile. */
+  margin-inline-start: auto;
   font-size: var(--type-caption);
   color: var(--color-text-tertiary);
   background: none;
@@ -583,6 +625,15 @@ button.recipe-detail__ingredient-match:hover {
   gap: var(--space-2);
 }
 
+/* Diet-Chips im "Weitere Einstellungen"-Abschnitt (v243): derselbe Container
+ * wie die Mahlzeit-Chips darueber - die Optionen sind Umschalt-Chips
+ * (.filter-chip), Form und Aktivton kommen aus filter-chip.css. */
+.recipe-diet-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
 /* Die Optionen sind Umschalt-Chips (`.filter-chip`, Re-Critique 2026-09-28,
  * A4 P2-7) - Form, Zielgroesse und Aktivton kommen aus filter-chip.css. */
 
@@ -649,4 +700,138 @@ button.recipe-detail__ingredient-match:hover {
 .recipe-detail--pane {
   gap: var(--space-4);
   padding: var(--space-4) var(--space-5) var(--space-5);
+}
+
+/* --------------------------------------------------------
+ * Vollbild des Rezepts (Leseflaeche ueber der Seite)
+ *
+ * Der Ausgang sitzt im Kopf der Detailspalte (detailHeaderActions in
+ * recipes.js). Die Ansicht ist ein Dialog ueber allem ausser Meldungen
+ * (--z-modal wie die Formulare, --z-toast liegt darueber) und zeigt denselben
+ * Inhalt wie Aufklapper und Spalte (fillRecipeDetail).
+ *
+ * DER AKZENT AM EIGENEN KNOTEN: das Vollbild haengt an document.body und
+ * damit AUSSERHALB der .recipes-page, die ihr --module-accent bekommt (Zeile
+ * 8). Ohne diese Zuweisung faerbte der duenne Scrollbar unten auf den
+ * Marken-Fallback statt auf die Kuechen-Farbe.
+ * -------------------------------------------------------- */
+
+.recipe-fullscreen {
+  --module-accent: var(--module-kitchen);
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  background: var(--color-surface);
+  padding:
+    max(var(--space-2), var(--safe-area-inset-top))
+    max(var(--space-3), env(safe-area-inset-right))
+    max(var(--space-2), var(--safe-area-inset-bottom))
+    max(var(--space-3), env(safe-area-inset-left));
+}
+
+/* Der Kopf der Detailspalte (layout.css) mit dem Polster des Vollbilds: die
+ * Trennlinie bleibt, das Seitenpolster traegt der Traeger - sonst stuende der
+ * Titel doppelt eingerueckt. */
+.recipe-fullscreen .split-view__detail-head {
+  padding-inline: 0;
+}
+
+/* Der Koerper scrollt unter dem Kopf, und die Scroll-Kette bricht hier: ohne
+ * `overscroll-behavior: contain` naehme das Ende der Zutatenliste die Seite
+ * dahinter mit (Scroll-Chaining), und zwei Orten laege dieselbe Bewegung.
+ * KEIN Scroll-Lock am Body: modal.js setzt und hebt ihn global - ein Formular
+ * ueber dem Vollbild wuerde die Sperre beim Schliessen fuer beide aufheben.
+ * Dies ist der EINSPALTIGE Lauf: schmale Fenster und Rezepte ohne Zutaten
+ * (keine --split-Klasse, siehe fillFullscreenBody in recipes.js). */
+.recipe-fullscreen__body {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--space-4) var(--space-5) var(--space-5);
+}
+
+/* KOCHBUCH-GESTALT (ab 60rem, nur mit Zutaten): links die Zutaten in einer
+ * ruhigen Spalte - minmax(18.75rem, 24rem) haelt rund 25 Zeichen Zutatenzeile
+ * ohne Umbruch -, rechts Notizen, Naehrwerte und die Ausgaenge. BEIDE
+ * FLAECHEN SCROLLEN FUER SICH (wie Liste + Detail in layout.css .split-view):
+ * eine lange Zutatenliste laeuft nicht aus der Flaeche, der Rueckweg zum
+ * Ende der Zubereitung bleibt kurz. Der Koerper selbst laeuft dann nicht
+ * (`overflow: hidden`), sonst gaebe es drei Scrollports in einer Flaeche. */
+@media (min-width: 60rem) {
+  .recipe-fullscreen__body--split {
+    display: grid;
+    grid-template-columns: minmax(18.75rem, 24rem) minmax(0, 1fr);
+    column-gap: var(--space-6);
+    overflow: hidden;
+    padding: var(--space-4) var(--space-5) var(--space-5);
+    /* Wie die Spalte unter dem Kopf: die Flaeche endet am Content-Mass plus
+     * Gutter, nicht am Fensterrand. */
+    max-width: calc(var(--content-max-width) + 2 * var(--space-6));
+    margin-inline: auto;
+  }
+
+  .recipe-fullscreen__ingredients,
+  .recipe-fullscreen__rest {
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+}
+
+/* Der duenne Akzent-Balken an allen drei Lauflaechen des Vollbilds - dasselbe
+ * Rezept wie .list-scroller (list-row.css): duenn, Akzent auf transparenter
+ * Spur, abgerundeter Daumen mit sichtbarem Hover. Der Akzent kommt vom
+ * Traeger (.recipe-fullscreen), siehe oben. */
+.recipe-fullscreen__body,
+.recipe-fullscreen__ingredients,
+.recipe-fullscreen__rest {
+  scrollbar-width: thin;
+  scrollbar-color: var(--module-accent) transparent;
+}
+
+.recipe-fullscreen__body::-webkit-scrollbar,
+.recipe-fullscreen__ingredients::-webkit-scrollbar,
+.recipe-fullscreen__rest::-webkit-scrollbar {
+  width: 10px;
+}
+
+.recipe-fullscreen__body::-webkit-scrollbar-track,
+.recipe-fullscreen__ingredients::-webkit-scrollbar-track,
+.recipe-fullscreen__rest::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.recipe-fullscreen__body::-webkit-scrollbar-thumb,
+.recipe-fullscreen__ingredients::-webkit-scrollbar-thumb,
+.recipe-fullscreen__rest::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--module-accent) var(--tint-hint), transparent);
+  border: 3px solid transparent;
+  border-radius: var(--radius-full);
+  background-clip: padding-box;
+}
+
+.recipe-fullscreen__body::-webkit-scrollbar-thumb:hover,
+.recipe-fullscreen__ingredients::-webkit-scrollbar-thumb:hover,
+.recipe-fullscreen__rest::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--module-accent) calc(var(--tint-hint) + var(--tint-state)), transparent);
+}
+
+/* Derselbe Inhalt wie in der Spalte, im Content-Mass der Seite: das Vollbild
+ * ist die breite Flaeche, und ohne Zutaten ist es eine einzige Spalte. Das
+ * Polster traegt der Koerper, das Detail selbst keins - sonst stuende es
+ * doppelt. */
+.recipe-detail--fullscreen {
+  width: 100%;
+  max-width: var(--content-max-width);
+  margin-inline: auto;
+  gap: var(--space-4);
+  padding: 0;
+}
+
+/* Die Notizen behalten ihr Lesemass, auch auf der breiten Flaeche: 75 Zeichen
+ * sind das Ende der Zeile, nicht der Fensterrand. */
+.recipe-detail--fullscreen .recipe-detail__notes {
+  max-width: 75ch;
 }

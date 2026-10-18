@@ -12,6 +12,9 @@ import * as holidays from '../services/holidays.js';
 import { str, MAX_SHORT } from '../middleware/validate.js';
 import { isAdminRequest } from '../middleware/require-admin.js';
 import { getSupportedLocales, isRegionTag, isSupportedLocale, resolveHouseholdLocale } from '../utils/i18n.js';
+// Jubel-Stil beim Einloesen - dieselbe Liste, die routes/rewards.js in die
+// Uebersicht legt. Ein Modul-Schluessel pro Einstellung, nicht pro Route.
+import { VALID_CELEBRATION_MODES, DEFAULT_CELEBRATION_MODE, lottieEnabled } from '../services/rewards.js';
 import { householdTimeZone, isValidTimeZone } from '../utils/timezone.js';
 import { retitleBirthdayEvents } from '../services/birthdays.js';
 import { resolveWeatherSource } from '../services/weather-source.js';
@@ -646,6 +649,9 @@ router.get('/', (req, res) => {
         // veroeffentlicht bewusst, es teilt nichts von selbst.
         health_prevention_notify_caregivers: cfgUserGet('health_prevention_notify_caregivers', req.authUserId) === '1',
         rewards_require_approval: cfgGet('rewards_require_approval') !== '0',
+        rewards_celebration: VALID_CELEBRATION_MODES.includes(cfgGet('rewards_celebration')) ? cfgGet('rewards_celebration') : DEFAULT_CELEBRATION_MODE,
+        // Lottie-Overlay beim Einloesen (an/aus) - unabhaengig vom Stil daneben.
+        rewards_lottie: lottieEnabled(db.get()),
         tasks_subtasks_expanded: cfgGet('tasks_subtasks_expanded') === '1',
         tasks_default_points: parseTaskDefaultPoints(cfgGet('tasks_default_points')),
         countdown_grace_days: parseCountdownGraceDays(cfgGet('countdown_grace_days')),
@@ -713,7 +719,7 @@ router.put('/', (req, res) => {
   try {
     database = db.get();
     database.exec('BEGIN');
-    const { visible_meal_types, meal_type_names, currency, date_format, time_format, week_start, region, timezone, timezone_hint_dismissed, language, app_name, dashboard_widgets, dashboard_today_glance, dashboard_widgets_default, dashboard_today_glance_default, disabled_modules, hidden_modules, module_order, mobile_nav_order, housekeeping_payment_tasks, budget_mode, calendar_default_duration, calendar_default_reminders, calendar_default_assign_me, calendar_default_target, health_cycle_enabled, health_cycle_enabled_user, health_prevention_notify_caregivers, rewards_require_approval, tasks_subtasks_expanded, tasks_default_points, tasks_default_target, tasks_split_view, schedule_hidden_templates, countdown_grace_days, weather_provider, weather_lat, weather_lon, weather_city, weather_units, weather_auto_locate, weather_user, holiday_country, holiday_subdivision, holiday_group, holiday_show_public, holiday_show_school, holiday_public_color, holiday_school_color } = req.body;
+    const { visible_meal_types, meal_type_names, currency, date_format, time_format, week_start, region, timezone, timezone_hint_dismissed, language, app_name, dashboard_widgets, dashboard_today_glance, dashboard_widgets_default, dashboard_today_glance_default, disabled_modules, hidden_modules, module_order, mobile_nav_order, housekeeping_payment_tasks, budget_mode, calendar_default_duration, calendar_default_reminders, calendar_default_assign_me, calendar_default_target, health_cycle_enabled, health_cycle_enabled_user, health_prevention_notify_caregivers, rewards_require_approval, rewards_celebration, rewards_lottie, tasks_subtasks_expanded, tasks_default_points, tasks_default_target, tasks_split_view, schedule_hidden_templates, countdown_grace_days, weather_provider, weather_lat, weather_lon, weather_city, weather_units, weather_auto_locate, weather_user, holiday_country, holiday_subdivision, holiday_group, holiday_show_public, holiday_show_school, holiday_public_color, holiday_school_color } = req.body;
 
     // Welche Quickstart-Vorlagen der Schichtplan-Schnellstart zeigt - wie
     // disabled_modules haushaltweit und admin-only, nicht wie hidden_modules
@@ -1171,6 +1177,32 @@ router.put('/', (req, res) => {
       cfgSet('rewards_require_approval', rewards_require_approval ? '1' : '0');
     }
 
+    // Jubel-Stil beim Einloesen - haushaltweit wie die Freigabe daneben, nur
+    // Admins aendern ihn. Die Liste steht in services/rewards.js, dieselbe
+    // Quelle wie die Uebersicht des Belohnungsmoduls.
+    if (rewards_celebration !== undefined) {
+      if (!isAdminRequest(req)) {
+        return res.status(403).json({ error: 'Admin access required.', code: 403 });
+      }
+      if (!VALID_CELEBRATION_MODES.includes(rewards_celebration)) {
+        return res.status(400).json({ error: `rewards_celebration: erlaubt sind ${VALID_CELEBRATION_MODES.join(', ')}`, code: 400 });
+      }
+      cfgSet('rewards_celebration', rewards_celebration);
+    }
+
+    // Lottie-Overlay beim Einloesen (an/aus) - haushaltweit wie der Stil daneben,
+    // nur Admins. Die Dateien selbst legt niemand ueber die API ab, sondern
+    // direkt ins Verzeichnis public/assets/lottie (Drop-in).
+    if (rewards_lottie !== undefined) {
+      if (!isAdminRequest(req)) {
+        return res.status(403).json({ error: 'Admin access required.', code: 403 });
+      }
+      if (typeof rewards_lottie !== 'boolean') {
+        return res.status(400).json({ error: 'rewards_lottie must be a boolean', code: 400 });
+      }
+      cfgSet('rewards_lottie', rewards_lottie ? '1' : '0');
+    }
+
     if (tasks_subtasks_expanded !== undefined) {
       if (!isAdminRequest(req)) {
         return res.status(403).json({ error: 'Admin access required.', code: 403 });
@@ -1457,6 +1489,9 @@ router.put('/', (req, res) => {
         // veroeffentlicht bewusst, es teilt nichts von selbst.
         health_prevention_notify_caregivers: cfgUserGet('health_prevention_notify_caregivers', req.authUserId) === '1',
         rewards_require_approval: cfgGet('rewards_require_approval') !== '0',
+        rewards_celebration: VALID_CELEBRATION_MODES.includes(cfgGet('rewards_celebration')) ? cfgGet('rewards_celebration') : DEFAULT_CELEBRATION_MODE,
+        // Lottie-Overlay beim Einloesen (an/aus) - unabhaengig vom Stil daneben.
+        rewards_lottie: lottieEnabled(db.get()),
         tasks_subtasks_expanded: cfgGet('tasks_subtasks_expanded') === '1',
         tasks_default_points: parseTaskDefaultPoints(cfgGet('tasks_default_points')),
         countdown_grace_days: parseCountdownGraceDays(cfgGet('countdown_grace_days')),

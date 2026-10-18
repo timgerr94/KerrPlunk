@@ -142,6 +142,16 @@ app.use(helmet({
     directives: {
       defaultSrc: ["'self'"],
       scriptSrc: ["'self'"],
+      // Blob-Worker nur fuer canvas-confetti (/vendor/canvas-confetti): die
+      // Bibliothek baut ihren Animations-Worker aus einem Blob und uebertraegt
+      // ihm das Canvas per transferControlToOffscreen(). Ohne diese Direktive
+      // faellt worker-src auf script-src 'self' zurueck, der Blob-Worker wird
+      // STILL blockiert - new Worker() wirft in Chromium nicht synchron, also
+      // greift auch der eingebaute Fallback der Bibliothek nicht, und der
+      // Jubel bleibt einfach aus (haengende Promise). blob: gilt hier NUR fuer
+      // Worker; script-src bleibt bei 'self'. pdf.js laedt seinen Worker als
+      // gewoehnliche Same-Origin-Datei und braucht diese Ausnahme nicht.
+      workerSrc: ["'self'", "blob:"],
       styleSrc: ["'self'", "'unsafe-inline'"],
       imgSrc: ["'self'", 'data:'],
       connectSrc: ["'self'"],

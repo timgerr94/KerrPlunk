@@ -10235,6 +10235,47 @@ const MIGRATIONS = [
       ALTER TABLE recipes ADD COLUMN nutrition TEXT;
     `,
   },
+  {
+    version: 243,
+    description: 'Recipe ingredients: secondary quantity and unit next to the primary pair',
+    up: `
+      -- ZWEI SPALTEN, KEIN EIN ZUSAMMENGEZOGENER TEXT - dieselbe Aufteilung wie
+      -- quantity/unit (v237), aus demselben Grund: ein spaeteres Skalieren des
+      -- Rezepts rechnet an der ZAHL und laesst die Einheit unangetastet; ein
+      -- zusammengezogener Text ("48 g") muesste erst per Regex wieder in beides
+      -- getrennt werden - genau die Zerlegung, die shopping-import.js#
+      -- parseQuantity fuer die flache Einkaufsspalte treibt und die dort
+      -- bekanntermassen an Randfaellen haengenbleibt.
+      --
+      -- FREITEXT wie die primaere Menge (kein REAL): die primaere ist auch
+      -- Anzeigetext ("nach Geschmack"), und Importer schicken Strings
+      -- ("secondaryQuantity":"48"). NULL/'' = "keine Zweitangabe genannt".
+      -- NUR recipe_ingredients: das Rezept traegt die Doppelangabe (Gewichts-
+      -- equivalent zu einer Volumenmenge), nicht der Essensplan.
+      ALTER TABLE recipe_ingredients ADD COLUMN secondary_quantity TEXT;
+      ALTER TABLE recipe_ingredients ADD COLUMN secondary_unit TEXT;
+    `,
+  },
+  {
+    version: 244,
+    description: 'Recipe ingredients: optional section heading (e.g. "Dry Ingredients", "Glaze")',
+    up: `
+      -- EINE ZEILE PRO ZUTAT, KEINE EIGENE TABELLE. Der Importer schickt eine
+      -- FLACHE Liste (recipe_import_format_example.json), bei der die Reihenfolge
+      -- der Eintraege die Reihenfolge des Rezepts ist - die Sektion ist eine
+      -- Eigenschaft der Zeile ("diese Zutat gehoert zum Trockenteil"), kein
+      -- eigenes Objekt mit eigenen Regeln. Eine Sektionstabelle muesste die
+      -- Ordnung derselben Liste ein zweites Mal fuehren und bei jedem PUT
+      -- mit-ersetzen; hier traegt sie die Zeile selbst.
+      --
+      -- DIE ANZEIGE GRUPPIERT NACH FOLGE, NICHT NACH WERT (run-grouping im
+      -- Frontend): eine ueberschrift entsteht, wenn der Wert gegen die Zeile
+      -- davor wechselt. Die Reihenfolge der id-Spalte (INSERT-Folge, ORDER BY
+      -- id ASC beim Lesen) ist damit die autoritative Ordnung - dieselbe, die
+      -- der Importer schon liefert. NULL/'' = "ohne Ueberschrift".
+      ALTER TABLE recipe_ingredients ADD COLUMN section TEXT;
+    `,
+  },
 ];
 /**
  * Hat ein ANDERER Prozess genau diese Migration inzwischen verbucht? (#1331)
