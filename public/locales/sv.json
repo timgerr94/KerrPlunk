@@ -1146,6 +1146,7 @@
         "pinnedLabel": "Fäst (visas på instrumentpanelen)",
         "pinAction": "Fäst",
         "unpinAction": "Lossa",
+        "uncheckAllNamed": "Avmarkera alla poster: {{name}}",
         "deleteLabel": "Ta bort anteckning",
         "deleteConfirm": "Vill du verkligen ta bort den här anteckningen?",
         "createdToast": "Anteckning skapad",

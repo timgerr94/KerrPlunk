@@ -1146,6 +1146,7 @@
         "pinnedLabel": "पिन करें (डैशबोर्ड पर दिखाई देगा)",
         "pinAction": "पिन करें",
         "unpinAction": "अनपिन करें",
+        "uncheckAllNamed": "सभी आइटम अनचेक करें: {{name}}",
         "deleteLabel": "नोट हटाएं",
         "deleteConfirm": "नोट हटाएं?",
         "createdToast": "नोट बनाया गया",

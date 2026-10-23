@@ -1384,6 +1384,8 @@ test('Notizkarte mit Schreibrecht: Nadel, Loeschen und das antippbare Kaestchen'
     assert.match(html, /data-action="pin"/);
     assert.match(html, /data-action="delete"/);
     assert.match(html, /data-action="open"/);
+    assert.match(html, /data-action="uncheck-all"/,
+      'die Karte mit einem gesetzten Haken trägt den Ein-Knopf dafür (#uncheck-all)');
     assert.match(html, /<button type="button" class="note-md-box" role="checkbox"/,
       'die Checkliste ist bedienbar (#704)');
     assert.doesNotMatch(html, /note-card__pin--static/);
@@ -1431,6 +1433,8 @@ test('Notizkarte mit `notes: read`: das Kaestchen wird zum Zustandszeichen', () 
     // Reine HANDLUNG: verschwindet.
     assert.doesNotMatch(html, /data-action="pin"/);
     assert.doesNotMatch(html, /data-action="delete"/);
+    assert.doesNotMatch(html, /data-action="uncheck-all"/,
+      'Haken lösen ist ein Schreibweg - auch alle auf einmal');
 
     // Der Leseweg bleibt, und der Inhalt steht wirklich noch da - sonst maesse
     // dieser Test einen Renderer, der nie gelaufen ist.
@@ -1458,6 +1462,21 @@ test('Nadel bei `notes: read`: gesetzt bleibt als Zeichen, nicht gesetzt faellt 
   withAccess({ notes: 'write' }, () => {
     assert.match(notes.pinMarkup(notiz({ pinned: 1 })), /<button class="note-card__pin" data-action="pin"/);
     assert.match(notes.pinMarkup(notiz({ pinned: 0 })), /<button class="note-card__pin" data-action="pin"/);
+  });
+});
+
+test('Ein-Knopf „alle Haken lösen“: nur mit Schreibrecht und nur mit gesetztem Haken', () => {
+  withAccess({ notes: 'write' }, () => {
+    assert.match(notes.uncheckMarkup(notiz()), /data-action="uncheck-all"/,
+      'ein gesetzter Haken macht ihn bedienbar');
+    assert.match(notes.uncheckMarkup(notiz()), /notes\.uncheckAllNamed/,
+      'er nennt die Notiz bei Namen wie jeder Kartenknopf');
+    assert.equal(notes.uncheckMarkup(notiz({ content: '- [ ] Milch' })), '',
+      'ohne einen gesetzten Haken verspräche er eine Handlung, die nichts tut');
+  });
+  withAccess({ notes: 'read' }, () => {
+    assert.equal(notes.uncheckMarkup(notiz()), '',
+      'ein Nutzloser kann keine Haken lösen - auch nicht alle auf einmal');
   });
 });
 

@@ -3,6 +3,8 @@
  *
  * Deckt ab:
  *  - applyFormat: jede Aktion fuegt ein, was renderMarkdownLight auch liest
+ *  - continueListOnEnter: Enter setzt Listen und Zitate fort und verlaesst
+ *    sie beim leeren Eintrag (wie in jedem Textverarbeitungsprogramm)
  *  - kein Platzhaltertext mehr fest im Quelltext (er landet IM Text des Nutzers)
  *  - beide Aufrufer benutzen dieselbe Datei, keiner baut eine zweite Leiste
  *  - die Leiste ist eine geteilte Komponente: eigenes CSS, global eingebunden
@@ -39,7 +41,7 @@ function fakeTextarea(value, selectionStart = value.length, selectionEnd = selec
 // stubt `t(key)` auf den Schluessel selbst. Fuer die Platzhalter ist das genau
 // die richtige Probe - sichtbar wird, DASS einer benutzt wird.
 const de = JSON.parse(await read('public/locales/de.json'));
-const { applyFormat } = await import('/utils/markdown-toolbar.js');
+const { applyFormat, continueListOnEnter } = await import('/utils/markdown-toolbar.js');
 
 const apply = (text, format, start, end) => {
   const ta = fakeTextarea(text, start ?? text.length, end ?? start ?? text.length);
@@ -123,6 +125,78 @@ test('der Link ist ein Link, den der Renderer als sicher durchlaesst', () => {
   assert.match(written, /^\[Rezept\]\(.+\)$/);
   const withUrl = written.replace(/\((.+)\)$/, '(https://example.com)');
   assert.match(renderMarkdownLight(withUrl), /<a class="note-md-link" href="https:\/\/example.com"/);
+});
+
+// --------------------------------------------------------------------------
+// Enter in einer Liste: Fortsetzung und Austritt
+//
+// Dasselbe Textarea-Doppel wie oben - continueListOnEnter benutzt dieselbe
+// Oberflaeche wie applyFormat und ist damit ohne DOM pruefbar.
+// --------------------------------------------------------------------------
+
+const enter = (text, cursor) => {
+  const ta = fakeTextarea(text, cursor ?? text.length);
+  return { handled: continueListOnEnter(ta), value: ta.value };
+};
+
+test('Enter setzt jeden Marker in der neuen Zeile fort', () => {
+  assert.deepEqual(enter('- Milch'),       { handled: true, value: '- Milch\n- ' });
+  assert.deepEqual(enter('1. Milch'),      { handled: true, value: '1. Milch\n2. ' });
+  assert.deepEqual(enter('3) Milch'),      { handled: true, value: '3) Milch\n4) ' });
+  assert.deepEqual(enter('- [ ] Milch'),   { handled: true, value: '- [ ] Milch\n- [ ] ' });
+  assert.deepEqual(enter('> Zitat'),       { handled: true, value: '> Zitat\n> ' });
+});
+
+test('die nummerierte Liste zaehlt hinter der aktuellen Zahl weiter', () => {
+  assert.deepEqual(enter('3. Milch'), { handled: true, value: '3. Milch\n4. ' });
+  assert.deepEqual(enter('9. Milch'), { handled: true, value: '9. Milch\n10. ' });
+});
+
+test('ein abgehaktes Kaestchen setzt ein unabgehaktes fort', () => {
+  assert.deepEqual(enter('- [x] Milch'), { handled: true, value: '- [x] Milch\n- [ ] ' });
+});
+
+test('Enter auf dem leeren Eintrag verlaesst die Liste', () => {
+  // Der Klick auf das Kaestchen setzt '- [ ] '; ein Enter dahinter soll
+  // nichts zweimal einfuegen, sondern die Liste sauber beenden.
+  assert.deepEqual(enter('- '),     { handled: true, value: '\n' });
+  assert.deepEqual(enter('1. '),    { handled: true, value: '\n' });
+  assert.deepEqual(enter('- [ ] '), { handled: true, value: '\n' });
+  assert.deepEqual(enter('> '),     { handled: true, value: '\n' });
+  assert.deepEqual(enter('Einkauf\n- '), { handled: true, value: 'Einkauf\n\n' });
+});
+
+test('die Einrueckung von bis zu drei Leerzeichen wandert mit', () => {
+  assert.deepEqual(enter('  - Milch'),   { handled: true, value: '  - Milch\n  - ' });
+  assert.deepEqual(enter('   1. Milch'),  { handled: true, value: '   1. Milch\n   2. ' });
+  assert.deepEqual(enter('  - [ ] Milch'),{ handled: true, value: '  - [ ] Milch\n  - [ ] ' });
+});
+
+test('ohne Marker oder mit Auswahl greift Enter nicht ein', () => {
+  assert.equal(enter('Milch kaufen').handled, false);
+  assert.equal(enter('').handled, false);
+
+  const ta = fakeTextarea('- Milch und Brot', 2, 19);
+  assert.equal(continueListOnEnter(ta), false);
+  assert.equal(ta.value, '- Milch und Brot', 'nicht weitergeschrieben');
+});
+
+test('mitten in der Zeile spaltet Enter den Eintrag', () => {
+  // Cursor hinter dem Marker: der Rest rueckt in die neue Zeile mit Marker.
+  assert.deepEqual(enter('- [ ] Milch', 6), { handled: true, value: '- [ ] \n- [ ] Milch' });
+  assert.deepEqual(enter('- Milch', 2),     { handled: true, value: '- \n- Milch' });
+});
+
+test('was Enter fortschreibt, liest die Lesesicht weiter als Liste', () => {
+  // Die Paritaet, auf der auch die Knopftests stehen: die fortgesetzte Zeile
+  // ist ein Listeneintrag und kein Fliesstext.
+  const check = (written, expected) =>
+    assert.match(renderMarkdownLight(written), expected);
+
+  check(`${enter('- [ ] Milch').value}Brot`, /note-md-checklist/);
+  check(`${enter('- Milch').value}Brot`, /note-md-ul/);
+  check(`${enter('3. Milch').value}Brot`, /note-md-ol/);
+  check(`${enter('> Zitat').value}mehr`, /note-md-quote/);
 });
 
 // --------------------------------------------------------------------------

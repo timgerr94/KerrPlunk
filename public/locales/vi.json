@@ -1146,6 +1146,7 @@
         "pinnedLabel": "Ghim (hiển thị trên tổng quan)",
         "pinAction": "Ghim",
         "unpinAction": "Bỏ ghim",
+        "uncheckAllNamed": "Bỏ chọn tất cả các mục: {{name}}",
         "deleteLabel": "Xóa ghi chú",
         "deleteConfirm": "Thực sự xóa ghi chú này?",
         "createdToast": "Ghi chú đã tạo",

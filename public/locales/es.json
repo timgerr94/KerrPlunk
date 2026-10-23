@@ -1146,6 +1146,7 @@
         "pinnedLabel": "Fijar (aparece en el panel)",
         "pinAction": "Fijar",
         "unpinAction": "Desfijar",
+        "uncheckAllNamed": "Desmarcar todos los elementos: {{name}}",
         "deleteLabel": "Eliminar nota",
         "deleteConfirm": "¿Eliminar nota?",
         "createdToast": "Nota creada",

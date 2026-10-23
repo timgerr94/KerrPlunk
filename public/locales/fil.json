@@ -1161,6 +1161,7 @@
         "pinnedLabel": "I-pin (lalabas sa dashboard)",
         "pinAction": "I-pin",
         "unpinAction": "I-unpin",
+        "uncheckAllNamed": "Alisin ang tsek sa lahat ng aytem: {{name}}",
         "deleteLabel": "Tanggalin ang tala",
         "deleteConfirm": "Talagang tanggalin ang talang ito?",
         "createdToast": "Nagawa ang tala",

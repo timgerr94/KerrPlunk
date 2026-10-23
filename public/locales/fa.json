@@ -1161,6 +1161,7 @@
         "pinnedLabel": "سنجاق کردن (در داشبورد نمایش داده می‌شود)",
         "pinAction": "سنجاق کردن",
         "unpinAction": "برداشتن سنجاق",
+        "uncheckAllNamed": "برداشتن تیک همه موارد: {{name}}",
         "deleteLabel": "حذف یادداشت",
         "deleteConfirm": "آیا واقعاً یادداشت حذف شود؟",
         "createdToast": "یادداشت ایجاد شد",

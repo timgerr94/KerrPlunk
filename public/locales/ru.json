@@ -1286,6 +1286,7 @@
         "pinnedLabel": "Закрепить (отображается на панели)",
         "pinAction": "Закрепить",
         "unpinAction": "Открепить",
+        "uncheckAllNamed": "Снять отметки со всех пунктов: {{name}}",
         "deleteLabel": "Удалить заметку",
         "deleteConfirm": "Удалить эту заметку?",
         "createdToast": "Заметка создана",

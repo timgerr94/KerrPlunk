@@ -54,8 +54,9 @@ export function renderMarkdownToolbar() {
 }
 
 /**
- * Haengt die Leiste an ein Textfeld: Klicks auf die Buttons und die drei
- * Tastenkuerzel, die jeder aus einem Textverarbeitungsprogramm mitbringt.
+ * Haengt die Leiste an ein Textfeld: Klicks auf die Buttons, die drei
+ * Tastenkuerzel, die jeder aus einem Textverarbeitungsprogramm mitbringt,
+ * und die Fortsetzung von Listen und Zitaten bei Enter.
  *
  * @param {ParentNode} root Container, der Leiste UND Textfeld enthaelt
  * @param {HTMLTextAreaElement} textarea
@@ -69,11 +70,75 @@ export function wireMarkdownToolbar(root, textarea) {
   });
 
   textarea.addEventListener('keydown', (e) => {
+    // Ein unmodifiziertes Enter setzt Listen und Zitate fort - Shift+Enter
+    // bleibt der harte Umbruch, den man auch ausserhalb einer Liste erwartet,
+    // und waehrend einer IME-Eingabe gehoert die Taste dem Eingabefeld.
+    if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey
+        && !e.altKey && !e.isComposing) {
+      if (continueListOnEnter(textarea)) e.preventDefault();
+      return;
+    }
     if (!e.ctrlKey && !e.metaKey) return;
     if (e.key === 'b') { e.preventDefault(); applyFormat(textarea, 'bold'); }
     if (e.key === 'i') { e.preventDefault(); applyFormat(textarea, 'italic'); }
     if (e.key === 'u') { e.preventDefault(); applyFormat(textarea, 'underline'); }
   });
+}
+
+// Reihenfolge = Spezifitaet: die Checkliste vor der schlichten Aufzaehlung,
+// denn "- [ ] " traegt beide Praefixe. Die Regeln sind die aus der Lesesicht
+// (renderMarkdownLight): bis zu drei fuehrende Leerzeichen, -/*/+ als
+// Aufzaehlungsstrich, Punkt oder Klammer hinter der Zahl.
+const CONTINUATION_RULES = [
+  { re: /^( {0,3})[-*+]\s+\[[ xX]\]\s+/, next: (m) => `${m[1]}- [ ] ` },
+  { re: /^( {0,3})(\d+)([.)])\s+/,        next: (m) => `${m[1]}${Number(m[2]) + 1}${m[3]} ` },
+  { re: /^( {0,3})[-*+]\s+/,              next: (m) => `${m[1]}- ` },
+  { re: /^( {0,3})>\s?/,                  next: (m) => `${m[1]}> ` },
+];
+
+/**
+ * Enter in einer Listen- oder Zitatzeile: Die neue Zeile beginnt mit demselben
+ * Marker - ein Klick auf das Kaestchen genuegt dann fuer die ganze Einkaufsliste.
+ *
+ * Zwei Faelle, beide wie in jedem Textverarbeitungsprogramm:
+ *  - Steht Text hinter dem Marker, wandert der Marker in die neue Zeile.
+ *  - Steht nichts ausser dem Marker (vielleicht Leerzeichen), verlaesst das
+ *    Enter die Liste: Der Marker verschwindet, eine leere Zeile beginnt.
+ *    Doppel-Enter ist damit das Ende jeder Liste.
+ *
+ * Rueckgabe statt preventDefault hier: Der Aufrufer entscheidet, ob die
+ * Standard-Enter-Behandlung noch durchgreift - genau wie bei applyFormat ist
+ * die Funktion damit ohne DOM pruefbar, nur value und Selektion zaehlen.
+ *
+ * @param {HTMLTextAreaElement} textarea
+ * @returns {boolean} true, wenn die Eingabe uebernommen wurde
+ */
+export function continueListOnEnter(textarea) {
+  const start = textarea.selectionStart;
+  if (textarea.selectionEnd !== start) return false;
+  const text = textarea.value;
+  const head = text.lastIndexOf('\n', start - 1) + 1;
+  const line = text.slice(head, start);
+
+  let marker = null, matched = null;
+  for (const rule of CONTINUATION_RULES) {
+    const m = line.match(rule.re);
+    if (m) { marker = rule.next(m); matched = m; break; }
+  }
+  if (!marker) return false;
+
+  // Zeilenende fuer die Leere-Item-Probe: bis zum naechsten Umbruch.
+  const nl   = text.indexOf('\n', start);
+  const stop = nl === -1 ? text.length : nl;
+
+  // Leeres Item: Der Rest der Zeile ist nur der Marker samt Leerzeichen.
+  if (text.slice(head + matched[0].length, stop).trim() === '') {
+    textarea.setRangeText('\n', head, stop, 'end');
+    return true;
+  }
+
+  textarea.setRangeText(`\n${marker}`, start, start, 'end');
+  return true;
 }
 
 /**

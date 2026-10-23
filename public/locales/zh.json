@@ -1146,6 +1146,7 @@
         "pinnedLabel": "置顶（显示在仪表板）",
         "pinAction": "置顶",
         "unpinAction": "取消置顶",
+        "uncheckAllNamed": "取消勾选所有项目：{{name}}",
         "deleteLabel": "删除便签",
         "deleteConfirm": "确定删除便签？",
         "createdToast": "便签已创建",

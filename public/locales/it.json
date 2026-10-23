@@ -1146,6 +1146,7 @@
         "pinnedLabel": "Fissa (appare sulla dashboard)",
         "pinAction": "Fissa",
         "unpinAction": "Sfissa",
+        "uncheckAllNamed": "Deseleziona tutti gli elementi: {{name}}",
         "deleteLabel": "Elimina nota",
         "deleteConfirm": "Eliminare davvero questa nota?",
         "createdToast": "Nota creata",

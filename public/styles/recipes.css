@@ -377,6 +377,25 @@
   color: var(--color-text-primary);
 }
 
+/* KOPFZEILE EINES ABSCHNITTS MIT KNOPF (2026-10-23): der Einkaufs-Ausgang
+ * des Zutaten-Abschnitts steht in derselben Zeile wie sein Wort, rechts -
+ * nicht unten in der Aktionszeile, wo er von den Zutaten getrennt war.
+ * UMBRUCH STATT CLIPPEN: .btn ist white-space: nowrap (layout.css), ein
+ * langes Label („Alles auf die Einkaufsliste") weicht in die zweite Zeile
+ * aus; margin-inline-start: auto richtet den Knopf auch als Einzigen der
+ * Zeile rechts aus, der Kopf bleibt links. */
+.recipe-detail__section-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.recipe-detail__section-head .btn {
+  margin-inline-start: auto;
+  flex-shrink: 0;
+}
+
 /* ZUTATEN IN PRIMAERTEXT: sie sind der Inhalt des Rezepts, nicht seine
  * Fussnote. Grau standen sie gleichrangig mit den Notizen und leiser als die
  * Zuordnungs-Knoepfe daneben (Re-Critique 2026-09-27, A4). */
@@ -748,14 +767,26 @@ button.recipe-detail__ingredient-match:hover {
     max(var(--space-3), env(safe-area-inset-left));
 }
 
-/* DIE KOPFLEISTE DES AUFKLAPPERS: der Ausgang ins Vollbild steht am Anfang
- * der Vorschau (buildRecipeList in recipes.js), rechtsbuendig wie eine
- * Werkzeugzeile - der Titel der Zeile darueber benennt das Rezept bereits,
- * links braeuchte er einen zweiten Anlauf. Nur der Aufklapper hat sie: die
- * Spalte fuehrt denselben Ausgang im Kopf, das Vollbild selbst keineswegs. */
+/* DIE KOPFLEISTE DES AUFKLAPPERS: zwei Ausgänge in EINER Zeile - der
+ * EINKAUF am linken Rand (klein, .btn--sm), der Ausgang ins VOLLBILD
+ * rechtsbuendig wie eine Werkzeugzeile; der Titel der Zeile darueber
+ * benennt das Rezept bereits. Das margin-inline-start: auto am
+ * Einkaufsknopf isst den Raum dazwischen: fehlt er (keine Liste, keine
+ * Rechte), steht der Einzelne rechts, wie die Leiste vorher stand.
+ * UMBRUCH STATT CLIPPEN: beide .btn sind nowrap, unter rund 360px weicht
+ * die Leiste in die zweite Zeile aus. Nur der Aufklapper hat sie: die
+ * Spalte fuehrt den Vollbild-Ausgang im Kopf und den Einkaufsknopf im
+ * Abschnittskopf, das Vollbild selbst keins von beiden. */
 .recipe-detail__fullscreen-bar {
   display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
   justify-content: flex-end;
+}
+
+.recipe-detail__fullscreen-bar .btn--sm {
+  margin-inline-start: auto;
 }
 
 /* Der Kopf der Detailspalte (layout.css) mit dem Polster des Vollbilds: die

@@ -1146,6 +1146,7 @@
         "pinnedLabel": "Vastpinnen (verschijnt op dashboard)",
         "pinAction": "Vastpinnen",
         "unpinAction": "Losmaken",
+        "uncheckAllNamed": "Alle items uitvinken: {{name}}",
         "deleteLabel": "Notitie verwijderen",
         "deleteConfirm": "Deze notitie echt verwijderen?",
         "createdToast": "Notitie aangemaakt",

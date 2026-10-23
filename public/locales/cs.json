@@ -1216,6 +1216,7 @@
         "pinnedLabel": "Připnout (zobrazí se na přehledu)",
         "pinAction": "Připnout",
         "unpinAction": "Odpnout",
+        "uncheckAllNamed": "Odškrtnout všechny položky: {{name}}",
         "deleteLabel": "Smazat poznámku",
         "deleteConfirm": "Opravdu smazat tuto poznámku?",
         "createdToast": "Poznámka vytvořena",

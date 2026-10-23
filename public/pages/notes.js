@@ -11,7 +11,7 @@ import { stagger, vibrate, scheduleUndoableDelete, wireScrollFade } from '/utils
 import { t } from '/i18n.js';
 import { esc, renderMarkdownLight } from '/utils/html.js';
 import { rowActionHtml } from '/utils/row-action.js';
-import { splitKeepingLineEndings } from '/utils/markdown-checklist.js';
+import { matchChecklistLine, splitKeepingLineEndings } from '/utils/markdown-checklist.js';
 import { renderMarkdownToolbar, wireMarkdownToolbar } from '/utils/markdown-toolbar.js';
 import { renderSkeletonList } from '/utils/skeleton.js';
 import { renderPageSearch, wirePageSearch } from '/utils/page-search.js';
@@ -130,6 +130,39 @@ function pinMarkup(note) {
       </span>`;
 }
 
+/**
+ * Traegt die Notiz mindestens einen GESETZTEN Checklisten-Haken? Entscheidet,
+ * ob der Ein-Knopf „alle Haken loesen" ueberhaupt etwas zu tun haette.
+ */
+function noteHasCheckedItem(note) {
+  // Gerade Indizes: splitKeepingLineEndings wechselt Zeile und Trenner ab -
+  // ein \r am Zeilenende (CRLF-Notiz) waere fuer das zeilenverankerte
+  // Kaestchen-Muster Teil der Zeile und wuerde sie unkenntlich machen.
+  const parts = splitKeepingLineEndings(note?.content);
+  for (let at = 0; at < parts.length; at += 2) {
+    if (matchChecklistLine(parts[at])?.checked) return true;
+  }
+  return false;
+}
+
+/**
+ * Der Ein-Knopf „alle Haken loesen" - links neben der Nadel.
+ *
+ * Nur da, wo er etwas tun kann: auf einer Karte mit mindestens einem
+ * gesetzten Haken. Ohne den verspraeche er eine Handlung, die nichts tut -
+ * dasselbe Argument, das der Nadel bei einer nicht angepinnten Notiz ihren
+ * Platz nimmt, nur entscheidet hier der DATENSATZ statt des Rechts. Und der
+ * Knopf heisst die Notiz bei Namen wie jeder Kartenknopf: zwanzig Knoepfe,
+ * die alle „alles abhaken" heissen, sind fuer einen Screenreader einer.
+ */
+function uncheckMarkup(note) {
+  if (readOnly() || !noteHasCheckedItem(note)) return '';
+  return `<button type="button" class="note-card__uncheck" data-action="uncheck-all" data-id="${note.id}"
+            aria-label="${esc(t('notes.uncheckAllNamed', { name: noteName(note) }))}">
+        <i data-lucide="eraser" class="icon-sm" aria-hidden="true"></i>
+      </button>`;
+}
+
 // --------------------------------------------------------
 // Antippbare Checklisten (#704)
 // --------------------------------------------------------
@@ -220,6 +253,67 @@ async function handleCheckConflict() {
   await reloadNotes();
 }
 
+/**
+ * Zeichnet jeden Haken der Notiz so, wie der uebergebene Text ihn beschreibt.
+ *
+ * Der Rueckweg eines gescheiterten „alle Haken loesen": der eigene Stand in
+ * state.notes ist unveraendert (er wandert erst nach dem Erfolg hinein), und
+ * genau der steht wieder auf den Kaestchen.
+ */
+function paintChecklistFromContent(noteId, content) {
+  const parts = splitKeepingLineEndings(content);
+  for (let line = 0; line * 2 < parts.length; line++) {
+    const item = matchChecklistLine(parts[line * 2]);
+    if (item) paintCheck(noteId, line, item.checked);
+  }
+}
+
+/**
+ * Alle Haken einer Notiz auf einmal loesen - der Ein-Knopf links neben der
+ * Nadel.
+ *
+ * Derselbe Vertrag wie toggleCheck: optimistisch, derselbe Konfliktweg. Die
+ * Sperre ist der GESAMTE Inhalt statt einer einzelnen Zeile, weil der Knopf
+ * keine Zeilennummer adressiert - die Route entscheidet ueber alle Zeilen
+ * in einem Zug, es gibt kein halb geloest.
+ */
+async function uncheckAll(id) {
+  // Der zweite Riegel hinter dem Markup, derselbe wie beim einzelnen Haken.
+  if (readOnly()) return;
+  const note = state.notes.find((n) => n.id === id);
+  if (!note || !noteHasCheckedItem(note)) return;
+
+  // Optimistisch: jede Ansicht, die die Notiz gerade zeigt, verliert ihre
+  // Haken sofort (Karte und offene Leseansicht - dieselben Wurzeln wie
+  // paintCheck, nur eben alle Kaestchen statt eines).
+  const roots = [
+    _container?.querySelector(`.note-card[data-id="${id}"] .note-card__content`),
+    document.querySelector(`.note-modal[data-note-id="${id}"] .note-read__body`),
+  ];
+  for (const root of roots) {
+    root?.querySelectorAll('.note-md-box[data-md-checked="1"]').forEach((box) => {
+      paintCheck(id, parseInt(box.dataset.mdLine, 10), false);
+    });
+  }
+  vibrate(10);
+
+  try {
+    const res = await api.patch(`/notes/${id}/uncheck-all`, { expect: note.content });
+    note.content    = res.data.content;
+    note.updated_at = res.data.updated_at;
+    // Nichts mehr zu loesen - der Knopf verschwindet mit diesem Zug statt bis
+    // zum naechsten Renderrlauf zu versprechen, was er nicht mehr tun kann.
+    _container?.querySelector(`.note-card[data-id="${id}"] .note-card__uncheck`)?.remove();
+  } catch (err) {
+    paintChecklistFromContent(id, note.content);
+    if (err.status === 409) {
+      await handleCheckConflict();
+    } else {
+      window.yuvomi?.showToast(err.data?.error ?? t('common.unknownError'), 'danger');
+    }
+  }
+}
+
 // --------------------------------------------------------
 // Entry Point
 // --------------------------------------------------------
@@ -295,11 +389,16 @@ export async function render(container, { user, signal }) {
     // uebrig gebliebenen Knoten die Wirkung. Eine Positivliste braucht dieser
     // Handler nicht: sein einziger lesender Zweig ist die Karte selbst, und die
     // steht unter dem Riegel.
-    const schreibweg = e.target.closest('[data-action="pin"], [data-action="delete"], .note-md-box[data-md-line]');
+    const schreibweg = e.target.closest('[data-action="pin"], [data-action="delete"], [data-action="uncheck-all"], .note-md-box[data-md-line]');
     if (schreibweg && readOnly()) { e.stopPropagation(); return; }
 
     const pinBtn = e.target.closest('[data-action="pin"]');
     if (pinBtn) { e.stopPropagation(); await togglePin(parseInt(pinBtn.dataset.id, 10)); return; }
+
+    // „Alle Haken loesen" darf die Notiz nicht oeffnen - derselbe Grund wie
+    // beim einzelnen Kaestchen, nur fuer alle auf einmal.
+    const uncheckBtn = e.target.closest('[data-action="uncheck-all"]');
+    if (uncheckBtn) { e.stopPropagation(); await uncheckAll(parseInt(uncheckBtn.dataset.id, 10)); return; }
 
     const delBtn = e.target.closest('[data-action="delete"]');
     if (delBtn) { e.stopPropagation(); await deleteNote(parseInt(delBtn.dataset.id, 10)); return; }
@@ -606,6 +705,7 @@ function renderNoteCard(note, { headingLevel = 2 } = {}) {
           * (notes.css, z-index). */ ''}
       <button type="button" class="note-card__open" data-action="open" data-id="${note.id}"
               aria-label="${esc(t('notes.openNamed', { name: noteName(note) }))}"></button>
+      ${uncheckMarkup(note)}
       ${pinMarkup(note)}
       ${/* ECHTE UEBERSCHRIFT STATT `div` (R8 H15): die Ueberschriften-
           * Navigation eines Screenreaders fand bis dahin keine einzige Notiz.
@@ -1451,7 +1551,7 @@ async function deleteNote(id) {
  * Speicher sich nicht stellen liesse.
  */
 export const __test = {
-  renderNoteCard, notesEmptyStateHtml, renderNoteReadHtml, pinMarkup,
+  renderNoteCard, notesEmptyStateHtml, renderNoteReadHtml, pinMarkup, uncheckMarkup,
   CHECKLIST_OPTS, readOnly, state,
   // Der Dialog kommt mit, weil seine Aussage KEIN Markup dieser Seite ist:
   // welchen Inhalt der Zettel bekommt, sieht nur der, der `openModal` die

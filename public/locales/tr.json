@@ -1146,6 +1146,7 @@
         "pinnedLabel": "Sabitle (gösterge panelinde görünür)",
         "pinAction": "Sabitle",
         "unpinAction": "Sabitlemeyi kaldır",
+        "uncheckAllNamed": "Tüm öğelerin işaretini kaldır: {{name}}",
         "deleteLabel": "Notu sil",
         "deleteConfirm": "Bu not silinsin mi?",
         "createdToast": "Not oluşturuldu",

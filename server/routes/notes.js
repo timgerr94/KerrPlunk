@@ -9,7 +9,7 @@ import express from 'express';
 import * as db from '../db.js';
 import { str, color, collectErrors, MAX_TEXT, MAX_TITLE } from '../middleware/validate.js';
 import { isAdminRequest } from '../middleware/require-admin.js';
-import { toggleChecklistLine } from '../../public/utils/markdown-checklist.js';
+import { toggleChecklistLine, uncheckAllChecklistLines } from '../../public/utils/markdown-checklist.js';
 import { resolvePermissions } from '../permissions.js';
 import {
   categoryNameKey,
@@ -393,6 +393,59 @@ router.patch('/:id/check', (req, res) => {
     // `changed: false` heißt, der Eintrag stand schon so - dann bleibt auch
     // `updated_at` unangetastet, sonst sortierte ein folgenloser Tap die
     // Pinnwand um.
+    if (result.changed) {
+      db.get().prepare('UPDATE notes SET content = ? WHERE id = ?').run(result.content, id);
+    }
+
+    const updated = db.get().prepare(`
+      SELECT n.*, u.display_name AS creator_name, u.avatar_color AS creator_color, u.avatar_data AS creator_avatar
+      FROM notes n LEFT JOIN users u ON u.id = n.created_by WHERE n.id = ?
+    `).get(id);
+
+    res.json({ data: oneWithCategories(updated, req) });
+  } catch (err) {
+    log.error('', err);
+    res.status(500).json({ error: 'Interner Fehler', code: 500 });
+  }
+});
+
+/**
+ * PATCH /api/v1/notes/:id/uncheck-all
+ * Jeden Haken einer Checkliste auf einmal lösen - der Ein-Knopf auf der Karte.
+ *
+ * Warum eine eigene Route statt einer Schleife über /check: der Client kennt
+ * den Stand nur, wie er ihn gesehen hat. Nach dem ersten Haken wäre sein
+ * `expect` veraltet, der zweite ginge als 409 durch - halb gelöst, mit
+ * Konfliktmeldung. Hier entscheidet der Server über ALLE Zeilen in EINEM
+ * Zug über dem gespeicherten Stand: entweder gehen alle Haken oder keiner.
+ *
+ * Body: { expect?: string } - der GESEHENE Gesamtinhalt statt einer einzelnen
+ * Zeile. Weicht er ab, hat jemand anderes geschrieben → 409 statt halbiert.
+ *
+ * Response: { data: Note } | 409 { code: 409, reason }
+ */
+router.patch('/:id/uncheck-all', (req, res) => {
+  try {
+    const id   = parseInt(req.params.id, 10);
+    const note = db.get().prepare('SELECT * FROM notes WHERE id = ?').get(id);
+    if (!note) return res.status(404).json({ error: 'Notiz nicht gefunden', code: 404 });
+
+    const { expect } = req.body;
+    if (expect !== undefined && expect !== null && typeof expect !== 'string')
+      return res.status(400).json({ error: 'Ungültige Inhaltsprüfung.', code: 400 });
+
+    const result = uncheckAllChecklistLines(note.content, expect);
+    if (!result.ok) {
+      return res.status(409).json({
+        error: 'Die Notiz hat sich inzwischen geändert.',
+        code:  409,
+        reason: result.reason,
+      });
+    }
+
+    // `changed: false` heißt, es stand kein Haken - dann bleibt auch
+    // `updated_at` unangetastet, sonst sortierte ein folgenloser Tap die
+    // Pinnwand um (dieselbe Vereinbarung wie bei /check).
     if (result.changed) {
       db.get().prepare('UPDATE notes SET content = ? WHERE id = ?').run(result.content, id);
     }

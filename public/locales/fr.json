@@ -1146,6 +1146,7 @@
         "pinnedLabel": "Épingler (apparaît sur le tableau de bord)",
         "pinAction": "Épingler",
         "unpinAction": "Désépingler",
+        "uncheckAllNamed": "Décocher tous les éléments : {{name}}",
         "deleteLabel": "Supprimer la note",
         "deleteConfirm": "Supprimer cette note ?",
         "createdToast": "Note créée",

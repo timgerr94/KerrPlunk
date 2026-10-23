@@ -2591,8 +2591,15 @@ test('Meals page adds a recipe sidebar and randomize planner controls', () => {
   assert.match(mealsPage, /function wireRecipeSidebar/);
   assert.match(mealsPage, /confirmModal\(t\('meals\.replaceExistingConfirm'\)/, 'dropping onto occupied slots should use a dedicated localized confirmation string');
   assert.match(mealsPage, /recipeSupportsMealType/);
+  // Die Suche der Rezept-Spalte (2026-10-23): geteilter Baustein und dieselben
+  // Trefferfelder wie die Rezeptsuche (Titel, Notizen, Zutaten, Kueche, Diet).
+  // Verhalten: test-meals-recipe-entry.js, Abschnitt (d).
+  assert.match(mealsPage, /renderPageSearch\(\{/);
+  assert.match(mealsPage, /id: 'meals-rail-search'/);
+  assert.match(mealsPage, /cuisine\?\.toLowerCase\(\)\.includes\(q\)/);
   assert.match(mealsCss, /\.meals-layout\s*\{/);
   assert.match(mealsCss, /\.recipe-sidebar\s*\{/);
+  assert.match(mealsCss, /\.recipe-sidebar__search\s*\{/);
   assertKeysExistInEveryLocale([
     'meals.randomizePlan',
     'meals.randomizeTitle',

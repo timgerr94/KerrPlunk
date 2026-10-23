@@ -1356,6 +1356,7 @@
         "pinnedLabel": "تثبيت (يظهر على لوحة التحكم)",
         "pinAction": "تثبيت",
         "unpinAction": "إلغاء التثبيت",
+        "uncheckAllNamed": "إلغاء تحديد جميع العناصر: {{name}}",
         "deleteLabel": "حذف الملاحظة",
         "deleteConfirm": "هل تريد حذف الملاحظة؟",
         "createdToast": "تم إنشاء الملاحظة",

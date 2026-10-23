@@ -7,8 +7,8 @@
  *  - renderMarkdownLight: Kaestchen sind ohne Opt-in Dekoration und mit Opt-in
  *    ein Bedienelement mit Quellzeilennummer
  *  - PATCH /:id/check: zwei Mitglieder haken verschiedene Zeilen ab, ohne dass
- *    einer den anderen ueberschreibt (der Grund, warum die Route existiert)
- *  - das Dashboard bekommt die interaktive Fassung ausdruecklich NICHT
+ *    einer den anderen ueberschreibt (der Grund, warum die Route existiert) *  - PATCH /:id/uncheck-all: der Ein-Knopf auf der Karte loest jeden Haken
+ *    in EINEM Zug - entweder alle oder keiner *  - das Dashboard bekommt die interaktive Fassung ausdruecklich NICHT
  *  - i18n: die neuen Keys in allen Locales
  * Ausfuehren: node --experimental-sqlite --test test/test-notes-checklist.js
  */
@@ -23,6 +23,7 @@ import { readFile, readdir } from 'node:fs/promises';
 import { renderMarkdownLight } from '../public/utils/html.js';
 import {
   toggleChecklistLine,
+  uncheckAllChecklistLines,
   matchChecklistLine,
   splitKeepingLineEndings,
 } from '../public/utils/markdown-checklist.js';
@@ -105,6 +106,39 @@ test('splitKeepingLineEndings ist verlustfrei', () => {
   for (const text of ['a\nb', 'a\r\nb\rc', '', 'nur eine Zeile', 'ende\n']) {
     assert.equal(splitKeepingLineEndings(text).join(''), text);
   }
+});
+
+// --------------------------------------------------------------------------
+// Alle Haken auf einmal (der Ein-Knopf auf der Karte)
+// --------------------------------------------------------------------------
+
+test('uncheckAllChecklistLines loest jeden Haken und laesst den Rest zeichengetreu', () => {
+  const before = '# Einkauf\n\n- [x] Milch\n- [ ] Brot\n  * [X] Butter\r\n> Zitat';
+  const r = uncheckAllChecklistLines(before);
+  assert.equal(r.ok, true);
+  assert.equal(r.changed, true);
+  assert.equal(r.content, '# Einkauf\n\n- [ ] Milch\n- [ ] Brot\n  * [ ] Butter\r\n> Zitat');
+});
+
+test('uncheckAllChecklistLines: ohne Haken kein Schreibvorgang, Inhalt byte-identisch', () => {
+  const text = '- [ ] Milch\nText ohne Kaestchen\n';
+  const r = uncheckAllChecklistLines(text);
+  assert.equal(r.ok, true);
+  assert.equal(r.changed, false);
+  assert.equal(r.content, text);
+});
+
+test('uncheckAllChecklistLines: der gesammelte expect faengt jeden fremden Schreibzug ab', () => {
+  const r = uncheckAllChecklistLines('- [x] Milch\n- [x] Brot', '- [x] Milch');
+  assert.equal(r.ok, false);
+  assert.equal(r.reason, 'stale', 'lieber ein Konflikt als ein Stand, der halb echt ist');
+});
+
+test('uncheckAllChecklistLines: leere Notiz ist kein Fehler', () => {
+  const r = uncheckAllChecklistLines('');
+  assert.equal(r.ok, true);
+  assert.equal(r.changed, false);
+  assert.equal(r.content, '');
 });
 
 // --------------------------------------------------------------------------
@@ -353,6 +387,40 @@ test('ein folgenloser Tap sortiert die Pinnwand nicht um', async () => {
   assert.equal(r.body.data.updated_at, before, 'kein Schreibvorgang, kein neues updated_at');
 });
 
+test('PATCH /:id/uncheck-all loest jeden Haken der Notiz in einem Zug', async () => {
+  const note = await newNote('- [x] Milch\n- [ ] Brot\n- [X] Butter');
+  const r = await call('PATCH', `/${note.id}/uncheck-all`, { expect: note.content });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.data.content, '- [ ] Milch\n- [ ] Brot\n- [ ] Butter');
+});
+
+test('PATCH /:id/uncheck-all ohne Haken: Inhalt und updated_at unangetastet', async () => {
+  const note = await newNote('- [ ] Milch');
+  const before = (await call('GET', '/')).body.data.find((n) => n.id === note.id).updated_at;
+  const r = await call('PATCH', `/${note.id}/uncheck-all`, { expect: note.content });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.data.content, '- [ ] Milch');
+  assert.equal(r.body.data.updated_at, before, 'kein Schreibvorgang, kein neues updated_at');
+});
+
+test('PATCH /:id/uncheck-all: veralteter Gesamtinhalt → 409, nichts halbiert', async () => {
+  const note = await newNote('- [x] Milch');
+  // Jemand schreibt laenger, waehrend die Karte offen war: der gespeicherte
+  // Stand hat einen Eintrag mehr als der, den der Client gesehen hat.
+  await call('PUT', `/${note.id}`, { content: '- [x] Milch\n- [x] Brot' });
+  const r = await call('PATCH', `/${note.id}/uncheck-all`, { expect: '- [x] Milch' });
+  assert.equal(r.status, 409);
+  assert.equal(r.body.reason, 'stale');
+  const after = (await call('GET', '/')).body.data.find((n) => n.id === note.id);
+  assert.equal(after.content, '- [x] Milch\n- [x] Brot', 'entweder alle Haken oder keiner');
+});
+
+test('PATCH /:id/uncheck-all: falsch getypte Pruefung → 400, unbekannte Notiz → 404', async () => {
+  const note = await newNote('- [ ] Milch');
+  assert.equal((await call('PATCH', `/${note.id}/uncheck-all`, { expect: 7 })).status, 400);
+  assert.equal((await call('PATCH', '/999999/uncheck-all', {})).status, 404);
+});
+
 // --------------------------------------------------------------------------
 // i18n
 // --------------------------------------------------------------------------
@@ -363,7 +431,7 @@ test('die neuen Keys stehen in allen Locales und sind uebersetzt', async () => {
   assert.ok(files.length >= 20, 'alle Locales werden geprueft');
 
   const de = JSON.parse(await readFile(new URL('de.json', dir), 'utf8'));
-  for (const key of ['checklistToggle', 'checkConflict']) {
+  for (const key of ['checklistToggle', 'checkConflict', 'uncheckAllNamed']) {
     for (const f of files) {
       const d = JSON.parse(await readFile(new URL(f, dir), 'utf8'));
       const value = d.notes?.[key];

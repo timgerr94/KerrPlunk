@@ -1301,6 +1301,7 @@
         "pinnedLabel": "Przypnij (widoczne na pulpicie)",
         "pinAction": "Przypnij",
         "unpinAction": "Odepnij",
+        "uncheckAllNamed": "Odznacz wszystkie pozycje: {{name}}",
         "deleteLabel": "Usuń notatkę",
         "deleteConfirm": "Naprawdę usunąć notatkę?",
         "createdToast": "Notatka utworzona",

@@ -1161,6 +1161,7 @@
         "pinnedLabel": "Anpinnen (erscheint auf Dashboard)",
         "pinAction": "Anpinnen",
         "unpinAction": "Anpinnen aufheben",
+        "uncheckAllNamed": "Alle Haken lösen: {{name}}",
         "deleteLabel": "Notiz löschen",
         "deleteConfirm": "Notiz wirklich löschen?",
         "createdToast": "Notiz erstellt",

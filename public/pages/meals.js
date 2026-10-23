@@ -16,7 +16,7 @@ import { resolveShoppingTarget, announceTransfer, mountMissingShoppingList, mayT
 import { ingredientRowHTML } from '/utils/ingredient-row.js';
 import { addLocalDays, startOfLocalWeekKey, todayKey } from '/utils/date.js';
 import { normalizeRecipeMealTypes, recipeSupportsMealType, recipeAllowsMealType } from '/utils/recipe-meal-types.js';
-import { mountEmptyState, mountLoadError, emptyStateEl } from '/utils/empty-state.js';
+import { mountLoadError, emptyStateEl } from '/utils/empty-state.js';
 import { mealPayloadFromRecipe } from '/utils/recipe-to-meal.js';
 import { findPageFab } from '/utils/fab.js';
 import { pageToolsMenuHtml, installPopoverMenus, syncPopoverMenuItem } from '/utils/popover-menu.js';
@@ -24,6 +24,7 @@ import { zonedWeekday, nowFields } from '/utils/timezone.js';
 import { mealTypeList, primeMealTypeNames, MEAL_TYPE_KEYS } from '/utils/meal-types.js';
 import { recipeThumbHtml, wireRecipeThumbs } from '/utils/recipe-thumb.js';
 import { toDecimalString, breaksOffAtSeparator, toStoredNumber } from '/utils/money.js';
+import { renderPageSearch, wirePageSearch } from '/utils/page-search.js';
 
 // --------------------------------------------------------
 // Konstanten
@@ -60,6 +61,9 @@ let state = {
   categories:       [],     // Einkaufskategorien für Zutaten
   modal:            null,
   visibleMealTypes: ['breakfast', 'lunch', 'dinner', 'snack'],
+  /** Suchbegriff der Rezept-Spalte (Rail). Dieselben Trefferfelder wie die
+   *  Rezeptsuche, nur auf die Spalte begrenzt - siehe filteredRailRecipes(). */
+  railQuery: '',
   /** Gefangener Fehler des letzten Wochen-Ladevorgangs, sonst null.
    *  Ohne dieses Feld ist eine fehlgeschlagene Woche von einer leeren Woche
    *  nicht zu unterscheiden - und der Renderer zeigte den Leerzustand. */
@@ -74,6 +78,10 @@ let _container = null;
  */
 let _railSettled = false;
 let _dragRecipeId = null;
+/** Griff auf das Suchfeld der Rezept-Spalte (utils/page-search.js) - fuer
+ *  clear() und Fokus im Leerzustand der Suche. Bei jedem Neuaufbau der
+ *  Spalte neu gesetzt, denn jedes renderRecipeSidebar() erzeugt ein frisches Feld. */
+let _railSearch = null;
 
 // --------------------------------------------------------
 // Datumshelfer
@@ -752,9 +760,10 @@ function renderWeekGrid() {
 
   updateWeekLabel();
 
-  // Fehlgeschlagene Woche: Fehlerzustand statt Leerzustand. Muss VOR der
-  // Leer-Prüfung stehen - `state.meals` ist nach einem Fehler ebenfalls leer,
-  // und die Reihenfolge ist das Einzige, was die beiden Fälle trennt.
+  // Fehlgeschlagene Woche: Fehlerzustand statt Raster. Muss VOR dem Rendern
+  // stehen - `state.meals` ist nach einem Fehler ebenfalls leer, und ein dann
+  // gebautes, leeres Raster waere von einer erfolgreichen leeren Woche nicht
+  // mehr zu unterscheiden.
   if (state.loadError) {
     grid.removeAttribute('aria-busy');
     mountLoadError(grid, {
@@ -771,37 +780,14 @@ function renderWeekGrid() {
     return;
   }
 
-  // Leere Woche: Leerzustand statt Slot-Raster.
-  //
-  // Der Essensplan ist die Default-Landung des Küchen-Moduls und war bis hierher
-  // der einzige der vier Tabs ohne Leerzustand - ein neuer Haushalt sah bis zu
-  // 28 gestrichelte Kästen ohne ein Wort, während die drei Geschwister je einen
-  // vollständigen Leerzustand mit CTA hatten (Critique P0, 2026-07-29).
-  //
-  // Der Hinweis richtet sich danach, was der Haushalt schon hat: ohne Rezepte
-  // nennt er die nächste Station des Kreislaufs (der Plan füllt die
-  // Einkaufsliste), mit Rezepten den schnelleren Weg (Rezept direkt einplanen).
-  // Die Wochennavigation im Kopf bleibt erreichbar - der Leerzustand ersetzt nur
-  // das Raster, nicht die Seite.
-  if (!state.meals.length) {
-    grid.removeAttribute('aria-busy');
-    mountEmptyState(grid, {
-      icon: 'utensils',
-      title: t('meals.emptyTitle'),
-      description: t('meals.emptyDescription'),
-      hint: state.recipes.length ? t('meals.emptyHintRecipes') : t('emptyHint.meals'),
-      action: {
-        label: t('meals.emptyAction'),
-        icon: 'plus',
-        onClick: () => openMealModal({
-          mode: 'create',
-          date: state.currentWeek,
-          mealType: state.visibleMealTypes[0] ?? 'lunch',
-        }),
-      },
-    });
-    return;
-  }
+  // KEIN eigener Leerzustand fuer die leere Woche: eine Woche ohne geplante
+  // Mahlzeit ist der ANFANGSZUSTAND des Plans, kein anderer Screen. Das Raster
+  // steht deshalb immer - seine leeren Slots tragen selbst das "+" je Tag und
+  // Typ, und genau dieses editierbare Raster nahm der Leerzustand weg, den
+  // Critique P0 (2026-07-29) hierher setzte: der erste Besuch zeigte statt des
+  // Plans eine Einladung, den Plan zu beginnen, und versteckte damit jeden Weg,
+  // den das Raster selbst schon ist - Slot-"+", Tag-Kopf, Ziehen aus der
+  // Rezept-Spalte.
 
   const weekDays = Array.from({ length: 7 }, (_, i) => addDays(state.currentWeek, i));
   const dayNames = DAY_NAMES();
@@ -949,10 +935,104 @@ function renderRecipeSidebar() {
   hint.textContent = t('recipes.railHint');
   sidebar.appendChild(hint);
 
+  // SUCHFELD UEBER DER LISTE: dieselben Treffer wie die Rezeptsuche - Titel,
+  // Notizen, Zutaten, Kueche und Diet (filteredRailRecipes) -, im geteilten
+  // Baustein (utils/page-search.js) statt eines eigenen Inputs. Die Spalte
+  // existiert nur ab 1024px (meals.css), also steht das Feld genau auf den
+  // weiten Screens, auf denen die Liste lang wird.
+  sidebar.insertAdjacentHTML('beforeend', renderPageSearch({
+    id: 'meals-rail-search',
+    // Dasselbe Label wie die Rezeptsuche: das Feld durchsucht dieselben
+    // Objekte, „Rezepte durchsuchen" benennt es vollstaendig.
+    label: t('recipes.searchPlaceholder'),
+    placeholder: t('recipes.searchPlaceholder'),
+    value: state.railQuery,
+    clearLabel: t('common.searchClear'),
+    className: 'recipe-sidebar__search',
+  }));
+  if (window.lucide) window.lucide.createIcons({ el: sidebar });
+  // Hier verdrahtet, nicht erst in render(): die Spalte wird auch nach
+  // „Als Rezept speichern" komplett neu gebaut, und jeder Neuaufbau erzeugt
+  // ein frisches Feld. Der Query-Callback baut NUR die Liste neu
+  // (renderRailList) - das Feld bleibt unberuehrt im DOM, sonst faelle der
+  // Fokus bei jedem Tastenanschlag aus der Eingabe.
+  _railSearch = wirePageSearch(sidebar, {
+    id: 'meals-rail-search',
+    onQuery: (value) => {
+      state.railQuery = value.trim();
+      renderRailList();
+    },
+  });
+
   const list = document.createElement('div');
   list.className = 'recipe-sidebar__list';
+  list.id = 'recipe-rail-list';
+  sidebar.appendChild(list);
+  fillRailList(list);
+}
 
-  state.recipes.forEach((recipe) => {
+/**
+ * Die Treffermenge der Spalten-Suche: dieselben Felder wie die Rezeptsuche
+ * (recipes.js, filteredRecipes) - Titel, Notizen, Zutaten, Kueche und Diet.
+ * Die Spalte zeigt dieselben Objekte wie die Rezeptliste, nur schmal; eine
+ * eigene Treffermenge waere eine zweite Wahrheit fuer dieselbe Frage. Die
+ * Rezeptliste ist vollstaendig geladen, ein Server-Roundtrip waere Umweg.
+ */
+function filteredRailRecipes() {
+  const q = state.railQuery.trim().toLowerCase();
+  if (!q) return state.recipes;
+  return state.recipes.filter((r) =>
+    r.title?.toLowerCase().includes(q)
+    || r.notes?.toLowerCase().includes(q)
+    || (r.ingredients ?? []).some((i) => i.name?.toLowerCase().includes(q))
+    || r.cuisine?.toLowerCase().includes(q)
+    || (r.diet ?? []).some((d) => String(d).toLowerCase().includes(q)));
+}
+
+/**
+ * Baut die Liste der Spalte neu, ohne das Suchfeld anzutassen - der Rueckweg
+ * eines Tastenanschlags (200 ms Entprellung im Baustein) darf den Fokus nicht
+ * kosten. Ohne Liste (keine Rezepte) gibt es kein Feld, also auch keinen Aufruf.
+ */
+function renderRailList() {
+  const list = _container.querySelector('#recipe-rail-list');
+  if (!list) return;
+  fillRailList(list);
+}
+
+/**
+ * Fuellt den Listen-Traeger der Spalte: alle Treffer der Suche als Karten,
+ * und den geteilten Leerzustand, wenn keiner bleibt (Varianten siehe
+ * utils/empty-state.js).
+ */
+function fillRailList(list) {
+  const recipes = filteredRailRecipes();
+  list.replaceChildren();
+
+  if (!recipes.length) {
+    list.appendChild(emptyStateEl({
+      variant: 'no-results',
+      title: t('recipes.noResultsTitle'),
+      description: t('recipes.searchNoResults'),
+      action: {
+        // Geteilter Key: „Suche leeren" steht in jedem Locale - die Spalte
+        // hat nur die Suche, das Label verspricht nicht mehr als sie tut.
+        label: t('common.searchClear'),
+        onClick: () => {
+          state.railQuery = '';
+          // clear() versteckt zugleich den Leeren-Knopf; ein blankes
+          // `value = ''` liesse ihn ueber dem leeren Feld stehen.
+          _railSearch?.clear();
+          renderRailList();
+          _railSearch?.input.focus();
+        },
+      },
+    }));
+    if (window.lucide) window.lucide.createIcons({ el: list });
+    return;
+  }
+
+  recipes.forEach((recipe) => {
     const card = document.createElement('article');
     card.className = 'recipe-sidebar__card';
     card.draggable = true;
@@ -1015,8 +1095,6 @@ function renderRecipeSidebar() {
 
     list.appendChild(card);
   });
-
-  sidebar.appendChild(list);
 }
 
 /**
@@ -2380,6 +2458,10 @@ export const __test = {
   railRecipeTarget,
   renderRecipeSidebar,
   wireRecipeSidebar,
+  // Die Suche der Rezept-Spalte: Treffermenge und Liste werden als Programm
+  // gefahren (test-meals-recipe-entry.js, Abschnitt (d)).
+  filteredRailRecipes,
+  renderRailList,
   mealTitleSuggestions,
 };
 

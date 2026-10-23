@@ -1161,6 +1161,7 @@
         "pinnedLabel": "고정 (대시보드에 표시)",
         "pinAction": "고정",
         "unpinAction": "고정 해제",
+        "uncheckAllNamed": "모든 항목 선택 해제: {{name}}",
         "deleteLabel": "메모 삭제",
         "deleteConfirm": "메모를 정말 삭제할까요?",
         "createdToast": "메모가 생성되었습니다",

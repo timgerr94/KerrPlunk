@@ -95,3 +95,36 @@ export function toggleChecklistLine(content, line, checked, expect) {
   parts[at] = `${item.prefix}${checked ? 'x' : ' '}${item.suffix}`;
   return { ok: true, content: parts.join(''), changed: true };
 }
+
+/**
+ * Loest jeden Haken der Checkliste auf einmal, ohne den Rest des Textes
+ * anzufassen.
+ *
+ * Das Gegenstueck zu toggleChecklistLine fuer den Ein-Knopf „alle Haken
+ * loesen" auf der Karte: derselbe Zeilenbegriff, nur alle Zeilen zusammen.
+ * Die Sperre ist hier der GESAMTE Text statt einer einzelnen Zeile - der
+ * Knopf adressiert schliesslich keine Zeilennummer, sondern die Notiz, die
+ * er gesehen hat. Weicht der gespeicherte Stand davon ab, hat jemand
+ * anderes geschrieben; dann lieber 409 als ein Stand, der halb echt ist.
+ *
+ * @param {string} content Der vollstaendige Notiztext
+ * @param {string} [expect] Erwarteter Gesamtinhalt (roh, mit allen Umbruechen)
+ * @returns {{ ok: true, content: string, changed: boolean }
+ *          |{ ok: false, reason: 'stale' }}
+ */
+export function uncheckAllChecklistLines(content, expect) {
+  if (expect !== undefined && expect !== null && String(content ?? '') !== expect) {
+    return { ok: false, reason: 'stale' };
+  }
+
+  const parts = splitKeepingLineEndings(content);
+  let changed = false;
+  for (let at = 0; at < parts.length; at += 2) {
+    const item = matchChecklistLine(parts[at]);
+    if (!item || !item.checked) continue;
+    parts[at] = `${item.prefix} ${item.suffix}`;
+    changed = true;
+  }
+  if (!changed) return { ok: true, content: String(content ?? ''), changed: false };
+  return { ok: true, content: parts.join(''), changed: true };
+}

@@ -1146,6 +1146,7 @@
         "pinnedLabel": "固定（ダッシュボードに表示）",
         "pinAction": "固定",
         "unpinAction": "固定を解除",
+        "uncheckAllNamed": "すべての項目のチェックを外す: {{name}}",
         "deleteLabel": "メモを削除",
         "deleteConfirm": "メモを削除しますか？",
         "createdToast": "メモを作成しました",

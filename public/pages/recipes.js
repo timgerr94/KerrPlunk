@@ -1246,16 +1246,20 @@ function buildRecipeList() {
       detail.id = detailId;
       detail.hidden = true;
 
-      fillRecipeDetail(detail, recipe);
+      // shoppingIn: 'none' - der Einkaufs-Ausgang des Aufklappers haengt
+      // in der Kopfleiste (unten), nicht im Abschnittskopf wie in der Spalte:
+      // unter der Schwelle sind es zwei Daumenwege in EINER Zeile statt
+      // einer zweiten, die der Daumen erst suchen muesste.
+      fillRecipeDetail(detail, recipe, { shoppingIn: 'none' });
       // DER AUSGANG INS VOLLBILD AM TELEFON: unter der Schwelle ist der
       // Aufklapper die Detailflaeche, und er bekommt denselben Ausgang, den
       // der Spaltenkopf ab der Schwelle fuehrt - sonst waere das Vollbild
       // eine Desktop-Angelegenheit, obwohl gerade dort beim Kochen der
       // Platz knapp ist. DER KNOPF STEHT OBEN, nicht unten: der Aufklapper
       // ist eine Vorschau, und der Ausgang zur grossen Leseflaeche gehoert
-      // an seinen Anfang - wer bis zur Aktionszeile liest, hat ihn schon
-      // gefunden, und die unten bleibt den Kreislauf-Ausgaengen (Einplanen,
-      // Einkauf) vorbehalten, die das Rezept in die uebrige App tragen.
+      // an ihren Anfang - wer bis zur Aktionszeile liest, hat ihn schon
+      // gefunden, und die unten bleibt dem Einplanen vorbehalten, das das
+      // Rezept in den eigenen Plan traegt.
       // Er haengt nicht in fillRecipeDetail: der Baustein dient auch der
       // Spalte (ihren Ausgang traegt der Kopf) und dem Vollbild selbst (ein
       // Ausgang dorthin, wo man schon ist, waere der zweite Weg zur selben
@@ -1264,6 +1268,17 @@ function buildRecipeList() {
       // Zurueck aus dem Vollbild landet der Fokus auf ihm.
       const fullscreenBar = document.createElement('div');
       fullscreenBar.className = 'recipe-detail__fullscreen-bar';
+      // DER EINKAUFS-AUSGANG AM LINKEN RAND DERSELBEN LEISTE, klein
+      // (.btn--sm, layout.css): zwei Daumenwege in einer Zeile statt zweier
+      // - und dieselben Riegel wie an jeder Stelle (shoppingTransferButton:
+      // Liste, Zutaten, Schreibrechte; ohne sie stünde ein toter Knopf).
+      // Das CSS haelt ihn links und den Vollbild-Ausgang rechts; fehlt er,
+      // steht der Einzelne rechts, wie die Leiste vorher stand.
+      const addToShopping = shoppingTransferButton(recipe, recipe.ingredients ?? []);
+      if (addToShopping) {
+        addToShopping.classList.add('btn--sm');
+        fullscreenBar.appendChild(addToShopping);
+      }
       const fullscreenBtn = document.createElement('button');
       fullscreenBtn.className = 'btn btn--ghost';
       fullscreenBtn.type = 'button';
@@ -1298,8 +1313,14 @@ function buildRecipeList() {
  * Leseflaeche und fuehrt weder die Checkboxen der Teilwahl noch den
  * Einkaufsknopf - die Auswahl wird auf der Seite getroffen, wo beide
  * Wurzeln dieselbe Karte teilen.
+ *
+ * ZWEI ORTE DES EINKAUFSKNOPFS (2026-10-23): er gehoert neben die Zutaten,
+ * die er benennt, nicht unter die ganze Karte. shoppingIn entscheidet:
+ * 'ingredients-head' (Default) setzt ihn in den Kopf des Zutaten-Abschnitts
+ * - der Weg der Detailspalte -, 'none' laesst ihn hier weg, weil der
+ * Aufklapper ihn in seiner Kopfleiste selbst anhaengt (buildRecipeList).
  */
-function fillRecipeDetail(detail, recipe, { fullscreen = false } = {}) {
+function fillRecipeDetail(detail, recipe, { fullscreen = false, shoppingIn = 'ingredients-head' } = {}) {
   const ingredients = recipe.ingredients ?? [];
   const mealTypes = normalizeRecipeMealTypes(recipe.meal_types);
   // Chips nur, wenn sie unterscheiden: gilt ein Rezept für alle Mahlzeiten,
@@ -1373,8 +1394,13 @@ function fillRecipeDetail(detail, recipe, { fullscreen = false } = {}) {
   // VOLLSTÄNDIGE Zutatenliste, nicht die ersten vier: das Kürzen war nur
   // nötig, um die Kartenhöhe zu bändigen. Ein Detail, das sich öffnet, hat
   // keinen Grund, etwas zu verschweigen. Die Checkboxen der Teilwahl fehlen
-  // im Vollbild - dort ist der Einkaufs-Ausgang ganz weg.
-  if (ingredients.length) detail.appendChild(ingredientsSectionEl(recipe, { withChecks: !fullscreen }));
+  // im Vollbild, und der Einkaufs-Ausgang steht im KOPF DIESES ABSCHNITTS,
+  // neben dem Wort „Zutaten" - nur in der Spalte (shoppingIn); der Aufklapper
+  // fuehrt ihn in seiner Kopfleiste, das Vollbild gar nicht.
+  if (ingredients.length) detail.appendChild(ingredientsSectionEl(recipe, {
+    withChecks: !fullscreen,
+    withShoppingButton: !fullscreen && shoppingIn === 'ingredients-head',
+  }));
 
   if (recipe.notes) {
     const section = detailSectionEl(t('recipes.notesLabel'));
@@ -1420,8 +1446,8 @@ function fillRecipeDetail(detail, recipe, { fullscreen = false } = {}) {
     }
   }
 
-  // Die beiden Kreislauf-Ausgänge stehen im Detail, nicht in der Zeile, und
-  // sind dort BESCHRIFTET. Grund: derselbe Weg hieß im Modul dreimal etwas
+  // Der Kreislauf-Ausgang EINPLANEN steht im Detail, nicht in der Zeile, und
+  // ist dort BESCHRIFTET. Grund: derselbe Weg hieß im Modul dreimal etwas
   // anderes - ein 24px-Glyph im Essensplan, ein 48px-Glyph im Vorrat, ein
   // 167px-Pill in den Rezepten (Critique 2026-07-30). Und man entscheidet
   // sich fürs Einplanen, nachdem man gesehen hat, was drin ist. Der Preis
@@ -1438,13 +1464,11 @@ function fillRecipeDetail(detail, recipe, { fullscreen = false } = {}) {
   addToMeals.textContent = t('recipes.addToMeals');
   detailActions.appendChild(addToMeals);
 
-  // Der Einkaufs-Ausgang steht NUR auf der Seite (Aufklapper und Spalte):
-  // Das Vollbild ist die Leseflaeche zum Kochen, und die Teilwahl der
-  // Zutaten wird dort getroffen, wo der Knopf sie benennt. Ohne ihn bleibt
-  // das Vollbild beim Lesen - Einplanen bleibt, es ist kein Kreislauf
-  // zwischen Modulen, sondern eine Notiz in den eigenen Plan.
-  const addToShopping = fullscreen ? null : shoppingTransferButton(recipe, ingredients);
-  if (addToShopping) detailActions.appendChild(addToShopping);
+  // Der EINKAUFS-AUSGANG steht nicht in dieser Zeile: er gehoert neben die
+  // Zutaten, die er benennt - in der Spalte in den Abschnittskopf, im
+  // Aufklapper in die Kopfleiste (siehe shoppingIn oben). Das Vollbild bleibt
+  // beim Lesen - Einplanen bleibt auch dort, es ist kein Kreislauf zwischen
+  // Modulen, sondern eine Notiz in den eigenen Plan.
 
   if (recipe.recipe_url) {
     const link = document.createElement('a');
@@ -1473,13 +1497,30 @@ function fillRecipeDetail(detail, recipe, { fullscreen = false } = {}) {
  * dem Rezepttitel: der ist im Aufklapper wie in der Detailspalte ein <h2>
  * (`recipe-row__heading`, `detailPaneHeaderEl`). Die Worte sind die Feldnamen
  * des Formulars - dieselbe Sache heisst an beiden Stellen gleich. */
-function detailSectionEl(title) {
+/* DER KOPF EINES ABSCHNITTS, MIT PLATZ FUER EINEN KNOPF: ohne `action`
+ * bleibt das Markup wie zuvor (die h3 direkt im Abschnitt - Notizen und
+ * jede kuenftige Flaeche), mit `action` stehen Titel und Knopf in EINER
+ * Zeile (.recipe-detail__section-head): der Einkaufs-Ausgang des Zutaten-
+ * Abschnitts gehoert neben das Wort, das er benennt. Das CSS richtet den
+ * Knopf rechts aus, auch als Einziger einer Umbruchzeile (margin-inline-
+ * start: auto, recipes.css) - ein langes Label weicht in die zweite Zeile
+ * aus, statt zu clippen oder den Kopf zu verdraengen.
+ */
+function detailSectionEl(title, { action = null } = {}) {
   const section = document.createElement('section');
   section.className = 'recipe-detail__section';
   const heading = document.createElement('h3');
   heading.className = 'recipe-detail__section-title u-section-title u-compact';
   heading.textContent = title;
-  section.appendChild(heading);
+  if (!action) {
+    section.appendChild(heading);
+    return section;
+  }
+  const head = document.createElement('div');
+  head.className = 'recipe-detail__section-head';
+  head.appendChild(heading);
+  head.appendChild(action);
+  section.appendChild(head);
   return section;
 }
 
@@ -1489,12 +1530,19 @@ function detailSectionEl(title) {
  * Ganzes neu bauen kann - samt Checkboxen der Teilwahl, deren Zustand aus
  * der Karte (_selectedIngredients) zurueckkommt, nicht aus dem Markup.
  * withChecks: false laesst die Checkboxen weg - der Weg des Vollbilds, das
- * den Einkaufs-Ausgang nicht kennt.
+ * den Einkaufs-Ausgang nicht kennt. withShoppingButton: true setzt den
+ * Einkaufs-Ausgang in den Abschnittskopf (der Weg der DETAILSPALTE) - der
+ * Neuaufbau (renderIngredientSections) muss ihn mitbauen, sonst verschwande
+ * er mit der ersten Vorrats-Zuordnung; der Aufklapper haengt ihn selbst in
+ * seine Kopfleiste, ausserhalb dieses Abschnitts, wo er den Neuaufbau
+ * uebersteht.
  */
-function ingredientsSectionEl(recipe, { withChecks = true } = {}) {
+function ingredientsSectionEl(recipe, { withChecks = true, withShoppingButton = false } = {}) {
   const ingredients = recipe.ingredients ?? [];
   const selected = new Set(selectedIngredientIds(recipe));
-  const section = detailSectionEl(t('recipes.ingredientsLabel'));
+  const section = detailSectionEl(t('recipes.ingredientsLabel'), {
+    action: withShoppingButton ? shoppingTransferButton(recipe, ingredients) : null,
+  });
   section.classList.add('recipe-detail__ingredients-section');
   section.dataset.recipeId = String(recipe.id);
   const ul = document.createElement('ul');
@@ -1568,7 +1616,16 @@ function renderIngredientSections(recipe) {
   const rebuild = (root, withChecks) => {
     const sections = [...root.querySelectorAll(
       `.recipe-detail__ingredients-section[data-recipe-id="${CSS.escape(String(recipe.id))}"]`)];
-    for (const el of sections) el.replaceWith(ingredientsSectionEl(recipe, { withChecks }));
+    for (const el of sections) {
+      el.replaceWith(ingredientsSectionEl(recipe, {
+        withChecks,
+        // Der Knopf im ABSCHNITTSKOPF gehoert nur der Detailspalte - die
+        // Wurzel entscheidet, nur sie traegt .recipe-detail--pane: der
+        // Aufklapper fuehrt ihn in seiner Kopfleiste (ausserhalb dieses
+        // Abschnitts, er ueberlebt den Neuaufbau), das Vollbild gar nicht.
+        withShoppingButton: Boolean(el.closest('.recipe-detail--pane')),
+      }));
+    }
     return sections.length;
   };
   const onPage = _container ? rebuild(_container, true) : 0;

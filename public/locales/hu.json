@@ -1146,6 +1146,7 @@
         "pinnedLabel": "Kitűzés (megjelenik a műszerfalon)",
         "pinAction": "Kitűzés",
         "unpinAction": "Eltávolítás",
+        "uncheckAllNamed": "Az összes elem kipipáltságának törlése: {{name}}",
         "deleteLabel": "Jegyzet törlése",
         "deleteConfirm": "Valóban törölni szeretné ezt a jegyzetet?",
         "createdToast": "Jegyzet létrehozva",

@@ -1366,6 +1366,14 @@
     font-size: var(--text-sm);
   }
 
+  /* Das Suchfeld der Spalte (geteilter Baustein, page-search.css): Form,
+   * Lupe und Leeren-Knopf traegt der Baustein, hier steht nur der Abstand
+   * zur Liste - dieselbe Kante wie der Hinweis darueber. Keine Breite: der
+   * Rail ist 272-320px schmal, das Feld fuellt ihn. */
+  .recipe-sidebar__search {
+    margin: 0 0 var(--space-3);
+  }
+
   /* EIN TRAEGER, N ZEILEN (Critique 2026-08-10, P2 „Karte pro Zeile").
    *
    * Die Zeilenlisten-Regel begruendet sich selbst gut: N Raender sind N

@@ -1148,6 +1148,7 @@
         "pinnedLabel": "Pin (appears on dashboard)",
         "pinAction": "Pin",
         "unpinAction": "Unpin",
+        "uncheckAllNamed": "Uncheck all items: {{name}}",
         "deleteLabel": "Delete note",
         "deleteConfirm": "Really delete this note?",
         "createdToast": "Note created",

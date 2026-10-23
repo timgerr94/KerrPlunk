@@ -317,6 +317,39 @@
   content: none;
 }
 
+/* „Alle Haken lösen“ (links neben der Nadel): dieselbe Bauart wie die Nadel -
+ * 44px-Trefferkreis, still da, Tertiärfarbe, Fläche erst bei Hover/Fokus. Er
+ * steht nur auf Karten mit mindestens einem gesetzten Haken (notes.js), also
+ * genau dann, wenn die Handlung etwas tut. */
+.note-card__uncheck {
+  position: absolute;
+  top: var(--space-2);
+  inset-inline-end: calc(var(--space-2) + var(--target-base) + var(--space-1));
+  width: var(--target-base);
+  height: var(--target-base);
+  border-radius: var(--radius-full);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-tertiary);
+  transition: background-color var(--transition-fast), color var(--transition-fast);
+}
+
+.note-card__uncheck::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+}
+
+.note-card__uncheck:hover,
+.note-card__uncheck:focus-visible {
+  background: var(--note-action-bg-hover);
+  color: inherit;
+}
+
 .note-card__title {
   margin-bottom: var(--space-1);
   color: inherit;
@@ -628,6 +661,10 @@
   z-index: 1;
 }
 
+.note-card__uncheck {
+  z-index: 1;
+}
+
 .note-card__actions,
 .note-card__content .note-md-box,
 .note-card__content a {
@@ -676,6 +713,13 @@
    * Kurzschrift `background` der angepinnten Nadel (0,2,0) den Clip sonst
    * zuruecksetzt. */
   .note-card .note-card__pin {
+    padding: var(--space-2);
+    background-clip: content-box;
+  }
+
+  /* Dasselbe Mass fuer den Loesen-Knopf: die kleine Scheibe statt der vollen
+   * 48px, damit zwei Kreise nebeneinander nicht die Kartenkante dominieren. */
+  .note-card .note-card__uncheck {
     padding: var(--space-2);
     background-clip: content-box;
   }

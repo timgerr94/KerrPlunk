@@ -1161,6 +1161,7 @@
         "pinnedLabel": "Sematkan (muncul di dasbor)",
         "pinAction": "Sematkan",
         "unpinAction": "Lepas sematan",
+        "uncheckAllNamed": "Hapus centang semua item: {{name}}",
         "deleteLabel": "Hapus catatan",
         "deleteConfirm": "Benar-benar hapus catatan?",
         "createdToast": "Catatan dibuat",

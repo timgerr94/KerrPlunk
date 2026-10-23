@@ -10,7 +10,10 @@
  *            geplantes Rezept erschien nicht, und ein Treffer setzte nur den
  *            Titel - ohne Zutaten und ohne `recipe_id`;
  *        (c) die Vorschlagsliste war fuer den Screenreader unsichtbar: kein
- *            `role=combobox`, keine Optionen, kein `aria-expanded`.
+ *        `role=combobox`, keine Optionen, kein `aria-expanded`;
+ *        (d) die Rezept-Spalte war die eine Liste der Kueche ohne Suche -
+ *            mit 30+ Rezepten war die Karte fuer Dienstag nicht mehr ohne
+ *            Scrollen erreichbar (2026-10-23).
  *
  * WIE GEMESSEN WIRD. Am laufenden Programm, nicht am Quelltext: die Ziel-
  * Rechnung der Spalte als reine Funktion, die Spalte ueber ihren echten
@@ -310,6 +313,113 @@ test('Autocomplete: Rezepttreffer per Tastatur waehlen setzt Rezept, Zutaten und
     globalThis.__apiStub = zuvorApi;
     meals.state.recipes = savedRecipes;
     meals.state.modal = null;
+    restore();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// (d) Die Suche der Rezept-Spalte: dieselben Felder wie die Rezeptsuche
+// ---------------------------------------------------------------------------
+
+const SALAT = {
+  id: 9, title: 'Bauernsalat', source: 'native', meal_types: ['lunch'],
+  notes: 'Feta erst zum Schluss', recipe_url: '', cuisine: 'Griechisch',
+  diet: ['vegetarian'], ingredients: [{ name: 'Tomate', quantity: '2', category: 'Obst & Gemuese' }],
+};
+
+test('Spalten-Suche: Titel, Notizen, Zutaten, Kueche und Diet - wie die Rezeptsuche', () => {
+  const savedRecipes = meals.state.recipes;
+  const savedQuery = meals.state.railQuery;
+  meals.state.recipes = [PIZZA, PORRIDGE, SALAT];
+  try {
+    meals.state.railQuery = 'pizza';
+    assert.deepEqual(meals.filteredRailRecipes(), [PIZZA], 'Titel');
+
+    meals.state.railQuery = 'vortag';
+    assert.deepEqual(meals.filteredRailRecipes(), [PIZZA], 'Notizen („Teig am Vortag")');
+
+    meals.state.railQuery = 'mehl';
+    assert.deepEqual(meals.filteredRailRecipes(), [PIZZA], 'Zutaten');
+
+    meals.state.railQuery = 'GRIECH';
+    assert.deepEqual(meals.filteredRailRecipes(), [SALAT], 'Kueche - Gross-/Kleinschreibung zaehlt nicht');
+
+    meals.state.railQuery = 'vegetar';
+    assert.deepEqual(meals.filteredRailRecipes(), [SALAT], 'Diet');
+
+    meals.state.railQuery = '';
+    assert.equal(meals.filteredRailRecipes().length, 3, 'ohne Begriff stehen alle Rezepte');
+
+    meals.state.railQuery = 'gibtsnicht';
+    assert.deepEqual(meals.filteredRailRecipes(), [], 'ohne Treffer bleibt nichts');
+  } finally {
+    meals.state.recipes = savedRecipes;
+    meals.state.railQuery = savedQuery;
+  }
+});
+
+/** Container-Attrappe der Spalte: kennt die Spalte selbst und die Liste darin. */
+function railContainer(sidebar) {
+  return {
+    querySelector: (sel) => {
+      if (sel === '#recipe-sidebar') return sidebar;
+      if (sel === '#recipe-rail-list') return sidebar.children.find((c) => c.id === 'recipe-rail-list') ?? null;
+      return null;
+    },
+  };
+}
+
+test('Spalten-Suche: das Feld steht ueber der Liste und filtert die Karten', () => {
+  const restore = installDocument();
+  const sidebar = new FakeEl('aside');
+  const savedRecipes = meals.state.recipes;
+  const savedQuery = meals.state.railQuery;
+  meals.state.recipes = [PIZZA, PORRIDGE];
+  meals.state.railQuery = 'porridge';
+  meals.setContainerForTest(railContainer(sidebar));
+  try {
+    meals.renderRecipeSidebar();
+
+    assert.match(sidebar.inserted.join(''), /id="meals-rail-search"/, 'das Feld ist der geteilte Baustein (page-search)');
+    assert.match(sidebar.inserted.join(''), /value="porridge"/, 'der Begriff ueberlebt den Neuaufbau der Spalte');
+
+    const list = sidebar.children.find((c) => c.className === 'recipe-sidebar__list');
+    assert.ok(list, 'die Spalte hat ihre Liste gebaut');
+    assert.equal(list.children.length, 1, 'nur der Treffer steht in der Liste');
+    assert.match(list.children[0].textContent, /Porridge/, 'und es ist der richtige');
+  } finally {
+    meals.state.recipes = savedRecipes;
+    meals.state.railQuery = savedQuery;
+    restore();
+  }
+});
+
+test('Spalten-Suche: ohne Treffer steht der geteilte Leerzustand mit „Suche leeren"', () => {
+  const restore = installDocument();
+  const sidebar = new FakeEl('aside');
+  const savedRecipes = meals.state.recipes;
+  const savedQuery = meals.state.railQuery;
+  meals.state.recipes = [PIZZA, PORRIDGE];
+  meals.state.railQuery = 'gibtsnicht';
+  meals.setContainerForTest(railContainer(sidebar));
+  try {
+    meals.renderRecipeSidebar();
+    const list = () => sidebar.children.find((c) => c.id === 'recipe-rail-list');
+
+    const box = list().children[0];
+    assert.equal(box.getAttribute('role'), 'status', 'der Zustand ist eine Reaktion auf die Eingabe und wird angesagt');
+    assert.match(box.textContent, /recipes\.searchNoResults/, 'und sagt, was gefunden wurde: nichts');
+
+    const cta = box.children.find((c) => c.tagName === 'BUTTON');
+    assert.ok(cta, 'der Ausweg ist ein echter Knopf');
+    assert.match(cta.textContent, /common\.searchClear/, '„Suche leeren" - der geteilte Key');
+    cta.fire('click');
+
+    assert.equal(meals.state.railQuery, '', 'der CTA raumt den Begriff aus dem State');
+    assert.equal(list().children.length, 2, 'ohne Begriff stehen wieder alle Karten');
+  } finally {
+    meals.state.recipes = savedRecipes;
+    meals.state.railQuery = savedQuery;
     restore();
   }
 });

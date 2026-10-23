@@ -1146,6 +1146,7 @@
         "pinnedLabel": "Fest (vises på dashbordet)",
         "pinAction": "Fest",
         "unpinAction": "Avfest",
+        "uncheckAllNamed": "Fjern avmerking fra alle elementer: {{name}}",
         "deleteLabel": "Slett notat",
         "deleteConfirm": "Vil du virkelig slette dette notatet?",
         "createdToast": "Notat opprettet",

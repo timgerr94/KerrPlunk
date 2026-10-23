@@ -1051,11 +1051,12 @@ test('syncTodayButton() schaltet unter 640px wirklich auf ein textloses Icon um 
   }
 });
 
-// Minimales Fake-DOM-Element: genug Oberflaeche fuer `mountEmptyState()`
-// (utils/empty-state.js) - `createElement`/`createTextNode`, `className`,
-// `setAttribute`, `appendChild`/`append`, `classList`, `replaceChildren`,
+// Minimales Fake-DOM-Element: genug Oberflaeche fuer einen VOLLSTAENDIGEN
+// renderWeekGrid()-Durchlauf - `className`, `setAttribute`,
+// `appendChild`/`append`, `classList`, `replaceChildren`,
 // `removeAttribute`. Kein echtes DOM, keine jsdom-Abhaengigkeit - dieselbe
-// Idee wie `fakeResetButton()` oben, nur fuer den Leerzustands-Zweig.
+// Idee wie `fakeResetButton()` oben. Die Observer-Stubs fuer wireScrollFade()
+// stehen in withMinimalDom(), nicht am Element.
 function fakeDomElement(tag) {
   const classes = new Set();
   return {
@@ -1086,15 +1087,27 @@ function fakeDomElement(tag) {
 function withMinimalDom(fn) {
   const zuvorDocument = globalThis.document;
   const zuvorWindow = globalThis.window;
+  const zuvorRO = globalThis.ResizeObserver;
+  const zuvorMO = globalThis.MutationObserver;
   globalThis.document = {
     createElement: (tag) => fakeDomElement(tag),
     createTextNode: (text) => ({ nodeType: 3, textContent: text }),
   };
   globalThis.window = { lucide: undefined, matchMedia: () => ({ matches: false }) };
+  // Seit die leere Woche das Raster statt des Leerzustands zeigt, laeuft ein
+  // renderWeekGrid()-Durchlauf BIS ZUM ENDE und verdrahtet dabei die Scroll-
+  // Affordanz (wireScrollFade, utils/ux.js) - `new ResizeObserver` /
+  // `new MutationObserver` gibt es in Node nicht. Die Stubs tun nichts:
+  // update() bricht am fehlenden isConnected des Fake-Knotens ab, bevor es
+  // eine Klasse anfasst.
+  globalThis.ResizeObserver = class { observe() {} disconnect() {} };
+  globalThis.MutationObserver = class { observe() {} disconnect() {} };
   try { return fn(); }
   finally {
     globalThis.document = zuvorDocument;
     globalThis.window = zuvorWindow;
+    if (zuvorRO) globalThis.ResizeObserver = zuvorRO; else delete globalThis.ResizeObserver;
+    if (zuvorMO) globalThis.MutationObserver = zuvorMO; else delete globalThis.MutationObserver;
   }
 }
 
@@ -1126,9 +1139,9 @@ test('renderWeekGrid() verdrahtet syncTodayButton() wirklich in den Render-Pfad'
     const zuvorMeals = mealsUi.state.meals;
     const zuvorError = mealsUi.state.loadError;
     try {
-      // Aktuelle Woche + leerer Plan: `renderWeekGrid()` haengt am
-      // Leerzustand-Zweig auf, NACHDEM es `syncTodayButton()` aufgerufen hat -
-      // der guenstigste echte Durchlauf, der die Verdrahtung noch beobachtet.
+      // Aktuelle Woche + leerer Plan: seit die leere Woche das Raster statt
+      // des Leerzustands zeigt, zeichnet dieser Durchlauf das vollstaendige
+      // (leere) Board - und ruft `syncTodayButton()` dabei trotzdem auf.
       mealsUi.state.currentWeek = mealsUi.getMondayOf(todayKey());
       mealsUi.state.meals = [];
       mealsUi.state.loadError = null;
@@ -1318,8 +1331,9 @@ test('onNarrowWeekLabelQueryChange() aktualisiert nur Label und Reset, nicht das
       mealsUi.state.loadError = null;
 
       // Testaufbau-Beweis: ein ECHTER renderWeekGrid()-Durchlauf beruehrt das
-      // Grid nachweislich (Leerzustand-Zweig ruft grid.removeAttribute auf) -
-      // ohne diesen Beweis waere ein "gridTouched bleibt false" unten wertlos.
+      // Grid nachweislich (der Rasterbau ruft grid.removeAttribute und
+      // grid.replaceChildren auf) - ohne diesen Beweis waere ein
+      // "gridTouched bleibt false" unten wertlos.
       mealsUi.renderWeekGridForTest(testContainer);
       assert(gridTouched === true,
         'Testaufbau fehlerhaft: ein echter renderWeekGrid()-Durchlauf muss das Grid beruehren, sonst beweist der Test unten nichts');
