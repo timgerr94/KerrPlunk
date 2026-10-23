@@ -2,8 +2,14 @@ process.env.DB_PATH = ':memory:';
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import * as dbmod from '../server/db.js';
-import { processDuePantryRestocks } from '../server/services/pantry-restock.js';
+// DYNAMISCH WIE IN ALLEN ROUTEN-SUITES: ein statisches `import` steht im
+// Modul-Kopf UEBER dieser Zuweisung (Hoisting), db.js laeuft dann zuerst und
+// oeffnet seinen DEFAULT-PFAD - eine Datei im Repo, die zwischen den Laeuften
+// bestehen bleibt. Der zweite Lauf kollidierte auf users.username, und die
+// reset()-Aufrufe unten raeumten eine echte Datei ab statt der eigenen
+// In-Memory-Kopie. `await import` laeuft erst NACH der Zuweisung.
+const dbmod = await import('../server/db.js');
+const { processDuePantryRestocks } = await import('../server/services/pantry-restock.js');
 
 const db = dbmod.get();
 const userId = db.prepare(`

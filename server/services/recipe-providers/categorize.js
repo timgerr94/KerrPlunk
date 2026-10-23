@@ -14,6 +14,14 @@ const FALLBACK_CATEGORY = 'Sonstiges';
 
 // Deutsche und englische Stichworte, da Provider-Instanzen in beiden Sprachen
 // befüllt sein können. Reihenfolge ist irrelevant, die erste Übereinstimmung zählt.
+//
+// DIE SCHLUESSEL NENNEN DIE KATEGORIEN, WIE DER HAUSHALT SIE FUEHRT - und das
+// sind hier bewusst die UMBENANNTEN Namen (Einstellungen: 'Produce',
+// 'Meat & Eggs', 'Juice & Beverages'; Eier zaehlen zu 'Meat & Eggs', nicht zu
+// 'Milchprodukte'). Das Ergebnis landet unveraendert in
+// recipe_ingredients.category und von dort im Einkauf; ein frisch gesaeter
+// Haushalt, der diese Namen nicht fuehrt, faellt im Einkauf auf den Default
+// zurueck (routes/shopping.js, dort begruendet).
 const KEYWORDS = {
   'Produce': [
     'apple', 'apfel', 'banana', 'banane', 'tomato', 'tomate', 'onion', 'zwiebel',

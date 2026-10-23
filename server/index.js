@@ -10,7 +10,7 @@ import helmet from 'helmet';
 import compression from 'compression';
 import rateLimit from 'express-rate-limit';
 import path from 'path';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { createLogger } from './logger.js';
 import { readBindAddress } from './utils/bind-address.js';
 import * as db from './db.js';
@@ -267,7 +267,20 @@ app.get('/sw.js', (_req, res) => {
   res.send(response.body);
 });
 
-app.use(express.static(path.join(import.meta.dirname, '..', 'public'), {
+// --------------------------------------------------------
+// Build-Overlay (scripts/build.mjs): Liegt public/dist vor, gewinnt es fuer
+// jede URL mit gleicher Adresse - minifizierte Varianten unter gleichen
+// Pfaden plus das gebuendelte Shell-CSS, das dist/index.html statt der 22
+// einzelnen <link>-Zeilen laedt. Ohne dist (Bare-Metal ohne Build, Tests,
+// Entwicklung) bedient die zweite Zeile unverändert die Quelle. Zwei
+// express.static mit identischen Optionen: erstes Match gewinnt, Rueckfall
+// ist die unveraenderte public/-Kette - keine URL aendert sich, sw.js und
+// alle Guards bleiben unberuehrt.
+// --------------------------------------------------------
+const PUBLIC_DIR = path.join(import.meta.dirname, '..', 'public');
+const DIST_DIR = path.join(PUBLIC_DIR, 'dist');
+
+const staticOptions = {
   etag: true,
   lastModified: true,
   // Kein automatischer Trailing-Slash-Redirect für Verzeichnisse (z. B. /settings →
@@ -296,7 +309,10 @@ app.use(express.static(path.join(import.meta.dirname, '..', 'public'), {
       res.setHeader('Content-Type', 'text/javascript; charset=utf-8');
     }
   },
-}));
+};
+
+app.use(express.static(DIST_DIR, staticOptions));
+app.use(express.static(PUBLIC_DIR, staticOptions));
 
 // Globaler API-Rate-Limiter auf alle /api/-Endpunkte (Definition siehe oben).
 app.use('/api/', apiLimiter);
@@ -755,7 +771,10 @@ app.get('/{*path}', spaLimiter, (req, res) => {
   // Segment des absoluten Pfads auf Dotfiles pruefen - liegt der Checkout unter
   // einem Dot-Verzeichnis (z. B. ~/.claude/...), liefert jede Deep-URL 500.
   // Mit root prueft `send` nur den relativen Teil ('index.html').
-  res.sendFile('index.html', { root: path.join(import.meta.dirname, '..', 'public') });
+  // Build-Overlay: existiert eine gebaute index.html (Shell-CSS-Bundle statt
+  // 22 Einzel-Links), gewinnt sie; ohne dist bleibt die Quelle.
+  const indexRoot = existsSync(path.join(DIST_DIR, 'index.html')) ? DIST_DIR : PUBLIC_DIR;
+  res.sendFile('index.html', { root: indexRoot });
 });
 
 // --------------------------------------------------------

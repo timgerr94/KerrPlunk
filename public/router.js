@@ -828,23 +828,14 @@ async function navigate(path, userOrPushState = true, pushState = true) {
       if (currentUser && _preferencesLoaded) rememberCurrentOfflineSession();
     }
 
-    if (_offlineSessionActive && !['/shopping', '/pantry'].includes(basePath)) {
-      const offlineRoute = ['/shopping', '/pantry'].find((candidate) => {
-        const module = candidate.slice(1);
-        return !_disabledModules.has(module) && canAccessNavModule(module);
-      });
-      if (offlineRoute) {
-        currentPath = null;
-        isNavigating = false;
-        navigate(offlineRoute);
-        return;
-      }
-      forgetSessionState();
-      currentPath = null;
-      isNavigating = false;
-      navigate('/login');
-      return;
-    }
+    /* NO OFFLINE LOCK ANYMORE: The restored offline session
+     * (restoreOfflineSession) carries the last known account state, so every
+     * route stays reachable within its means - cached modules show their
+     * last-seen data, the others surface their load error, and shopping and
+     * pantry keep their offline write queue. The former redirect to
+     * Shopping/Pantry kept holding AFTER the network returned (it only
+     * cleared on a hard restart), which made the app unusable without one;
+     * the session now renews itself through recoverOnlineSession(). */
 
     route = allRoutes().find((r) => r.path === basePath) ?? route;
 
@@ -1972,6 +1963,17 @@ async function renderPage(route, previousPath = null, scrollTarget = 0) {
 let _stopToastPlacement = null;
 
 /**
+ * Sidebar-Logomark: 1:1-Kopie des Markups aus icon.svg (Repo-Wurzel — die
+ * Single Source of Truth, aus der scripts/generate-icons.js auch die PWA-Icons
+ * rastert; bei Änderungen an der Datei hier mitpflegen). Einziger Unterschied
+ * zur Datei: Die Gradient-Stops lesen die Theme-Tokens statt fester Hex-Werte,
+ * damit das Mark mit jedem Theme mitfärbt (Mittelerde überschreibt
+ * --color-accent / --color-accent-secondary). stop-color als style-Attribut,
+ * weil Präsentations-Attribute kein var() verstehen.
+ */
+const SIDEBAR_LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160"><defs><linearGradient id="kpg" x1="0" y1="0" x2="160" y2="160" gradientUnits="userSpaceOnUse"><stop offset="0" style="stop-color:var(--color-accent)"/><stop offset="1" style="stop-color:var(--color-accent-secondary)"/></linearGradient><clipPath id="b"><path d="M81 64h192v192H81Zm0 0"/></clipPath><clipPath id="c"><path d="M86 64h182a5 5 0 0 1 5 5v181a5 5 0 0 1-5 5H86a5 5 0 0 1-5-5V69a5 5 0 0 1 5-5m0 0"/></clipPath><clipPath id="e"><path d="M0 1h192v191H0Zm0 0"/></clipPath><clipPath id="f"><path d="M5 1h182a5 5 0 0 1 5 5v181a5 5 0 0 1-5 5H5a5 5 0 0 1-5-5V6a5 5 0 0 1 5-5m0 0"/></clipPath><clipPath id="d"><path d="M0 0h192v193H0z"/></clipPath><clipPath id="i"><path d="M1 1h169v169H1Zm0 0"/></clipPath><clipPath id="j"><path d="M85 50c18-56 54-56 72-39 17 17 17 53 0 88-13 26-45 53-72 71-27-18-59-45-71-71-17-35-17-71 0-88C32-6 67-6 85 50m0 0"/></clipPath><clipPath id="l"><path d="M1 1h169v169H1Zm0 0"/></clipPath><clipPath id="m"><path d="M85 50c18-56 54-56 72-39 17 17 17 53 0 88-13 26-45 53-72 71-27-18-59-45-71-71-17-35-17-71 0-88C32-6 67-6 85 50m0 0"/></clipPath><clipPath id="k"><path d="M0 0h170v170H0z"/></clipPath><clipPath id="h"><path d="M0 0h171v170H0z"/></clipPath><clipPath id="p"><path d="M12 14h117v95H12Zm0 0"/></clipPath><clipPath id="q"><path d="m144 89-31 40L1 41 32 1Zm0 0"/></clipPath><clipPath id="r"><path d="M33 66C15 52 8 32 16 21c9-11 30-9 48 6 51 39 64 82 64 82s-45-4-95-43m0 0"/></clipPath><clipPath id="t"><path d="M0 0h117v95H0Zm0 0"/></clipPath><clipPath id="u"><path d="m132 75-31 40-112-88 31-40Zm0 0"/></clipPath><clipPath id="v"><path d="M21 52C3 38-4 18 4 7c9-11 30-9 48 6 51 39 64 82 64 82s-45-4-95-43m0 0"/></clipPath><clipPath id="s"><path d="M0 0h117v95H0z"/></clipPath><clipPath id="o"><path d="M0 0h145v129H0z"/></clipPath><clipPath id="y"><path d="M15 14h118v93H15Zm0 0"/></clipPath><clipPath id="z"><path d="M31 127 0 87 114 1l31 40Zm0 0"/></clipPath><clipPath id="A"><path d="M81 26c18-14 40-16 48-5 9 11 1 32-17 45-52 39-96 41-96 41s15-43 65-81m0 0"/></clipPath><clipPath id="C"><path d="M1 0h117v93H1Zm0 0"/></clipPath><clipPath id="D"><path d="m16 113-31-40L99-13l31 40Zm0 0"/></clipPath><clipPath id="E"><path d="M66 12c18-14 40-16 48-5 9 11 1 32-17 45C45 91 1 93 1 93s15-43 65-81m0 0"/></clipPath><clipPath id="B"><path d="M0 0h118v93H0z"/></clipPath><clipPath id="x"><path d="M0 0h145v128H0z"/></clipPath><clipPath id="H"><path d="M1 1h50v125H1Zm0 0"/></clipPath><clipPath id="I"><path d="M51 89c0 21-11 37-25 37S1 110 1 89C1 33 26 1 26 1s25 33 25 88m0 0"/></clipPath><clipPath id="K"><path d="M1 1h50v125H1Zm0 0"/></clipPath><clipPath id="L"><path d="M51 89c0 21-11 37-25 37S1 110 1 89C1 33 26 1 26 1s25 33 25 88m0 0"/></clipPath><clipPath id="J"><path d="M0 0h52v126H0z"/></clipPath><clipPath id="G"><path d="M0 0h52v127H0z"/></clipPath><mask id="g"><g filter="url(#a)"><path fill-opacity=".6" d="M-33-33h397v394H-33z"/></g></mask><mask id="n"><g filter="url(#a)"><path fill-opacity=".6" d="M-33-33h397v394H-33z"/></g></mask><mask id="w"><g filter="url(#a)"><path fill-opacity=".6" d="M-33-33h397v394H-33z"/></g></mask><mask id="F"><g filter="url(#a)"><path fill-opacity=".6" d="M-33-33h397v394H-33z"/></g></mask><filter id="a" width="100%" height="100%" x="0%" y="0%"><feColorMatrix color-interpolation-filters="sRGB" values="0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 1 0"/></filter></defs><rect width="160" height="160" rx="36" fill="url(#kpg)"/><g transform="translate(-67.5 -52.917) scale(0.833333)"><g transform="translate(177 159.5) scale(0.7263787841796875) translate(-177 -159.5)"><g mask="url(#g)"><g clip-path="url(#h)" transform="translate(91 83)"><g clip-path="url(#i)"><g clip-path="url(#j)"><g clip-path="url(#k)"><g clip-path="url(#l)"><g clip-path="url(#m)"><path fill="#fff" d="M0 0h170v170H0Zm0 0"/></g></g></g></g></g></g></g><g mask="url(#n)"><g clip-path="url(#o)" transform="translate(142 124)"><g clip-path="url(#p)"><g clip-path="url(#q)"><g clip-path="url(#r)"><g clip-path="url(#s)" transform="translate(12 14)"><g clip-path="url(#t)"><g clip-path="url(#u)"><g clip-path="url(#v)"><path fill="#fff" d="m132 75-31 40-112-88 31-40Zm0 0"/></g></g></g></g></g></g></g></g></g><g mask="url(#w)"><g clip-path="url(#x)" transform="translate(66 124)"><g clip-path="url(#y)"><g clip-path="url(#z)"><g clip-path="url(#A)"><g clip-path="url(#B)" transform="translate(15 14)"><g clip-path="url(#C)"><g clip-path="url(#D)"><g clip-path="url(#E)"><path fill="#fff" d="m16 113-31-40L99-13l31 40Zm0 0"/></g></g></g></g></g></g></g></g></g><g mask="url(#F)"><g clip-path="url(#G)" transform="translate(151 63)"><g clip-path="url(#H)"><g clip-path="url(#I)"><g clip-path="url(#J)"><g clip-path="url(#K)"><g clip-path="url(#L)"><path fill="#fff" d="M1 1h50v125H1Zm0 0"/></g></g></g></g></g></g></g></g></g></svg>`;
+
+/**
  * App-Shell mit Navigation einmalig aufbauen (nach erstem Login).
  */
 
@@ -1994,45 +1996,17 @@ function renderAppShell(container) {
   const sidebarLogo = document.createElement('div');
   sidebarLogo.className = 'nav-sidebar__logo';
 
-  // SVG-Logomark aus docs/logo.svg — Gradient via CSS-Tokens
+  // SVG-Logomark aus SIDEBAR_LOGO_SVG (siehe oben): Inline statt <img>, damit
+  // der Gradient die Theme-Tokens liest. Die IDs (Gradient, clipPath, mask,
+  // filter) gelten dokumentweit und die Shell kann neu aufgebaut werden —
+  // deshalb werden sie beim Injizieren uniquifiziert (wie früher der Gradient).
   const logomark = document.createElement('div');
   logomark.className = 'nav-sidebar__logomark';
   logomark.setAttribute('aria-hidden', 'true');
-  const SVG_NS = 'http://www.w3.org/2000/svg';
-  const logoSvg = document.createElementNS(SVG_NS, 'svg');
-  logoSvg.setAttribute('viewBox', '0 0 160 160');
-  logoSvg.setAttribute('fill', 'none');
-  const defs = document.createElementNS(SVG_NS, 'defs');
-  const grad = document.createElementNS(SVG_NS, 'linearGradient');
-  const gradId = `yuvomi-logo-bg-${Math.random().toString(36).slice(2, 7)}`;
-  grad.setAttribute('id', gradId);
-  grad.setAttribute('x1', '0'); grad.setAttribute('y1', '0');
-  grad.setAttribute('x2', '160'); grad.setAttribute('y2', '160');
-  grad.setAttribute('gradientUnits', 'userSpaceOnUse');
-  const stop0 = document.createElementNS(SVG_NS, 'stop');
-  stop0.setAttribute('offset', '0%');
-  stop0.style.stopColor = 'var(--color-accent)';
-  const stop1 = document.createElementNS(SVG_NS, 'stop');
-  stop1.setAttribute('offset', '100%');
-  stop1.style.stopColor = 'var(--color-accent-secondary)';
-  grad.appendChild(stop0); grad.appendChild(stop1);
-  defs.appendChild(grad);
-  logoSvg.appendChild(defs);
-  const bgRect = document.createElementNS(SVG_NS, 'rect');
-  bgRect.setAttribute('width', '160'); bgRect.setAttribute('height', '160');
-  bgRect.setAttribute('rx', '36'); bgRect.setAttribute('fill', `url(#${gradId})`);
-  logoSvg.appendChild(bgRect);
-  // Drei transluzente, ineinander übergehende Kreise (Familie); kein Sheen in der Sidebar
-  const marks = document.createElementNS(SVG_NS, 'g');
-  marks.setAttribute('fill', 'white');
-  marks.setAttribute('fill-opacity', '0.82');
-  for (const [cx, cy, r] of [[64, 72, 27], [100, 78, 25], [80, 106, 24]]) {
-    const c = document.createElementNS(SVG_NS, 'circle');
-    c.setAttribute('cx', String(cx)); c.setAttribute('cy', String(cy)); c.setAttribute('r', String(r));
-    marks.appendChild(c);
-  }
-  logoSvg.appendChild(marks);
-  logomark.appendChild(logoSvg);
+  const logoUid = Math.random().toString(36).slice(2, 7);
+  logomark.innerHTML = SIDEBAR_LOGO_SVG
+    .replace(/\bid="([A-Za-z][\w-]*)"/g, (_m, id) => `id="${id}-${logoUid}"`)
+    .replace(/url\(#([A-Za-z][\w-]*)\)/g, (_m, id) => `url(#${id}-${logoUid})`);
   sidebarLogo.appendChild(logomark);
 
   const sidebarBrandText = document.createElement('div');
@@ -4836,6 +4810,42 @@ window.addEventListener('auth:expired', () => {
   }
 });
 
+/**
+ * Die Verbindung ist zurueck: Eine aktive Offline-Sitzung (restoreOfflineSession,
+ * markiert als _offlineSessionActive) kehrt von selbst in den normalen Betrieb
+ * zurueck. Ohne diesen Schritt blieb der Snapshot fuer das gesamte Dokumentleben
+ * der Stand der App - Profil, Rechte und Praeferenzen erneuerten sich erst nach
+ * einem harten Neustart. Ein Fehler hier (etwa WLAN ohne Internet) laesst die
+ * Offline-Sitzung unangetastet; das naechste online-Event versucht es erneut.
+ * Eine echte Abweisung (401) feuert auth:expired und raeumt darueber ab.
+ */
+async function recoverOnlineSession() {
+  if (!_offlineSessionActive || !currentUser) return;
+  try {
+    const result = await auth.me();
+    if (!result?.user) return;
+    currentUser = result.user;
+    _offlineSessionActive = false;
+    // Die Praeferenzen bewusst NEU laden: restoreOfflineSession() hatte sie aus
+    // dem Snapshot gesetzt, und syncPreferencesOnce() laeuft nur einmal je
+    // Sitzung - ohne das Zuruecksetzen bliebe der alte Stand stehen.
+    _preferencesLoaded = false;
+    await syncPreferencesOnce();
+    rememberCurrentOfflineSession();
+    startThirdPartyModulePolling();
+    if (!['split_guest', 'display'].includes(currentUser.access_scope)) {
+      loadReminderStyles();
+      initReminders();
+      initPush();
+    }
+    rebuildNavigation();
+  } catch {
+    // Noch kein Serverkontakt - die Offline-Sitzung bleibt, wie sie ist.
+  }
+}
+
+window.addEventListener('online', () => { recoverOnlineSession(); });
+
 // Navigation komplett neu rendern (z.B. nach Sprach- oder Modul-Toggle-Änderung).
 // Behält Bottom-Bar-Buttons (Kitchen, More) und More-Sheet-Handle/Suche bei.
 /**
@@ -5224,16 +5234,25 @@ window.yuvomi = {
     }
   },
   applySkin: (value) => {
-    const skin = value === 'middle-earth' ? 'middle-earth' : 'default';
-    if (skin === 'middle-earth') {
-      document.documentElement.setAttribute('data-skin', skin);
-    } else {
+    const skin = value === 'middle-earth' || value === 'christmas' ? value : 'default';
+    if (skin === 'default') {
       document.documentElement.removeAttribute('data-skin');
+    } else {
+      document.documentElement.setAttribute('data-skin', skin);
     }
     try {
       localStorage.setItem('yuvomi-skin', skin);
     } catch {
       // Skin gilt für diese Sitzung, überlebt den Reload aber nicht.
+    }
+    // Der Christmas-Skin bringt seinen eigenen Schneefall mit (public/snow.js):
+    // anstellen, wenn er gewaehlt ist, abbauen sonst. Beim ersten Wechsel
+    // laedt der dynamische Import das Modul; danach kennt das Fenster
+    // window.__kpSnow und der Rueckwechsel ist ein einfacher Aufruf.
+    if (skin === 'christmas') {
+      import('/snow.js').then((snow) => snow.start()).catch(() => {});
+    } else if (window.__kpSnow) {
+      window.__kpSnow.stop();
     }
   },
   restoreThemeColor: () => {

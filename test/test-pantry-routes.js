@@ -386,12 +386,19 @@ test('POST /pantry/import-shopping: same name/category merges across locations; 
     name: 'Hafermilch', quantity: 1, unit: 'l', category: 'Milchprodukte',
     location_id: fridge, expires_on: '2027-01-01',
   });
+  // DIE NACHKAUF-REGEL DER VORRATSZEILE WEGGENOMMEN: POST /pantry setzt sie
+  // auf 30, und eine gleichnamige VORRATSZEILE MIT REGEL gibt dem Hand-Anlegen
+  // ihre Kategorie vor (routes/shopping.js, Vorrat vor Wahl). Der zweite
+  // Einkaufsartikel soll seine gewaehlte Kategorie 'Backwaren' BEHALTEN, sonst
+  // misst dieser Test die Vorrats-Vorrang-Regel statt der Trennung zweier
+  // Kategorien beim Einlagern - genau die will er pruefen.
+  await call('PATCH', `/pantry/${pantryItem.body.data.id}`, { restock_interval_days: null });
   const list = await call('POST', '/shopping', { name: 'Kategorien' });
   const sameCategory = await call('POST', `/shopping/${list.body.data.id}/items`, {
     name: 'Hafermilch', category: 'Milchprodukte',
   });
   const otherCategory = await call('POST', `/shopping/${list.body.data.id}/items`, {
-    name: 'Hafermilch', category: 'Sonstiges',
+    name: 'Hafermilch', category: 'Backwaren',
   });
   await call('PATCH', `/shopping/items/${sameCategory.body.data.id}`, { is_checked: 1 });
   await call('PATCH', `/shopping/items/${otherCategory.body.data.id}`, { is_checked: 1 });
@@ -413,9 +420,12 @@ test('POST /pantry/import-shopping: same name/category merges across locations; 
   });
   assert.deepEqual(importedOtherCategory.body.data, { added: 1, merged: 0, skipped: 0 });
   const rows = db.prepare("SELECT category, location_id FROM pantry_items WHERE name = 'Hafermilch' ORDER BY category").all();
+  // 'Backwaren' statt 'Sonstiges' als zweite Kategorie: der Default loeste in
+  // der Handanlage das Stichwort-Raten aus, und 'Hafermilch' riet zur selben
+  // Kategorie wie die erste Zeile - der Test haette gemergt statt getrennt.
   assert.deepEqual(rows, [
+    { category: 'Backwaren', location_id: cupboard },
     { category: 'Milchprodukte', location_id: fridge },
-    { category: 'Sonstiges', location_id: cupboard },
   ]);
 });
 

@@ -1,83 +1,58 @@
 /**
  * Icon Generator for Yuvomi PWA
- * Generates icons from docs/logo.svg
+ * Generates all PNG icons from the repo-root icon.svg (single source of truth).
  * Sizes: 192px and 512px, both "any" and "maskable" variants
  * Maskable icons: full-bleed background, logo content stays within 80% safe zone
+ * Additionally rebuilds public/favicon.ico (16/32/48 px) as a PNG-in-ICO container
+ * so the browser tab icon follows the same source artwork.
  *
  * Usage: node scripts/generate-icons.js
  * Dependencies: sharp (devDependency)
  */
 
 import sharp from 'sharp';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const ICONS_DIR = join(__dirname, '..', 'public', 'icons');
+const ROOT = join(__dirname, '..');
+const ICONS_DIR = join(ROOT, 'public', 'icons');
+const SOURCE_SVG_PATH = join(ROOT, 'icon.svg');
 
 mkdirSync(ICONS_DIR, { recursive: true });
 
+const sourceSvg = readFileSync(SOURCE_SVG_PATH, 'utf8');
+if (!sourceSvg.includes('<svg')) {
+  throw new Error(`generate-icons.js: ${SOURCE_SVG_PATH} enthaelt kein <svg>`);
+}
+
 /**
- * Drei transluzente, ineinander übergehende Kreise (Familie).
- * Überlappungen verdichten sich zu helleren Linsen -> weicher Blend.
- * Liegen innerhalb der maskable-Safe-Zone (Ø 80 %).
+ * Setzt explizite width/height auf dem Wurzel-Element: icon.svg traegt nur
+ * eine viewBox, und librsvg rastert sonst in der viewBox-Groesse (160px) -
+ * 512px-Ausgaben waeren dann nur hochskaliert statt scharf neu gerendert.
  */
-const CIRCLES = `<g fill="#fff" fill-opacity="0.82">
-    <circle cx="64" cy="72" r="27"/>
-    <circle cx="100" cy="78" r="25"/>
-    <circle cx="80" cy="106" r="24"/>
-  </g>`;
-
-/** Gemeinsame Gradient-Defs: Marken-Violett + dezenter Top-Sheen (Glas-Charakter) */
-const DEFS = `<defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="160" y2="160" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#8b5cf6"/>
-      <stop offset="100%" stop-color="#6c3aed"/>
-    </linearGradient>
-    <linearGradient id="sheen" x1="0" y1="0" x2="0" y2="160" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#ffffff" stop-opacity="0.14"/>
-      <stop offset="0.55" stop-color="#ffffff" stop-opacity="0"/>
-    </linearGradient>
-  </defs>`;
-
-/** Logo SVG (any): rounded corners, gradient background + sheen */
-function createLogoSvg(size) {
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 160 160" fill="none">
-  ${DEFS}
-  <rect width="160" height="160" rx="36" fill="url(#bg)"/>
-  <rect width="160" height="160" rx="36" fill="url(#sheen)"/>
-  ${CIRCLES}
-</svg>`;
+function sized(svg, size) {
+  return svg.replace(/<svg\b/, `<svg width="${size}" height="${size}"`);
 }
 
-/** Maskable logo SVG: full-bleed background (no rx), logo within safe zone */
-function createMaskableLogoSvg(size) {
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 160 160" fill="none">
-  ${DEFS}
-  <rect width="160" height="160" fill="url(#bg)"/>
-  <rect width="160" height="160" fill="url(#sheen)"/>
-  ${CIRCLES}
-</svg>`;
-}
-
-/** Apple Touch Icon (180x180): same as any-icon */
-function createAppleTouchSvg() {
-  return createLogoSvg(180);
-}
-
-/** Favicon (32x32): simplified - just gradient background with house */
-function createFaviconSvg() {
-  return createLogoSvg(32);
-}
+/**
+ * Maskable-Variante: full-bleed Hintergrund. Die abgerundeten Ecken des
+ * "any"-Looks wuerden nach dem Launcher-Masking als transparente Ecken
+ * uebrigbleiben; jedes rx im Quell-Artwork (Hintergrund + Sheen) wird deshalb
+ * generisch auf 0 gesetzt. Die Kreise liegen bereits in der maskable-
+ * Safe-Zone (Ø 80 %) - am weitesten aussen: Kreis (80,106) r=24 -> 50px
+ * vom Zentrum, Safe-Radius 64px.
+ */
+const maskableSvg = sourceSvg.replace(/\brx="\d+(?:\.\d+)?"/g, 'rx="0"');
 
 const icons = [
-  { name: 'icon-192.png',          size: 192, svg: createLogoSvg(192)         },
-  { name: 'icon-512.png',          size: 512, svg: createLogoSvg(512)         },
-  { name: 'icon-maskable-192.png', size: 192, svg: createMaskableLogoSvg(192) },
-  { name: 'icon-maskable-512.png', size: 512, svg: createMaskableLogoSvg(512) },
-  { name: 'apple-touch-icon.png',  size: 180, svg: createAppleTouchSvg()      },
-  { name: 'favicon-32.png',        size: 32,  svg: createFaviconSvg()         },
+  { name: 'icon-192.png',          size: 192, svg: sized(sourceSvg, 192)   },
+  { name: 'icon-512.png',          size: 512, svg: sized(sourceSvg, 512)   },
+  { name: 'icon-maskable-192.png', size: 192, svg: sized(maskableSvg, 192) },
+  { name: 'icon-maskable-512.png', size: 512, svg: sized(maskableSvg, 512) },
+  { name: 'apple-touch-icon.png',  size: 180, svg: sized(sourceSvg, 180)   },
+  { name: 'favicon-32.png',        size: 32,  svg: sized(sourceSvg, 32)    },
 ];
 
 for (const icon of icons) {
@@ -87,5 +62,42 @@ for (const icon of icons) {
     .toFile(outputPath);
   console.log(`  ✓ ${icon.name} (${icon.size}x${icon.size})`);
 }
+
+/**
+ * favicon.ico: ICO-Container mit drei eingebetteten PNGs (16/32/48 px).
+ * Aufbau: ICONDIR (6 B) + pro Groesse ein ICONDIRENTRY (16 B) + die PNG-Daten.
+ * Sharp kann kein ICO schreiben, deshalb wird der Container hier von Hand
+ * zusammengesetzt - dasselbe Format, das die bisherige favicon.ico traegt.
+ */
+async function buildFaviconIco() {
+  const sizes = [16, 32, 48];
+  const pngs = [];
+  for (const size of sizes) {
+    pngs.push(await sharp(Buffer.from(sized(sourceSvg, size))).png().toBuffer());
+  }
+  const header = Buffer.alloc(6);
+  header.writeUInt16LE(0, 0);            // reserved
+  header.writeUInt16LE(1, 2);            // 1 = ICO
+  header.writeUInt16LE(sizes.length, 4); // Eintraege
+  const entries = Buffer.alloc(16 * sizes.length);
+  let offset = 6 + 16 * sizes.length;
+  pngs.forEach((png, i) => {
+    const o = 16 * i;
+    entries.writeUInt8(sizes[i], o);          // Breite (0 haette 256 gemeint)
+    entries.writeUInt8(sizes[i], o + 1);      // Hoehe
+    entries.writeUInt8(0, o + 2);             // Palettengroesse (0 = keine)
+    entries.writeUInt8(0, o + 3);             // reserviert
+    entries.writeUInt16LE(1, o + 4);          // Planes
+    entries.writeUInt16LE(32, o + 6);         // Bittiefe
+    entries.writeUInt32LE(png.length, o + 8);
+    entries.writeUInt32LE(offset, o + 12);
+    offset += png.length;
+  });
+  return Buffer.concat([header, entries, ...pngs]);
+}
+
+const faviconIcoPath = join(ROOT, 'public', 'favicon.ico');
+writeFileSync(faviconIcoPath, await buildFaviconIco());
+console.log('  ✓ favicon.ico (16/32/48, PNG-in-ICO)');
 
 console.log('\nIcons generated in public/icons/');

@@ -9,8 +9,10 @@
   },
   "scripts": {
     "start": "node --import dotenv/config server/index.js",
+    "build": "node scripts/build.mjs",
     "dev": "node --import dotenv/config --watch server/index.js",
     "setup": "node --import dotenv/config setup.js",
+    "build:assets": "node scripts/build.mjs",
     "coverage": "rm -rf coverage/v8 && mkdir -p coverage/v8 && NODE_V8_COVERAGE=coverage/v8 npm test > coverage/test.log 2>&1; node test/coverage-report.mjs coverage/v8 --prefix server/ --json coverage/report.json",
     "test-parallel": "node scripts/run-tests-parallel.mjs",
     "test:db": "node --experimental-sqlite test/test-db.js",
@@ -473,12 +475,14 @@
   "license": "MIT",
   "devDependencies": {
     "axe-core": "^4.13.0",
+    "esbuild": "0.25.9",
     "puppeteer": "^25.12.0",
     "sharp": "^0.35.4"
   },
   "allowScripts": {
     "better-sqlite3-multiple-ciphers@13.0.3": true,
     "bcrypt@6.0.0": true,
+    "esbuild@0.25.9": true,
     "puppeteer@25.12.0": true
   }
 }

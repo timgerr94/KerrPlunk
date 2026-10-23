@@ -66,6 +66,24 @@ async function recordPosts(fn) {
   return posts;
 }
 
+/** Jeden POST mit Pfad UND Koerper mitschreiben - die Teilwahl steht im Body. */
+async function recordTransfers(fn) {
+  const calls = [];
+  const zuvor = globalThis.__apiStub;
+  globalThis.__apiStub = {
+    post: async (path, body) => {
+      calls.push({ path, body });
+      return { data: { transferred: 0, skipped: 0, added_ids: [] } };
+    },
+  };
+  try {
+    await fn();
+  } finally {
+    globalThis.__apiStub = zuvor;
+  }
+  return calls;
+}
+
 // Die Rechtekombinationen, die der Server abweist, und die eine, die er annimmt.
 const BEIDE = { meals: 'write', shopping: 'write' };
 const KEIN_TRANSFER_AUS_DER_KUECHE = [
@@ -199,6 +217,114 @@ for (const [name, modules] of KEIN_REZEPT_TRANSFER) {
     });
   });
 }
+
+// -------------------------------------------------------------------------
+// Rezepte: die Teilwahl der Zutaten (Checkboxen vor den Zeilen, 2026-10-21)
+//
+// Der Knopf benennt, was er uebernimmt: „Alles auf die Einkaufsliste" ohne
+// Kaetzchen, „<n> auf die Einkaufsliste" mit. Ohne das Transferrecht stehen
+// die Checkboxen gar nicht erst - jedes Kaetzchen waere ein Versprechen auf
+// einen 403er (Regel 2 in public/utils/module-access.js). Das Vollbild ist die
+// Leseflaeche: weder Checkboxen noch Knopf.
+// -------------------------------------------------------------------------
+
+const zutatenMitIds = [
+  { id: 101, name: 'Mehl', quantity: '250 g' },
+  { id: 102, name: 'Ei', quantity: '1' },
+];
+const rezeptMitIds = () => ({ id: 21, title: 'Pfannkuchen', ingredients: zutatenMitIds });
+
+test('Teilwahl: nur die angekreuzten Zutaten-IDs wandern in den Body', async () => {
+  await mitListe(async () => {
+    await withAccess(BEIDE, async () => {
+      try {
+        recipes.toggleIngredientSelection(21, 101, true);
+        recipes.toggleIngredientSelection(21, 102, true);
+        recipes.toggleIngredientSelection(21, 102, false);
+        const calls = await recordTransfers(() => recipes.transferRecipe(rezeptMitIds(), null));
+        assert.deepEqual(calls.map((c) => c.path), ['/recipes/21/to-shopping-list']);
+        assert.deepEqual(calls[0].body, { listId: 5, ingredientIds: [101] },
+          'das Ei blieb ungewaehlt und darf den Body nie erreichen');
+        // Nach dem Transfer faellt die Auswahl zurueck - auch „steht schon
+        // drauf" ist ein erledigter Einkauf.
+        assert.deepEqual(recipes.selectedIngredientIds(rezeptMitIds()), []);
+      } finally {
+        recipes.clearIngredientSelection(21);
+      }
+    });
+  });
+});
+
+test('ohne Teilwahl bleibt der Body beim alten Vertrag (nur listId)', async () => {
+  await mitListe(async () => {
+    await withAccess(BEIDE, async () => {
+      const calls = await recordTransfers(() => recipes.transferRecipe(rezeptMitIds(), null));
+      assert.deepEqual(calls[0].body, { listId: 5 },
+        'kein leeres ingredientIds-Array - der Weg faellt auf die ganze Liste zurueck');
+    });
+  });
+});
+
+// t() ist hier der Stub des Browser-Loaders: ohne Werte der Schluessel selbst,
+// mit Werten Schluessel + JSON. Gemessen wird damit die ZWEIG-Wahl - und beim
+// Teilwahl-Zweig gleich mit, dass der Zaehler mitgegeben wird.
+test('der Knopf benennt die Auswahl: „Alles" gegen „<n>“', async () => {
+  await mitListe(async () => {
+    await withAccess(BEIDE, () => {
+      try {
+        assert.equal(recipes.shoppingButtonLabel(rezeptMitIds()), 'recipes.toShoppingAll');
+        recipes.toggleIngredientSelection(21, 101, true);
+        recipes.toggleIngredientSelection(21, 102, true);
+        assert.equal(recipes.shoppingButtonLabel(rezeptMitIds()), 'recipes.toShoppingSelected{"count":2}');
+        // Selbstheilung: eine ID ohne Zeile im Rezept faellt aus der Auswahl -
+        // die beiden lebenden bleiben gewaehlt.
+        recipes.toggleIngredientSelection(21, 999, true);
+        assert.deepEqual(recipes.selectedIngredientIds(rezeptMitIds()), [101, 102],
+          'eine ID ohne Zeile im Rezept faellt still aus der Auswahl');
+      } finally {
+        recipes.clearIngredientSelection(21);
+      }
+    });
+  });
+});
+
+test('Zutaten mit beiden Schreibrechten tragen Checkboxen, ohne Transferrecht keine', async () => {
+  await mitListe(async () => {
+    await withAccess(BEIDE, () => {
+      const html = recipes.ingredientsSectionEl(rezeptMitIds()).outerHTML;
+      assert.match(html, /recipe-detail__ingredient-check/);
+      assert.match(html, /data-ingredient-id="101"/);
+      assert.match(html, /data-ingredient-id="102"/, 'Gegenprobe: jede Zeile hat ihr Kaetzchen');
+    });
+    await withAccess({ meals: 'write', shopping: 'read' }, () => {
+      assert.doesNotMatch(recipes.ingredientsSectionEl(rezeptMitIds()).outerHTML,
+        /recipe-detail__ingredient-check/,
+        'ein Kaetzchen ohne Transferrecht fuehrte ins 403');
+    });
+  });
+});
+
+test('das Vollbild-Detail kennt weder Einkaufsknopf noch Checkboxen', async () => {
+  await mitListe(async () => {
+    await withAccess(BEIDE, () => {
+      // Der Mini-DOM spiegelt dataset nicht ins Attribut - der Knopf wird an
+      // seiner Beschriftung erkannt (der Stub von t() liefert den Schluessel),
+      // nicht an data-action.
+      const einkaufsknopf = /<button class="btn btn--secondary"[^>]*>recipes\.toShoppingAll<\/button>/;
+      const vollbild = document.createElement('div');
+      recipes.fillRecipeDetail(vollbild, rezeptMitIds(), { fullscreen: true });
+      assert.doesNotMatch(vollbild.innerHTML, einkaufsknopf,
+        'der Ausgang gehoert auf die Seite, wo die Auswahl getroffen wird');
+      assert.doesNotMatch(vollbild.innerHTML, /recipe-detail__ingredient-check/);
+      // Gegenprobe am selben Baustein: die Seite fuehrt beides.
+      const seite = document.createElement('div');
+      recipes.fillRecipeDetail(seite, rezeptMitIds());
+      assert.match(seite.innerHTML, einkaufsknopf,
+        'Gegenprobe: derselbe Baustein fuehrt den Knopf auf der Seite');
+      assert.match(seite.innerHTML, /recipe-detail__ingredient-check/);
+    });
+  });
+});
 
 // -------------------------------------------------------------------------
 // Einkauf: „Aus dem Essensplan uebernehmen" im Listenmenue

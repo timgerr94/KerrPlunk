@@ -80,9 +80,13 @@ export function celebrationMode(d) {
  * Stil: der Stil ist die Auswahl darunter, der Overlay der Schalter daneben.
  *
  * DIE AUSWAHLLISTE IST DAS VERZEICHNIS public/assets/lottie. Wer - als Admin
- * oder direkt am Host - dort JSON-Dateien von https://lottiefiles.com ablegt,
- * erweitert den Zufallspool; nichts ist hartkodiert. Der Browser waehlt daraus
- * pro Einloesen EINE Datei (utils/lottie-overlay.js).
+ * oder direkt am Host - dort Lottie-JSONs von https://lottiefiles.com ablegt,
+ * erweitert den Zufallspool; nichts ist hartkodiert. GIFs und animierte
+ * WebPs nehmen EBENSO teil: sie spielen im Overlay als schlichtes <img>
+ * (utils/lottie-overlay.js) und brauchen KEINE Umwandlung in ein JSON - die
+ * Moonb-Konvertierungen im Bestand zeigen, dass ein solches JSON meist
+ * GROESSER ist als das GIF, aus dem es entstand. Der Browser waehlt daraus
+ * pro Einloesen EINE Datei.
  *
  * NUR NAMEN, KEINE PFADE: die Liste besteht aus reinen Dateinamen ohne
  * Verzeichnisteile, und unbekannte Zeichen (alles ausser Buchstaben, Ziffern,
@@ -91,12 +95,16 @@ export function celebrationMode(d) {
  */
 const LOTTIE_DIR = join(import.meta.dirname, '..', '..', 'public', 'assets', 'lottie');
 const LOTTIE_NAME_OK = /^[\w\- .]+$/;
+// Drei Endungen, zwei Spielformen: .json spielt der Lottie-Player, .gif und
+// .webp spielt der Browser selbst als <img> (utils/lottie-overlay.js).
+// Beide Formate dient der Browser direkt aus public/ - statisch, ohne Route.
+const LOTTIE_EXT = /\.(json|gif|webp)$/i;
 
 /** Dateinamen im Lottie-Verzeichnis, sortiert - leer, wenn es keins gibt. */
 export function lottieFiles() {
   try {
     return readdirSync(LOTTIE_DIR)
-      .filter((name) => name.endsWith('.json') && LOTTIE_NAME_OK.test(name))
+      .filter((name) => LOTTIE_EXT.test(name) && LOTTIE_NAME_OK.test(name))
       .sort();
   } catch {
     return []; // Verzeichnis fehlt oder ist unlesbar - der Overlay bleibt aus

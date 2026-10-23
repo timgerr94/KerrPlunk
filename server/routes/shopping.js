@@ -27,6 +27,7 @@ import { mayReadModule, mayWriteModule } from '../permissions.js';
 import { householdDisabledModules } from '../services/household-modules.js';
 import { categorizeIngredient } from '../services/recipe-providers/categorize.js';
 import { pantryCategoryFor } from '../services/shopping-pantry-category.js';
+import { daysSincePurchase, learnRestockInterval } from '../services/pantry-interval-learning.js';
 import { syncPantryExpiryReminder, resolvePantryAccess } from '../services/pantry-reminders.js';
 
 const log = createLogger('Shopping');
@@ -171,11 +172,10 @@ function skippedRestock(pantryItem, now = new Date()) {
   };
 }
 
-function daysSincePurchase(lastPurchasedAt, now = new Date()) {
-  const purchasedAt = Date.parse(lastPurchasedAt);
-  if (!Number.isFinite(purchasedAt)) return null;
-  return Math.min(MAX_RESTOCK_INTERVAL_DAYS, Math.max(7, Math.floor((now.getTime() - purchasedAt) / DAY_MS)));
-}
+// `daysSincePurchase` und `learnRestockInterval` leben in
+// services/pantry-interval-learning.js - gemeinsam mit allen Uebertraegen der
+// Kueche (#1608): jeder Weg eines Artikels auf eine Liste ist dasselbe
+// Einkaufs-Signal und muss dieselbe Regel lernen.
 
 // --------------------------------------------------------
 // GET /api/v1/shopping/versions
@@ -1456,6 +1456,10 @@ router.post('/:listId/import-meal-plan', (req, res) => {
 
     const mealCount = new Set(ingredients.map((i) => i.meal_id)).size;
     const aggregated = aggregateMealIngredients(ingredients);
+    // Ein Zeitpunkt fuer den ganzen Import: die Zutaten einer Uebernahme gehoeren
+    // zusammen, und gelernte Taktungen sollen nicht um Millisekunden auseinander-
+    // laufen, nur weil die Schleife laenger braucht.
+    const purchaseSignalAt = new Date();
 
     // Vorschau (Audit A1-22): identische Auswahl und Aggregation, aber ohne
     // Schreib-Transaktion. Der Client zeigt "X Zutaten aus Y Mahlzeiten",
@@ -1478,6 +1482,10 @@ router.post('/:listId/import-meal-plan', (req, res) => {
         // gibt DER seine Kategorie her. Ohne Treffer bleibt die geplanten Kategorie.
         const category = pantryCategoryFor(req, item.name) ?? item.category;
         insertItem.run(req.params.listId, item.name, item.quantity, category, item.added_from_meal);
+        // Dasselbe Einkaufs-Signal wie bei der Handanlage (#1608): fuehrt der
+        // Haushalt die Ware im Vorrat, lernt ihre Nachkauf-Regel aus der
+        // beobachteten Taktung. Aggregierte Namen lernen einmal, nicht je Zeile.
+        learnRestockInterval(req, item.name, purchaseSignalAt);
       }
       for (const ingredient of ingredients) {
         markDone.run(ingredient.id);

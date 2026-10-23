@@ -12,7 +12,8 @@ import { addDays, mealWeekday, datesForTemplateInRange } from '../services/meal-
 import { todayKey } from '../utils/timezone.js';
 import { mayWriteModule } from '../permissions.js';
 import { pantryCategoryFor } from '../services/shopping-pantry-category.js';
-import { normalizeUnitText } from '../../public/utils/unit-abbreviations.js';
+import { learnRestockInterval } from '../services/pantry-interval-learning.js';
+import { normalizeUnitText, pureUnitAbbreviation } from '../../public/utils/unit-abbreviations.js';
 
 const log = createLogger('Meals');
 
@@ -72,16 +73,27 @@ function flattenQuantity(quantity, unit) {
 
 function sanitizedIngredients(ingredients) {
   return ingredients
-    .map((ing) => ({
-      name: String(ing.name || '').trim().slice(0, MAX_TITLE),
-      quantity: String(ing.quantity || '').trim().slice(0, MAX_SHORT) || null,
+    .map((ing) => {
+      let quantity = String(ing.quantity || '').trim().slice(0, MAX_SHORT) || null;
       // Freitext wie auf recipe_ingredients (v238) - die Mahlzeit traegt Menge
       // und Einheit getrennt, damit der Weg Rezept <-> Mahlzeit verlustfrei ist.
       // Ausgeschriebene Einheiten ziehen die Kuerzel-Fassung wie im Rezept-
       // Router (utils/unit-abbreviations.js, dort begruendet).
-      unit: normalizeUnitText(ing.unit)?.slice(0, MAX_SHORT) || null,
-      category: String(ing.category || '').trim().slice(0, MAX_SHORT) || 'Sonstiges',
-    }))
+      let unit = normalizeUnitText(ing.unit)?.slice(0, MAX_SHORT) || null;
+      // Ein reines Einheitswort als Menge wandert in die Einheitenspalte -
+      // dieselbe Regel wie im Rezept-Router (dort begruendet): ein Importer
+      // schickt "Esslöffel" dorthin, wo gerade ein Feld frei ist.
+      if (!unit && quantity) {
+        const moved = pureUnitAbbreviation(quantity);
+        if (moved) { unit = moved.slice(0, MAX_SHORT); quantity = null; }
+      }
+      return {
+        name: String(ing.name || '').trim().slice(0, MAX_TITLE),
+        quantity,
+        unit,
+        category: String(ing.category || '').trim().slice(0, MAX_SHORT) || 'Sonstiges',
+      };
+    })
     .filter((ing) => ing.name);
 }
 
@@ -768,10 +780,17 @@ router.post('/:id/ingredients', (req, res) => {
       return res.status(400).json({ error: 'Name ist erforderlich', code: 400 });
 
     // Kuerzel wie bei sanitizedIngredients() - dieselbe Regel, dieselbe Fassung.
-    const normalizedUnit = normalizeUnitText(unit)?.slice(0, MAX_SHORT) || null;
+    let normalizedUnit = normalizeUnitText(unit)?.slice(0, MAX_SHORT) || null;
+    let normalizedQuantity = quantity?.trim() || null;
+    // Ein reines Einheitswort als Menge wandert in die Einheitenspalte -
+    // dieselbe Regel wie im Rezept-Router (dort begruendet).
+    if (!normalizedUnit && normalizedQuantity) {
+      const moved = pureUnitAbbreviation(normalizedQuantity);
+      if (moved) { normalizedUnit = moved.slice(0, MAX_SHORT); normalizedQuantity = null; }
+    }
     const result = db.get().prepare(`
       INSERT INTO meal_ingredients (meal_id, name, quantity, unit, category) VALUES (?, ?, ?, ?, ?)
-    `).run(mealId, name.trim(), quantity?.trim() || null, normalizedUnit, String(category || '').trim() || 'Sonstiges');
+    `).run(mealId, name.trim(), normalizedQuantity, normalizedUnit, String(category || '').trim() || 'Sonstiges');
 
     const ing = db.get().prepare(
       'SELECT * FROM meal_ingredients WHERE id = ?'
@@ -798,6 +817,16 @@ router.patch('/ingredients/:ingId', (req, res) => {
 
     const { name, quantity, unit, on_shopping_list, category } = req.body;
 
+    // Kuerzel-Fassung auch hier (utils/unit-abbreviations.js); ein Weglassen
+    // des Felds laesst die gespeicherte Einheit stehen wie bisher. Ein reines
+    // Einheitswort als (mitgesandte oder bereits gespeicherte) Menge wandert
+    // in die Einheitenspalte - dieselbe Regel wie im Rezept-Router.
+    let nextQuantity = quantity !== undefined ? (quantity?.trim() || null) : ing.quantity;
+    let nextUnit = unit !== undefined ? (normalizeUnitText(unit)?.slice(0, MAX_SHORT) || null) : ing.unit;
+    if (!nextUnit && nextQuantity) {
+      const moved = pureUnitAbbreviation(nextQuantity);
+      if (moved) { nextUnit = moved.slice(0, MAX_SHORT); nextQuantity = null; }
+    }
     db.get().prepare(`
       UPDATE meal_ingredients
       SET name             = COALESCE(?, name),
@@ -808,10 +837,8 @@ router.patch('/ingredients/:ingId', (req, res) => {
       WHERE id = ?
     `).run(
       name?.trim() ?? null,
-      quantity !== undefined ? (quantity?.trim() || null) : ing.quantity,
-      // Kuerzel-Fassung auch hier (utils/unit-abbreviations.js); ein Weglassen
-      // des Felds laesst die gespeicherte Einheit stehen wie bisher.
-      unit !== undefined ? (normalizeUnitText(unit)?.slice(0, MAX_SHORT) || null) : ing.unit,
+      nextQuantity,
+      nextUnit,
       category !== undefined ? (String(category || '').trim() || 'Sonstiges') : null,
       on_shopping_list !== undefined ? (on_shopping_list ? 1 : 0) : null,
       ingId
@@ -927,6 +954,10 @@ router.post('/:id/to-shopping-list', (req, res) => {
     if (ingredients.length === 0)
       return res.json({ data: { transferred: 0, added_ids: [] } });
 
+    // Ein Zeitpunkt fuer den ganzen Transfer - alle Zutaten lernen dieselbe
+    // beobachtete Taktung (dasselbe wie Rezept-Transfer und Handanlage, #1608).
+    const purchaseSignalAt = new Date();
+
     const addedIds = db.transaction(() => {
       const insertItem = db.get().prepare(`
         INSERT INTO shopping_items (list_id, name, quantity, category, added_from_meal)
@@ -945,6 +976,11 @@ router.post('/:id/to-shopping-list', (req, res) => {
         const info = insertItem.run(listId, ing.name, flattenQuantity(ing.quantity, ing.unit), category, mealId);
         markDone.run(ing.id);
         ids.push(Number(info.lastInsertRowid));
+        // Dasselbe Einkaufs-Signal wie bei der Handanlage (#1608): fuehrt der
+        // Haushalt die Ware im Vorrat, lernt ihre Nachkauf-Regel aus der
+        // Taktung seit dem letzten Einkauf. Das Undo nimmt die Regel nicht
+        // zurueck (in services/pantry-interval-learning.js begruendet).
+        learnRestockInterval(req, ing.name, purchaseSignalAt);
       }
       return ids;
     });
@@ -997,6 +1033,10 @@ router.post('/week-to-shopping-list', (req, res) => {
     if (ingredients.length === 0)
       return res.json({ data: { transferred: 0, added_ids: [] } });
 
+    // Ein Zeitpunkt fuer den ganzen Transfer, wie beim Einzel-Transfer
+    // darueber (#1608).
+    const purchaseSignalAt = new Date();
+
     const addedIds = db.transaction(() => {
       const insertItem = db.get().prepare(`
         INSERT INTO shopping_items (list_id, name, quantity, category, added_from_meal)
@@ -1014,6 +1054,8 @@ router.post('/week-to-shopping-list', (req, res) => {
         const info = insertItem.run(listId, ing.name, flattenQuantity(ing.quantity, ing.unit), category, ing.meal_id);
         markDone.run(ing.id);
         ids.push(Number(info.lastInsertRowid));
+        // Dasselbe Einkaufs-Signal wie bei der Handanlage (#1608).
+        learnRestockInterval(req, ing.name, purchaseSignalAt);
       }
       return ids;
     });

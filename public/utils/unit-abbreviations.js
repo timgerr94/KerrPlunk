@@ -47,6 +47,18 @@ const UNIT_ABBREVIATIONS = Object.freeze(new Map([
   ['gallon', 'gal'], ['gallons', 'gal'],
   ['esslöffel', 'EL'], ['essloeffel', 'EL'],
   ['teelöffel', 'TL'], ['teeloeffel', 'TL'],
+  // DIE KUERZEL SELBST ALS SCHLUESSEL: der Vorsatz weiter oben - Gross-/Klein-
+  // schreibung und ein Punkt sind egal - gilt fuer 'Tsp.' genauso wie fuer
+  // 'Teaspoon', aber ohne Selbst-Eintrag lief die Suche ins Leere und das
+  // fertige Kuerzel stand unangezogen weiter im Feld. SI-Zeichen ('g', 'kg',
+  // 'ml', ...) und die englischen Kuerzel mappen auf sich selbst; 'el'/'tl'
+  // ziehen die deutsche Grossschreibung, die ihre eigene ist.
+  ['tsp', 'tsp'], ['tbsp', 'tbsp'],
+  ['el', 'EL'], ['tl', 'TL'],
+  ['g', 'g'], ['kg', 'kg'], ['mg', 'mg'],
+  ['ml', 'ml'], ['l', 'l'],
+  ['oz', 'oz'], ['fl oz', 'fl oz'], ['lb', 'lb'],
+  ['pt', 'pt'], ['qt', 'qt'], ['gal', 'gal'],
 ]));
 
 /**
@@ -64,4 +76,26 @@ export function normalizeUnitText(value) {
   if (!s) return null;
   const key = s.replace(/\s+/g, ' ').replace(/\.$/, '').toLowerCase();
   return UNIT_ABBREVIATIONS.get(key) ?? s;
+}
+
+/**
+ * Ist dieser Text ein LEDIGLICHES, BEKANNTES EINHEITSWORT ("Esslöffel",
+ * "tsp"), und welches Kuerzel steht dafuer?
+ *
+ * Die Aufteilungs-Regel der Schreibwege: ein Importer schickt die Einheit
+ * dorthin, wo gerade ein Feld frei ist - "Butter, quantity: 'Esslöffel'"
+ * statt "quantity: null, unit: 'Esslöffel'". Ein reines Einheitswort in der
+ * Mengenspalte gehoert in die Einheitenspalte. KEINE Menge mit Zahlen
+ * ("50 g") und nichts Unbekanntes ("Prise") zaehlt: jenes ist eine Menge
+ * mit Einheit, dieses bliebe Raten ueber fremde Texte - beides bleibt
+ * liegen, wie es liegt.
+ *
+ * @param {any} value Kandidat aus der quantity-Spalte
+ * @returns {string|null} Kuerzel, wenn der Text ein reines Einheitswort ist; sonst null
+ */
+export function pureUnitAbbreviation(value) {
+  const s = String(value ?? '').trim();
+  if (!s) return null;
+  const key = s.replace(/\s+/g, ' ').replace(/\.$/, '').toLowerCase();
+  return UNIT_ABBREVIATIONS.get(key) ?? null;
 }

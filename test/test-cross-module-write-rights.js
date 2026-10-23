@@ -253,6 +253,56 @@ test('Token mit beiden Scopes kommt durch', async () => {
 });
 
 // =========================================================================
+// 1c. Der Uebertrag lernt die Nachkauf-Regel (#1608)
+// =========================================================================
+
+// Jeder Weg auf die Liste ist ein Einkaufs-Signal: fuehrt der Haushalt die
+// Ware im Vorrat (MIT Nachkaufregel), lernt deren restock_interval_days aus
+// der Taktung seit dem letzten Einkauf - wie die Handanlage, die das schon
+// immer tat. Die Rechte-Frage entscheidet die Route NICHT mit einem 403: der
+// Transfer ist ein Einkaufs-Vorgang und bleibt offen, ohne Vorrats-
+// Schreibrecht bleibt die Regel still unangetastet - dasselbe Muster wie bei
+// der Kategorie-Lesart (services/shopping-pantry-category.js).
+function seedRestockItem(name) {
+  const purchasedAt = new Date(Date.now() - 40 * 24 * 60 * 60 * 1000).toISOString();
+  return Number(db.prepare(`
+    INSERT INTO pantry_items (name, quantity, unit, created_by, restock_interval_days, last_purchased_at)
+    VALUES (?, 1, 'pcs', ?, 30, ?)
+  `).run(name, U, purchasedAt).lastInsertRowid);
+}
+const intervalOf = (id) => db.prepare('SELECT restock_interval_days AS d FROM pantry_items WHERE id = ?').get(id).d;
+
+test('Volles Recht: der Transfer lernt die Nachkauf-Regel', async () => {
+  asMember({});
+  const item = seedRestockItem('Lern-Milch');
+  const { mealId } = seedMeal(['lern-milch'], '2026-02-01');
+  const res = await call('POST', `/meals/${mealId}/to-shopping-list`, { listId: LIST });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.data.transferred, 1);
+  assert.equal(intervalOf(item), 40, 'Regel auf die seit dem letzten Einkauf beobachtete Taktung gestellt');
+});
+
+test('Mitglied mit pantry: read: Transfer geht durch, die Regel lernt still nichts', async () => {
+  asMember({ pantry: 'read' });
+  const item = seedRestockItem('Still-Milch');
+  const { mealId } = seedMeal(['Still-Milch'], '2026-02-02');
+  const res = await call('POST', `/meals/${mealId}/to-shopping-list`, { listId: LIST });
+  assert.equal(res.status, 200, 'der Transfer ist ein Einkaufs-Vorgang und bleibt offen');
+  assert.equal(res.body.data.transferred, 1);
+  assert.equal(intervalOf(item), 30, 'ohne Vorrats-Schreibrecht bleibt die Regel unangetastet');
+});
+
+test('Token ohne Vorrats-Scope: Transfer geht durch, die Regel lernt still nichts', async () => {
+  asToken(['meals:write', 'shopping:write']);
+  const item = seedRestockItem('Token-Milch');
+  const { mealId } = seedMeal(['Token-Milch'], '2026-02-03');
+  const res = await call('POST', `/meals/${mealId}/to-shopping-list`, { listId: LIST });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.data.transferred, 1);
+  assert.equal(intervalOf(item), 30, 'die Scope-Achse misst dieselbe Frage');
+});
+
+// =========================================================================
 // 1b. Das Rezept haengt eine Vorratszeile ein (#1314)
 // =========================================================================
 

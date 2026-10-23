@@ -10,13 +10,14 @@ import * as db from '../db.js';
 import { str, num, collectErrors, MAX_TITLE, MAX_TEXT, MAX_SHORT } from '../middleware/validate.js';
 import { normalizeRecipeMealTypes } from '../../public/utils/recipe-meal-types.js';
 import { ingredientMatchKey } from '../../public/utils/ingredient-match-key.js';
-import { normalizeUnitText } from '../../public/utils/unit-abbreviations.js';
+import { normalizeUnitText, pureUnitAbbreviation } from '../../public/utils/unit-abbreviations.js';
 import { normalizeRecipeDiet } from '../../public/utils/recipe-diets.js';
 import { categorizeIngredient, normalizeIncomingCategory } from '../services/recipe-providers/categorize.js';
 import { getAdapter } from '../services/recipe-providers/index.js';
 import { dataUrlContentMatches } from '../utils/file-signature.js';
 import { mayReadModule, mayWriteModule } from '../permissions.js';
 import { pantryCategoryFor } from '../services/shopping-pantry-category.js';
+import { learnRestockInterval } from '../services/pantry-interval-learning.js';
 
 const log = createLogger('Recipes');
 const router = express.Router();
@@ -99,6 +100,10 @@ const NUTRITION_FIELD_MAP = new Map([
   ['sugar', 'sugar_g'], ['sugar_g', 'sugar_g'],
   // mg → g Salz, × 2,5 ÷ 1000, eine Nachkommastelle wie auf dem Etikett.
   ['sodium', 'salt_g'],
+  // Der kanonische Schluessel selbst gehoert dazu - er ist die Rueckschreib-
+  // Seite derselben Zusage wie energy_kcal & Co.: ein Client, der abschreibt,
+  // was GET geliefert hat, verloere sonst still den Salzwert.
+  ['salt_g', 'salt_g'],
 ]);
 
 function normalizeRecipeNutrition(value) {
@@ -307,31 +312,26 @@ function validateRecipeImage(val) {
 
 /**
  * Validiert, ob der Inhalt einer data-URL zu ihrem MIME-Typ passt.
- * Unterstützt sowohl base64-codierte als auch rohe data-URLs.
+ *
+ * BISHER pruefte diese Funktion nur SVG und liess ALLES ANDERE mit einem
+ * pauschalen `return true` durch (#937): ein PNG unter JPEG-Deklaration wurde
+ * angenommen - und der base64-SVG-Zweig rief `contentMatchesMime` auf, das
+ * hier gar nicht importiert war, sodass jede base64-SVG-Angabe in einem 500
+ * endete statt in einer Antwort. Beides ist mit dem gemeinsamen Pruefer
+ * gegangen: dataUrlContentMatches kennt die Signatur jedes erlaubten Bild-
+ * Typs (utils/file-signature.js, dort begruendet) und dekodiert selbst nur
+ * den Kopf der Datei.
+ *
+ * Roh-Data-URLs ohne `;base64,` lehnt RECIPE_IMAGE_RE weiter oben bereits ab
+ * - der optionale Base64-Rumpf ist der einzige zulaessige Koerper. Die
+ * Funktion bleibt trotzdem als eigene Stufe, damit sich die Fehlermeldung
+ * der Inhaltspruefung von der der Formpruefung unterscheidet.
+ *
  * @param {string} dataUrl - Die data-URL zur Validierung
- * @returns {boolean} true wenn der Inhalt gültig ist
+ * @returns {boolean} true wenn der Inhalt zum deklarierten Typ passt
  */
 function validateImageContent(dataUrl) {
-  const s = String(dataUrl).trim();
-  // Prüfe auf base64-codierte SVG
-  const base64Match = /^data:image\/svg\+xml;base64,([\s\S]*)$/.exec(s);
-  if (base64Match) {
-    const b64 = base64Match[1].replace(/\s/g, '').slice(0, 2048);
-    const head = Buffer.from(b64.slice(0, b64.length - (b64.length % 4)), 'base64');
-    return contentMatchesMime(head, 'image/svg+xml');
-  }
-  // Roh data-URL (kein ;base64,)
-  if (/^data:image\/svg\+xml[ ,]/.test(s)) {
-    // Extrahiere den XML-Inhalt und prüfe auf gültiges SVG-Format
-    const xmlMatch = s.match(/^data:image\/svg\+xml,(.+)$/);
-    if (xmlMatch) {
-      const xmlHead = xmlMatch[1].substring(0, 1024);
-      return /<svg[\s>]/i.test(xmlHead);
-    }
-  }
-  // Fallback: wenn die regex durchgelassen hat, nehmen wir an, es ist gültig
-  // (die regex stellt sicher, dass es data:image/svg+xml ist)
-  return true;
+  return dataUrlContentMatches(dataUrl);
 }
 
 router.post('/', (req, res) => {
@@ -383,12 +383,20 @@ router.post('/', (req, res) => {
 
       for (const ing of ingredients) {
         const name = String(ing.name || '').trim().slice(0, MAX_TITLE);
-        const quantity = String(ing.quantity || '').trim().slice(0, MAX_SHORT) || null;
+        let quantity = String(ing.quantity || '').trim().slice(0, MAX_SHORT) || null;
         // Ausgeschriebene Einheiten ("tablespoon") auf ihr Kuerzel ("tbsp")
         // ziehen - eine Fassung (utils/unit-abbreviations.js, dort begruendet).
         // Unbekanntes ("cloves") bleibt, wie es ist; die Laengengrenze gilt
         // danach weiter.
-        const unit = normalizeUnitText(ing.unit)?.slice(0, MAX_SHORT) || null;
+        let unit = normalizeUnitText(ing.unit)?.slice(0, MAX_SHORT) || null;
+        // EIN REINES EINHEITSWORT ALS MENGE gehoert in die Einheitenspalte:
+        // ein Importer schickt "Esslöffel" dorthin, wo gerade ein Feld frei
+        // ist. Nur bekannte, ganze Einheiten ziehen ("50 g" ist eine Menge
+        // mit Einheit, "Prise" unbekannt - beides bleibt, wie es liegt).
+        if (!unit && quantity) {
+          const moved = pureUnitAbbreviation(quantity);
+          if (moved) { unit = moved.slice(0, MAX_SHORT); quantity = null; }
+        }
         // Zweitangabe (v243): Importer schicken ein Gewichtsaequivalent zur
         // primaeren Menge ("0.5 cup" plus "48 g") im camelCase-Paar; die
         // kanonischen Schluessel (secondary_quantity) laufen ebenso durch - ein
@@ -523,10 +531,16 @@ router.put('/:id', (req, res) => {
 
       for (const ing of ingredients) {
         const name = String(ing.name || '').trim().slice(0, MAX_TITLE);
-        const quantity = String(ing.quantity || '').trim().slice(0, MAX_SHORT) || null;
+        let quantity = String(ing.quantity || '').trim().slice(0, MAX_SHORT) || null;
         // Ausgeschriebene Einheiten auf ihr Kuerzel ziehen wie im POST-Zweig
         // (dort begruendet).
-        const unit = normalizeUnitText(ing.unit)?.slice(0, MAX_SHORT) || null;
+        let unit = normalizeUnitText(ing.unit)?.slice(0, MAX_SHORT) || null;
+        // Ein reines Einheitswort als Menge wandert in die Einheitenspalte -
+        // dieselbe Regel wie im POST-Zweig (dort begruendet).
+        if (!unit && quantity) {
+          const moved = pureUnitAbbreviation(quantity);
+          if (moved) { unit = moved.slice(0, MAX_SHORT); quantity = null; }
+        }
         // Zweitangabe wie im POST-Zweig (dort begruendet, v243).
         const secondaryQuantity = String(ing.secondaryQuantity ?? ing.secondary_quantity ?? '').trim().slice(0, MAX_SHORT) || null;
         const secondaryUnit = normalizeUnitText(ing.secondaryUnit ?? ing.secondary_unit)?.slice(0, MAX_SHORT) || null;
@@ -739,6 +753,28 @@ router.post('/:id/to-shopping-list', (req, res) => {
     if (!recipe) return res.status(404).json({ error: 'Recipe not found.', code: 404 });
 
     const vList = num(req.body.listId, 'Listen-ID', { required: true });
+
+    // TEILAUSWAHL (Checkboxen vor den Zutaten im Detail): `ingredientIds` ist
+    // OPTIONAL - fehlt es, uebernimmt der Pfad wie bisher die ganze Liste
+    // (jeder bestehende Client, Token und Test bleibt unberuehrt). Steht es,
+    // MUSS es ein nicht-leeres Array positiver Zahlen sein, und jede ID muss
+    // zu DIESEM Rezept gehoeren: eine fremde ID stillschweigend zu
+    // uebergehen wuerde eine halbe Wahrheit zurueckgeben - die Antwort
+    // erscheint erfolgreich, aber ein Teil der Auswahl kam nie an. Der 400er
+    // nennt den Widerspruch beim Namen. Bei einer leeren Auswahl bleibt es
+    // beim Client (der Knopf faellt auf „Alle zurueck"): ein leerer Transfer
+    // waere keine Auswahl, sondern das Fehlen einer.
+    let ingredientIds = null;
+    if (req.body.ingredientIds !== undefined) {
+      const raw = req.body.ingredientIds;
+      const ok = Array.isArray(raw) && raw.length > 0
+        && raw.every((v) => Number.isInteger(v) && v > 0);
+      if (!ok) {
+        return res.status(400).json({ error: 'ingredientIds must be a non-empty array of ingredient IDs.', code: 400 });
+      }
+      ingredientIds = [...new Set(raw)];
+    }
+
     const errors = collectErrors([vList]);
     if (errors.length) return res.status(400).json({ error: errors.join(' '), code: 400 });
 
@@ -746,9 +782,23 @@ router.post('/:id/to-shopping-list', (req, res) => {
     if (!list) return res.status(404).json({ error: 'Shopping list not found.', code: 404 });
 
     const ingredients = db.get().prepare(
-      'SELECT name, quantity, unit, category FROM recipe_ingredients WHERE recipe_id = ? ORDER BY id ASC',
-    ).all(id);
+      ingredientIds
+        ? `SELECT id, name, quantity, unit, category FROM recipe_ingredients
+             WHERE recipe_id = ? AND id IN (${ingredientIds.map(() => '?').join(',')})
+             ORDER BY id ASC`
+        : 'SELECT id, name, quantity, unit, category FROM recipe_ingredients WHERE recipe_id = ? ORDER BY id ASC',
+    ).all(...(ingredientIds ? [id, ...ingredientIds] : [id]));
+    // JEDE gewaehlte ID muss eine Zeile ergeben - sonst enthielt die Auswahl
+    // eine ID eines anderen Rezepts (oder eine geloeschte). Beides ist kein
+    // Teiltransfer, sondern eine Auswahl, die der Bestand nicht hergibt.
+    if (ingredientIds && ingredients.length !== ingredientIds.length) {
+      return res.status(400).json({ error: 'Every ingredient ID must belong to this recipe.', code: 400 });
+    }
     if (!ingredients.length) return res.json({ data: { transferred: 0, skipped: 0, added_ids: [] } });
+
+    // Ein Zeitpunkt fuer den ganzen Transfer: alle Zutaten einer Uebernahme
+    // lernen dieselbe beobachtete Taktung, nicht je Zeile eine leicht andere.
+    const purchaseSignalAt = new Date();
 
     const result = db.transaction(() => {
       const existing = db.get().prepare(
@@ -774,6 +824,11 @@ router.post('/:id/to-shopping-list', (req, res) => {
         const info = insertItem.run(vList.value, ing.name, flattenQuantity(ing.quantity, ing.unit), category);
         present.add(key);
         addedIds.push(Number(info.lastInsertRowid));
+        // Dasselbe Einkaufs-Signal wie bei der Handanlage (#1608): nur was
+        // WIRKLICH neu anlegt wird, lernt - uebersprungenes liegt schon auf
+        // der Liste und hat beim Anlegen gelernt. Das Undo nimmt die Regel
+        // nicht zurueck (dort begruendet).
+        learnRestockInterval(req, ing.name, purchaseSignalAt);
       }
       return { transferred: addedIds.length, skipped, added_ids: addedIds };
     });

@@ -218,7 +218,9 @@ test('getRecipe: Mealie-Food-Label geht der Namens-Keyword-Suche vor', async () 
   }));
   const adapter = new MealieAdapter(account);
   const recipe = await adapter.getRecipe('bruehe');
-  assert.equal(recipe.ingredients[0].category, 'Fleisch & Fisch');
+  // Die Stichwort-Tabelle nennt die Kategorien, wie der Haushalt sie fuehrt
+  // (umbenannt: 'Meat & Eggs'); 'Fleisch' trifft das Stichwort fuer selbige.
+  assert.equal(recipe.ingredients[0].category, 'Meat & Eggs');
 });
 
 // --------------------------------------------------------------------------
@@ -226,7 +228,7 @@ test('getRecipe: Mealie-Food-Label geht der Namens-Keyword-Suche vor', async () 
 // --------------------------------------------------------------------------
 
 test('categorizeIngredient: "ei" (Ei) matcht nicht als Teilstring in "Fleisch"', () => {
-  assert.equal(categorizeIngredient({ labelName: 'Fleisch' }), 'Fleisch & Fisch');
+  assert.equal(categorizeIngredient({ labelName: 'Fleisch' }), 'Meat & Eggs');
 });
 
 test('categorizeIngredient: "ei" (Ei) matcht nicht als Teilstring in "Reis"', () => {
@@ -234,7 +236,9 @@ test('categorizeIngredient: "ei" (Ei) matcht nicht als Teilstring in "Reis"', ()
 });
 
 test('categorizeIngredient: eigenständiges "Eier" matcht weiterhin', () => {
-  assert.equal(categorizeIngredient({ foodName: 'Eier' }), 'Milchprodukte');
+  // Eier gehoeren zur umbenannten 'Meat & Eggs' (Dairy heisst hier Milch,
+  // ohne Eier - bewusst so verteilt in den Einstellungen).
+  assert.equal(categorizeIngredient({ foodName: 'Eier' }), 'Meat & Eggs');
 });
 
 test('categorizeIngredient: mehrwortiges Stichwort ("baking powder") matcht als Phrase', () => {

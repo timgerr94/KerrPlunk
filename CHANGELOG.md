@@ -9,6 +9,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Recipe ingredients can be picked for the shopping list.** Every line of the
+  ingredient list in a recipe's row expander and detail pane gains a small
+  checkbox, and the transfer button starts as "All to shopping list" - checked
+  nothing, it behaves exactly as before and transfers the whole list. Checking
+  one or more lines relabels the button to "<n> to shopping list" and sends only
+  those rows; unchecking everything returns it to the whole list. The selection
+  is shared by expander and pane, resets after each transfer (an error keeps it,
+  so the transfer can simply be retried), and heals itself when a recipe's
+  ingredients are edited, since saving replaces the rows and their ids. The
+  full-screen reading view carries neither checkboxes nor the button - the
+  choice is made where the transfer lives. The route accepts an optional
+  `ingredientIds` array, so existing clients and API tokens are unaffected; a
+  foreign ingredient id is a 400, not a silent skip.
+- **A Christmas skin with real snowfall.** Settings → Personal → Appearance gains a third
+  visual style next to Middle-earth: warm ivory surfaces with deep berry-red accents and a
+  gold secondary voice in light mode, gold as the primary accent with a readable red
+  secondary in dark mode, gold hairline borders on cards, a red-to-deeper-red gradient with
+  a gold top edge on primary buttons, a gold underline stroke under page titles, red
+  intermediate headings set in the Christmas Elegant typeface (it replaces the Ringbearer
+  face the Middle-earth skin uses for that role; the other fonts are shared; it ships a
+  complete alphabet including digits), and a cool frost
+  shimmer instead of the parchment fibre. The skin also brings snow: unicode snowflakes
+  drift down the viewport and settle as soft domed caps of up to 8 px on primary and icon
+  buttons — including the docked "New" buttons — resting on each button's top edge and
+  growing upward, inset per button by its corner radius plus 2 px so the cap follows the
+  curve instead of overhanging it; circular buttons and the sticky page toolbar stay bare
+  (a nearly full-width cap on the toolbar read as a floating white line rather than snow).
+  On wide screens snow also builds an uneven, drifting band along the bottom of the screen —
+  accumulated per column with a Gaussian falloff and smoothed like a real snowfall, not a
+  flat bar, and the corners blow a little higher than the rest, as if the wind had pushed
+  them up; on phones it
+  caps the bottom navigation pill. Nothing melts anymore — once every cap is full, the
+  snow lies and the supply stops by itself. Pressing a snowy button shakes it like a dog
+  shaking off its coat — a short jitter replaces the usual press-scale, and the snow bursts
+  into little scattered crumbs that fly off in all directions; the snow then accumulates
+  anew. The engine (public/snow.js)
+  is loaded only while the skin is active, stops on tab switch, and users with
+  `prefers-reduced-motion` get a static 4 px cap with no animation. Snow caps never block
+  clicks. The label is translated in all 26 languages and the font is precached for
+  offline use.
 - **Norwegian Bokmål as the 26th language** (#1529, translated by @nilsanmy). The app, the web
   installer and the command-line installer speak Norwegian Bokmål. A Norwegian Bokmål browser or
   `LANG=nb_NO.UTF-8` picks it on its own, and the new region "Norwegian Bokmål (Norway)" sets
@@ -30,11 +70,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   characters per line), notes, nutrition and the planning actions on the right, and each
   side scrolls on its own — a long ingredient list no longer runs away from the
   preparation text. Narrow screens and recipes without ingredients keep the single
-  column. The fullscreen header shows only edit and close; duplicate and delete stay with
-  the list, where the overview is. Escape and the back gesture close the view instead of
-  leaving the page (#871), the focus returns to the button that opened it, and every
-  rebuild of the list keeps the view current. The button is translated in all 26
-  languages.
+  column, with the meal, servings, times, cuisine and diet lines above the
+  ingredients just like in the detail view. The fullscreen header shows only edit
+  and close; duplicate and delete stay with the list, where the overview is. Escape
+  and the back gesture close the view instead of leaving the page (#871), the
+  focus returns to the button that opened it, and every rebuild of the list keeps
+  the view current. On phones, the expanded recipe row carries the same "Full
+  screen" button at its top. The button is translated in all 26 languages.
 - **Thin accent-coloured scrollbars everywhere the app scrolls.** The slim,
   module-tinted scrollbar that the shopping, pantry and recipe lists already had now
   also covers the main page scroller, the per-page scrollports, the detail pane of every
@@ -44,6 +86,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The offline session no longer locks the app to Shopping and Pantry, and it heals itself when the network returns.** A remembered offline session (installed iOS PWA) used to redirect every navigation to Shopping or Pantry - and it stayed that way after the connection came back, so the app remained trapped until a hard restart. The lock is gone: offline, every module is navigable within its means (cached modules such as calendar, tasks, contacts and dashboard show their last-seen state, the others surface their load error), while Shopping and Pantry keep their offline write queue. When connectivity returns, the app revalidates the session in the background (fresh `/auth/me` and `/preferences`, refreshed permissions and module setup) and the outbox syncs - all without a restart.
 - **The event and task forms say when "Only me" is combined with assigned people.** Visibility
   "Only me" means only the person who created the entry sees it, so the other people
   assigned to it do not see it. The form now shows a hint for that combination and points to
@@ -69,6 +112,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **"Usually buy every X days" now learns from every way an item gets onto a shopping list** (#1608).
+  Manually typing an item has always adjusted the restock interval of the same-named pantry entry
+  to the days since its last purchase — but sending a recipe's ingredients to a list, a planned
+  meal, a whole week, or the meal-plan import silently skipped that step, so the interval only ever
+  learned when the item was typed in by hand. All of these paths now learn through the same rule:
+  the interval follows the observed rhythm since the last purchase, clamped to 7–3650 days, only
+  for pantry entries that carry a restock rule. The purchase date itself still moves only when the
+  purchase is put away into the pantry, undoing a transfer does not unlearn, and a member or token
+  without pantry write access still completes the transfer — their pantry rules just stay as they
+  are.
 - **"No access to this module" is shown in your language** (#1607). When a request was refused
   because your role has no access to a module, or only read access, the message came from the
   server in English, whatever language the app was set to. Both messages are now translated

@@ -212,3 +212,407 @@
   --color-accent: var(--_color-accent);
   --color-ink-on-vivid: var(--_color-ink-on-vivid);
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   CHRISTMAS-SKIN ("data-skin='christmas'")
+   Winter- und Weihnachtsvariante ueber dem unabhaengigen Hell-/Dunkel-Modus.
+   Aufbau und Variablensatz spiegeln den Middle-earth-Skin darueber: warmes
+   Elfenbein, im Hell-Modus tiefes Beerrot als Akzent und Gold als
+   Nebenstimme, im Dunkel-Modus Gold als Hauptstimme (Rot bleibt als
+   Nebenstimme lesbar). Zwischentitel tragen ChristmasElegant statt Ringbearer;
+   die anderen Schriften teilt sich der Skin mit Middle-earth. Der Skin
+   bringt ausserdem Schneefall und Schneehauben mit (public/snow.js), das
+   nur geladen wird, solange dieser Skin aktiv ist.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+@font-face {
+  font-family: "christmas-elegant";
+  src: url("/fonts/ChristmasElegantPersonalUse-gxrPp.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  /* Vollstaendiges Alphabet samt Ziffern - ein zuvor erprobter Logo-
+     schrift-Zug bildete Zifferncodepoints als Schmuckwoerter ab („the
+     lion", „chronicles") und wurde deshalb als GANZES ersetzt. */
+}
+
+:root[data-skin="christmas"] {
+  --_neutral-50: #FBF6EC;
+  --_neutral-100: #F7F1E4;
+  --_neutral-150: #EFE6D4;
+  --_neutral-200: #E2D5BE;
+  --_neutral-250: #D5C5A8;
+  --_neutral-300: #C7B48E;
+  --_neutral-400: #A89668;
+  --_neutral-500: #80714A;
+  --_neutral-600: #61543A;
+  --_neutral-700: #493F2C;
+  --_neutral-800: #332B1F;
+  --_neutral-900: #241E15;
+  --_neutral-950: #16110C;
+
+  --_color-surface: #FFF9EE;
+  --_color-surface-3: #EFE6D4;
+  --_color-surface-elevated: #FBF6EC;
+  --_color-surface-hover: #EFE6D4;
+  --_color-surface-elevated-hover: #E2D5BE;
+  --_color-surface-work: #FFF9EE;
+  --_color-surface-raised: #FBF6EC;
+  --_color-surface-glass: rgba(255, 249, 238, 0.88);
+  --_sidebar-bg: #EFE6D4;
+
+  --_color-accent: #A62B2F;
+  --_color-accent-hover: #8C2226;
+  --_color-accent-light: #F6E3E0;
+  --_color-accent-subtle: #EFD6D1;
+  --_color-accent-secondary: #8A6D2F;
+  --_color-btn-primary: #A62B2F;
+  --_color-btn-primary-hover: #8C2226;
+  --_color-ink-on-vivid: #FFFFFF;
+
+  --font-sans: "IM Fell English", Georgia, serif;
+  --font-heading-major: "party-business-font-f2250", "IM Fell English", Georgia, serif;
+  --font-heading-medium: "christmas-elegant", "IM Fell English", Georgia, serif;
+  --font-heading: var(--font-heading-major);
+
+  /* Skin-eigene Dekoration (im Dunkel-Modus ueberschrieben): Gold fuer
+     Kanten, Unterstreichungen und Knopf-Glanz; Rot fuer Zwischentitel. */
+  --skin-gold-decorative: #C9A227;
+  --skin-title-accent: #8C2226;
+  --skin-btn-sheen-top: #B03036;
+  --skin-btn-sheen-bottom: #A62B2F;
+  --skin-frost-shimmer: rgba(148, 176, 214, 0.05);
+}
+
+/* Frostschimmer statt Papierfaser: gleiche Technik wie Middle-earth, nur
+   mit kuehlem Stich statt brauner Faser. */
+:root[data-skin="christmas"] body {
+  background-image: repeating-linear-gradient(
+    92deg,
+    transparent 0 8px,
+    var(--skin-frost-shimmer) 9px,
+    transparent 10px
+  );
+}
+
+:root[data-skin="christmas"] .app-content,
+:root[data-skin="christmas"] .app-loading {
+  background-image: repeating-linear-gradient(
+    92deg,
+    transparent 0 8px,
+    var(--skin-frost-shimmer) 9px,
+    transparent 10px
+  );
+}
+
+/* Seitentitel bleiben neutral, bekommen aber einen goldenen Unterstrich. */
+:root[data-skin="christmas"] h1,
+:root[data-skin="christmas"] .u-hero,
+:root[data-skin="christmas"] .u-page-title,
+:root[data-skin="christmas"] .page__title,
+:root[data-skin="christmas"] .page-toolbar__title,
+:root[data-skin="christmas"] .settings-leaf-header__title,
+:root[data-skin="christmas"] .settings-shell-header__title,
+:root[data-skin="christmas"] .page-toolbar__dock-title,
+:root[data-skin="christmas"] .split-title {
+  font-family: var(--font-heading-major);
+  text-decoration: underline;
+  text-decoration-color: var(--skin-gold-decorative);
+  text-decoration-thickness: 3px;
+  text-underline-offset: 10px;
+}
+
+/* Zwischentitel tragen die Christmas-Elegant-Schrift und das Beerrot des Skins. */
+:root[data-skin="christmas"] h2,
+:root[data-skin="christmas"] h3,
+:root[data-skin="christmas"] h4,
+:root[data-skin="christmas"] h5,
+:root[data-skin="christmas"] h6,
+:root[data-skin="christmas"] .u-section-title,
+:root[data-skin="christmas"] .u-card-title,
+:root[data-skin="christmas"] .u-toolbar-title,
+:root[data-skin="christmas"] .settings-card__title,
+:root[data-skin="christmas"] .settings-section__title,
+:root[data-skin="christmas"] .panel-head__title,
+:root[data-skin="christmas"] .sub-tabs-bar__title {
+  font-family: var(--font-heading-medium);
+  color: var(--skin-title-accent);
+}
+
+/* Primaerknoepfe: roter Verlauf (im Dunkel-Modus Gold) mit goldener
+   oberer Kante - das "Gold-Draufgelegt" des Skins. background-color der
+   Basisregel bleibt als Rueckfallebene darunter stehen. */
+:root[data-skin="christmas"] .btn--primary {
+  background-image:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--skin-gold-decorative) 55%, transparent),
+      transparent 3px
+    ),
+    linear-gradient(180deg, var(--skin-btn-sheen-top), var(--skin-btn-sheen-bottom) 70%);
+}
+
+/* Goldener Haarlinien-Rahmen auf angehobenen Flaechen. Outline statt
+   box-shadow: das waere eine zweite Stimme gegen die Schatten der Basis. */
+:root[data-skin="christmas"] .settings-card {
+  outline: 1px solid color-mix(in srgb, var(--skin-gold-decorative) 40%, transparent);
+  outline-offset: -1px;
+}
+
+/* Schneehauben (public/snow.js haengt .kp-snow-cap in die registrierten
+   Ziele): pointer-events none, damit Klicks durch die Haube auf den Button
+   kommen; die Hoehe traegt die Engine per Inline-Stil. Zwei Geometrie-
+   Regeln: (1) Die Unterkante liegt auf der Knopf-Oberkante AUF und bleibt
+   dort - die Haube waechst nach OBEN (bottom: 100%), statt mit wachsender
+   Hoehe ins Knopfgesicht zu rutschen. (2) Kein Balken ueber die volle
+   Knopfbreite: die Einrueckung mise die Engine pro Knopf nach Mass
+   (--kp-snow-inset = Eckenradius + 2px Polster, Fallback 11%), damit die
+   Haube der Woelbung folgt, statt ueber die Ecken hinaenzuragen. Kreisrunde
+   Knoepfe bekommen ueberhaupt keine Haube - die Engine ueberspringt sie
+   (skipCircular in public/snow.js): eine Kuppel auf einem Kreis waere ein
+   schwebender Bogen. */
+:root[data-skin="christmas"] .kp-snow-cap {
+  position: absolute;
+  bottom: 100%;
+  left: var(--kp-snow-inset, 11%);
+  right: var(--kp-snow-inset, 11%);
+  height: 0;
+  background: #FDFEFF;
+  border-radius: 100% 100% 42% 42% / 320% 320% 40% 40%;
+  pointer-events: none;
+}
+
+/* Ein Hoecker auf der Haube - Schnee darf nicht wie ein Lineal wirken. Die
+   Geometrie ist prozentual: der Hoecker waechst mit der Haube mit, statt bei
+   2 px Haube schon 8 px ueberzustehen. Er ragt ueber die Kante und erbt die
+   Haubenfarbe. */
+:root[data-skin="christmas"] .kp-snow-cap::before {
+  content: "";
+  position: absolute;
+  top: -35%;
+  left: 14%;
+  width: 32%;
+  height: 80%;
+  border-radius: 50%;
+  background: inherit;
+}
+
+/* Die Host-Klasse spendiert die Engine ihren Zielen: die absolut positionier
+   te Haube braucht einen positionierten Anker. Als Klasse mit Skin-Spezifi
+   taet statt als Inline-Stil - der angedockte Page-FAB wechselt zwischen
+   static (angedockt) und fixed (schwebend), und ein Inline-Stil, den die
+   Engine nicht mehr abraeumt, wuerde ihn im Flow der FAB-Ebene gefangen
+   halten. Die Engine entfernt die Klasse, sobald das Element kein Ziel mehr
+   ist (public/snow.js, pruneTargets). */
+:root[data-skin="christmas"] .kp-snow-host {
+  position: relative;
+}
+
+/* Der angedockte New-Knopf als Schneeziel: kp-snow-host macht ihn
+   position:relative - und damit griffe .page-fabs bottom/inset-inline-end
+   wieder, die position:static von .page-fab--docked bisher stilllegte; der
+   Knopf stuende neben der Werkzeugleiste statt in ihr. Als Ziel werden
+   beide Offsets neutralisiert, die Zeilen-Geometrie macht weiter die
+   Shell (.page-fab--docked in layout.css). */
+:root[data-skin="christmas"] .page-fab--docked.kp-snow-host {
+  bottom: auto;
+  inset-inline-end: auto;
+}
+
+/* SCHUETTELN STATT KIPPPEN (pointerdown auf einem Ziel mit Haube, nur
+   Schuettel-Ziele - nicht die schmale Werkzeugleiste).
+
+   DREI Stimmen an derselben transform-Eigenschaft, und nur eine darf je
+   sprechen:
+   1. .btn:active / .page-fab:active skal­i­iert den Knopf - die "Kipp"-
+      Wirkung, die hier abgeschafft wird.
+   2. .kp-snow-host:active legt sie still: ein Druck auf einen Knopf MIT
+      Haube bleibt ruhig statt zu kippen - auch wenn er gerade keinen
+      Schnee zum Schuetteln hat.
+   3. .kp-snow-shake zittert - Keyframes kommen aus der ANIMATIONS-Stufe
+      der Kaskade und liegen ueber jeder normalen Autoren-Deklaration,
+      also auch ueber 2.
+   Ein !important waere der vierte Versuch gewesen, das zu loesen - es
+   haette aber auch die Keyframes erstickt (wichtig schlaegt Animation),
+   und der Knopf haette sich UEBERHAUPT nicht bewegt. Die Schichtfolge
+   regelt das ohne Zwang. */
+:root[data-skin="christmas"] .kp-snow-host:active {
+  transform: none;
+}
+
+/* Nach dem Schuetteln bleibt diese Klasse am Knopf. Ohne sie fiel beim
+   AbrAEUMEN der Schuettel-Klasse die berechnete animation auf den Ein-
+   tritts-Runner zurueck, den die angedockten New-Knoepfe als .page-fab
+   tragen (fab-in: scale(0.5), opacity 0 -> 1) - ein Wechsel des
+   animation-Werts startet eine NEUE Animation, der Knopf spulte nach
+   jedem Schuetteln seinen Eintritt neu auf und flackerte 420 ms aus.
+   done pinnt die Animation auf none: gegen .page-fab gewinnt das per
+   Spezifitaet, gegen die naechste Schuettel-Runde verliert es per
+   Quellordnung (die Regel darunter steht spaeter im Blatt). Der Knopf
+   ist gedrueckt worden - sein Eintritts-Pop hat niemanden mehr zu
+   begruessen. */
+:root[data-skin="christmas"] .kp-snow-shake-done {
+  animation: none;
+}
+
+:root[data-skin="christmas"] .kp-snow-shake {
+  animation: kp-snow-shake 400ms ease-in-out;
+}
+
+@keyframes kp-snow-shake {
+  0%   { transform: translateX(0) rotate(0); }
+  12%  { transform: translateX(-3.5px) rotate(-3deg); }
+  26%  { transform: translateX(3.5px) rotate(2.6deg); }
+  40%  { transform: translateX(-2.8px) rotate(-2deg); }
+  54%  { transform: translateX(2.2px) rotate(1.5deg); }
+  68%  { transform: translateX(-1.5px) rotate(-0.9deg); }
+  82%  { transform: translateX(0.7px) rotate(0.4deg); }
+  100% { transform: translateX(0) rotate(0); }
+}
+
+/* Der abgeworfene Schnee sind KEINE CSS-Animationen mehr, sondern Bissen
+   aus dem Konfetti-Renderer (public/vendor/canvas-confetti, derselbe wie
+   der Jubel im Belohnungsmodul): scatterSnowCrumbs in public/snow.js
+   feuert einen Schwung weisser Runde aus der Knopf-Oberkante, mit Fall,
+   Drall und Streuung - wie Schnee, den ein Hund abschuettelt. Die alte
+   Ein-Stueck-Wurf-Animation (kp-snow-cap--throw) ist damit ersatzlos
+   entfernt. */
+
+/* prefers-reduced-motion: die Engine schuettelt ohnehin nicht (kein
+   pointerdown-Handling im reduced-Pfad). Sollte eine Animation dennoch
+   ankommen, ist sie EIN Bild - kein Jitter, nur das Ende. */
+@media (prefers-reduced-motion: reduce) {
+  :root[data-skin="christmas"] .kp-snow-shake {
+    animation: none;
+  }
+}
+
+/* Die Boden-Wehe am unteren Rand zeichnet die Engine direkt auf ihre
+   Leinwand (pro Spalte akkumuliert, Gauss'scher Falloff - siehe
+   smoothGround/depositGround in public/snow.js). Es gibt dafuer KEIN
+   Element und damit keine Regel mehr; die Farbe liest die Engine im
+   Dunkel-Modus selbst ab. */
+
+@media screen and (prefers-color-scheme: dark) {
+  :root[data-skin="christmas"]:not([data-theme="light"]) {
+    --_neutral-50: #16110C;
+    --_neutral-100: #1A1611;
+    --_neutral-150: #2A241C;
+    --_neutral-200: #362E23;
+    --_neutral-250: #433A2C;
+    --_neutral-300: #504536;
+    --_neutral-400: #6A5D49;
+    --_neutral-500: #91836B;
+    --_neutral-600: #B7A889;
+    --_neutral-700: #CFC19F;
+    --_neutral-800: #E8DCC0;
+    --_neutral-900: #F4EEDD;
+    --_neutral-950: #FCF7EB;
+
+    --_color-surface: #2A241C;
+    --_color-surface-3: #362E23;
+    --_color-surface-elevated: #362E23;
+    --_color-surface-hover: #362E23;
+    --_color-surface-elevated-hover: #433A2C;
+    --_color-surface-work: #2A241C;
+    --_color-surface-raised: #362E23;
+    --_color-surface-glass: rgba(42, 36, 28, 0.88);
+    --_sidebar-bg: #211C15;
+
+    --_color-accent: #D2B57C;
+    --_color-accent-hover: #E3C36A;
+    --_color-accent-light: #3A3220;
+    --_color-accent-subtle: #322B1B;
+    --_color-accent-secondary: #E0989C;
+    --_color-btn-primary: #C9A227;
+    --_color-btn-primary-hover: #B8951F;
+    --_color-ink-on-vivid: #16110C;
+
+    --skin-gold-decorative: #E3C36A;
+    --skin-title-accent: #E0989C;
+    --skin-btn-sheen-top: #D2B57C;
+    --skin-btn-sheen-bottom: #B8951F;
+    --skin-frost-shimmer: rgba(160, 190, 220, 0.07);
+  }
+
+  :root[data-skin="christmas"]:not([data-theme="light"]) .kp-snow-cap {
+    background: #E9EFF7;
+  }
+}
+
+:root[data-skin="christmas"][data-theme="dark"] {
+  --_neutral-50: #16110C;
+  --_neutral-100: #1A1611;
+  --_neutral-150: #2A241C;
+  --_neutral-200: #362E23;
+  --_neutral-250: #433A2C;
+  --_neutral-300: #504536;
+  --_neutral-400: #6A5D49;
+  --_neutral-500: #91836B;
+  --_neutral-600: #B7A889;
+  --_neutral-700: #CFC19F;
+  --_neutral-800: #E8DCC0;
+  --_neutral-900: #F4EEDD;
+  --_neutral-950: #FCF7EB;
+
+  --_color-surface: #2A241C;
+  --_color-surface-3: #362E23;
+  --_color-surface-elevated: #362E23;
+  --_color-surface-hover: #362E23;
+  --_color-surface-elevated-hover: #433A2C;
+  --_color-surface-work: #2A241C;
+  --_color-surface-raised: #362E23;
+  --_color-surface-glass: rgba(42, 36, 28, 0.88);
+  --_sidebar-bg: #211C15;
+
+  --_color-accent: #D2B57C;
+  --_color-accent-hover: #E3C36A;
+  --_color-accent-light: #3A3220;
+  --_color-accent-subtle: #322B1B;
+  --_color-accent-secondary: #E0989C;
+  --_color-btn-primary: #C9A227;
+  --_color-btn-primary-hover: #B8951F;
+  --_color-ink-on-vivid: #16110C;
+
+  --skin-gold-decorative: #E3C36A;
+  --skin-title-accent: #E0989C;
+  --skin-btn-sheen-top: #D2B57C;
+  --skin-btn-sheen-bottom: #B8951F;
+  --skin-frost-shimmer: rgba(160, 190, 220, 0.07);
+}
+
+:root[data-skin="christmas"][data-theme="dark"] .kp-snow-cap {
+  background: #E9EFF7;
+}
+
+:root[data-skin="christmas"] {
+  --color-bg: #F7F1E4;
+  --color-surface: var(--_color-surface);
+  --color-border: var(--_neutral-200);
+  --color-text: var(--_neutral-900);
+  --color-text-secondary: var(--_neutral-600);
+  --color-accent: var(--_color-accent);
+  --color-ink-on-vivid: var(--_color-ink-on-vivid);
+}
+
+@media screen and (prefers-color-scheme: dark) {
+  :root[data-skin="christmas"]:not([data-theme="light"]) {
+    --color-bg: #1A1611;
+    --color-surface: var(--_color-surface);
+    --color-border: #504536;
+    --color-text: var(--_neutral-900);
+    --color-text-secondary: var(--_neutral-600);
+    --color-accent: var(--_color-accent);
+    --color-ink-on-vivid: var(--_color-ink-on-vivid);
+  }
+}
+
+:root[data-skin="christmas"][data-theme="dark"] {
+  --color-bg: #1A1611;
+  --color-surface: var(--_color-surface);
+  --color-border: #504536;
+  --color-text: var(--_neutral-900);
+  --color-text-secondary: var(--_neutral-600);
+  --color-accent: var(--_color-accent);
+  --color-ink-on-vivid: var(--_color-ink-on-vivid);
+}

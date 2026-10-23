@@ -1602,6 +1602,7 @@ async function sendToShopping(items, btn) {
 
 function openItemModal(mode, item = null) {
   const isEdit = mode === 'edit';
+  let cleanupDeleteSync = null;
   // Der Dialog zeigt den Artikel, wie ihn die Zeile zeigt: mit der Absicht
   // eines Stepper-Schritts, dessen PATCH noch im Entprell-Fenster steht. Aus
   // dem nackten Serverstand gefuellt stuende dort die alte Menge, und wer dann
@@ -1675,7 +1676,7 @@ function openItemModal(mode, item = null) {
         </div>`,
       { open: isEdit && (item.min_quantity != null || item.restock_interval_days != null || !!item.notes) })}
       <div class="modal-panel__footer modal-panel__footer--plain">
-        ${isEdit ? `<button type="button" class="btn btn--danger-outline pantry-form__delete" id="pantry-delete"><i data-lucide="trash-2" class="icon-md" aria-hidden="true"></i>${esc(t('common.delete'))}</button>` : ''}
+        ${isEdit ? `<button type="button" class="btn btn--danger-outline pantry-form__delete" id="pantry-delete"${isBrowserOffline() ? ` disabled title="${esc(t('common.errorOffline'))}"` : ''}><i data-lucide="trash-2" class="icon-md" aria-hidden="true"></i>${esc(t('common.delete'))}</button>` : ''}
         <button type="button" class="btn btn--secondary" data-action="close-modal">${esc(t('common.cancel'))}</button>
         <button type="button" class="btn btn--primary" id="pantry-save">${esc(isEdit ? t('common.save') : t('common.add'))}</button>
       </div>`,
@@ -1694,14 +1695,29 @@ function openItemModal(mode, item = null) {
       panel.querySelector('#pantry-notes').value = isEdit && item.notes ? item.notes : '';
 
       panel.querySelector('#pantry-save').addEventListener('click', () => saveItem(panel, mode, item));
-      panel.querySelector('#pantry-delete')?.addEventListener('click', async () => {
-        closeSharedModal({ force: true });
-        await removeItem(item);
-        refocusAfterRender();
-      });
+      const deleteBtn = panel.querySelector('#pantry-delete');
+      if (deleteBtn) {
+        cleanupDeleteSync = syncDeleteButtonWithConnectivity(deleteBtn);
+        deleteBtn.addEventListener('click', async () => {
+          // Zweites Netz fuer den Fall, dass die Verbindung abreisst, nachdem
+          // der Dialog bereits offen war: das `disabled` kann solchen Momenten
+          // hinterherhaengen, der Klick-Waechter nicht.
+          if (isBrowserOffline()) {
+            window.yuvomi?.showToast(t('common.errorOffline'), 'danger');
+            return;
+          }
+          closeSharedModal({ force: true });
+          await removeItem(item);
+          refocusAfterRender();
+        });
+      }
 
       wireBlurValidation(panel);
       if (window.lucide) window.lucide.createIcons({ el: panel });
+    },
+    onClose() {
+      cleanupDeleteSync?.();
+      cleanupDeleteSync = null;
     },
   });
 }
@@ -1752,6 +1768,29 @@ async function saveItem(panel, mode, item) {
     saveBtn.disabled = false;
     window.yuvomi?.showToast(err.data?.error ?? t('common.errorGeneric'), 'danger');
   }
+}
+
+/**
+ * Der Loeschen-Button ist offline deaktiviert: Pantry-Deletes gehen - anders
+ * als Mengen-Schritte - nicht in die Offline-Outbox, ein Klick wuerde also
+ * nur einen Fehler zeigen und nichts synchronisieren. Verbindungswechsel
+ * waehrend der Dialog offen ist, fuehren den Zustand live nach; `onClose`
+ * des Dialogs raumt die Listener wieder ab.
+ */
+function syncDeleteButtonWithConnectivity(deleteBtn) {
+  const sync = () => {
+    const offline = isBrowserOffline();
+    deleteBtn.disabled = offline;
+    if (offline) deleteBtn.title = t('common.errorOffline');
+    else deleteBtn.removeAttribute('title');
+  };
+  sync();
+  window.addEventListener('online', sync);
+  window.addEventListener('offline', sync);
+  return () => {
+    window.removeEventListener('online', sync);
+    window.removeEventListener('offline', sync);
+  };
 }
 
 async function removeItem(item) {

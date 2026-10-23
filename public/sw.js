@@ -120,6 +120,7 @@ const APP_SHELL = [
   '/fonts/IMFellEnglish-Regular.ttf',
   '/fonts/PartyBusiness-4B0K.ttf',
   '/fonts/RingbearerMedium-51mgZ.ttf',
+  '/fonts/ChristmasElegantPersonalUse-gxrPp.ttf',
   '/components/yuvomi-install-prompt.js',
   // Geteilte Module. Sie werden von Shell UND Seitenmodulen importiert und
   // müssen deshalb zusammen mit der Shell erneuert werden: der Browser bindet
@@ -128,6 +129,9 @@ const APP_SHELL = [
   // Dateisystem; Fetch-Routing für diese Pfade → SHELL_CACHE (isMutableAppResource).
   '/nav-icons.js',
   '/permissions.js',
+  // theme-init.js UND router.js laden ihn dynamisch, sobald der Christmas-Skin
+  // aktiv ist - ein Shell-Import, also gehoert er in den Shell-Cache.
+  '/snow.js',
   // Der Router laedt ihn als Seiteneffekt (`import '/components/datepicker.js'`),
   // also gehoert er in die Shell, nicht zu den Seitenmodulen. Der
   // Precache-Guard sah diese Import-Form bis #944 nicht.

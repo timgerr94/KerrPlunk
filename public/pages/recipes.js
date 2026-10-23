@@ -38,6 +38,75 @@ let _md = null;
  * erste ab (openRecipeFullscreen). */
 let _fullscreen = null;
 
+/* TEILWAHL DER ZUTATEN FUER DEN EINKAUF (2026-10-21): je Rezept die IDs der
+ * angekreuzten Zeilen. Die Checkboxen stehen nur auf der Seite (Aufklapper
+ * und Detailspalte) - beide teilen dieselbe Karte, damit die Auswahl nie
+ * auseinanderlaeuft; das Vollbild zeigt weder Checkboxen noch den Knopf.
+ * Karte statt Felder am Markup: renderIngredientSections() baut jeden
+ * Abschnitt neu (Vorrats-Zuordnung speichern), und die Kaetzchen lesen ihre
+ * Markierung aus der Karte zurueck, nicht aus sich selbst.
+ * SELBSTHEILUNG: ein PUT ersetzt die Zutatenzeilen samt IDs. selected-
+ * IngredientIds() schneidet die Auswahl am Bestand zurueck, statt IDs zu
+ * senden, die kein Rezept mehr hergibt - der Server wiese sie mit 400 zurueck,
+ * und der Nutzer haette nichts dafuer getan. */
+const _selectedIngredients = new Map();
+
+/** Die gewaehlten IDs eines Rezepts, am Bestand geschnitten (Selbstheilung). */
+function selectedIngredientIds(recipe) {
+  const stored = _selectedIngredients.get(Number(recipe.id));
+  if (!stored?.size) return [];
+  const existing = new Set((recipe.ingredients ?? [])
+    .map((i) => Number(i?.id))
+    .filter(Number.isFinite));
+  const alive = [...stored].filter((v) => existing.has(v));
+  if (alive.length !== stored.size) {
+    if (alive.length) {
+      stored.clear();
+      for (const v of alive) stored.add(v);
+    } else {
+      _selectedIngredients.delete(Number(recipe.id));
+    }
+  }
+  return alive;
+}
+
+/** Ein Kaetzchen an/aus - leer bleibt keine leere Menge in der Karte. */
+function toggleIngredientSelection(recipeId, ingredientId, checked) {
+  const key = Number(recipeId);
+  if (!Number.isFinite(key)) return;
+  if (checked) {
+    if (!_selectedIngredients.has(key)) _selectedIngredients.set(key, new Set());
+    _selectedIngredients.get(key).add(Number(ingredientId));
+  } else {
+    const set = _selectedIngredients.get(key);
+    if (!set) return;
+    set.delete(Number(ingredientId));
+    if (!set.size) _selectedIngredients.delete(key);
+  }
+}
+
+/** Die Auswahl eines Rezepts verwerfen - nach jedem erfolgreichen Transfer. */
+function clearIngredientSelection(recipeId) {
+  _selectedIngredients.delete(Number(recipeId));
+}
+
+/** Beschriftung des Einkaufsknopfs: „Alles", solange nichts gewaehlt ist. */
+function shoppingButtonLabel(recipe) {
+  const n = selectedIngredientIds(recipe).length;
+  return n > 0
+    ? t('recipes.toShoppingSelected', { count: n })
+    : t('recipes.toShoppingAll');
+}
+
+/** Alle Einkaufsknoepfe eines Rezepts (Aufklapper UND Spalte) auf die Auswahl. */
+function updateShoppingButtons(recipe) {
+  const label = shoppingButtonLabel(recipe);
+  for (const btn of _container?.querySelectorAll(
+    `[data-action="to-shopping"][data-id="${recipe.id}"]`) ?? []) {
+    btn.textContent = label;
+  }
+}
+
 const state = {
   recipes: [],
   categories: [],
@@ -54,7 +123,7 @@ const state = {
   plannedRecipeIds: new Set(),
 };
 
-// Client-seitige Suche über Titel, Notizen und Zutaten (Audit A1-21):
+// Client-seitige Suche über Titel, Notizen, Zutaten, Küche und Diet (Audit A1-21):
 // die Rezeptliste ist vollständig geladen, ein Server-Roundtrip wäre Umweg.
 function filteredRecipes() {
   const q = state.query.toLowerCase();
@@ -63,7 +132,9 @@ function filteredRecipes() {
     if (!q) return true;
     return r.title?.toLowerCase().includes(q)
       || r.notes?.toLowerCase().includes(q)
-      || (r.ingredients ?? []).some((i) => i.name?.toLowerCase().includes(q));
+      || (r.ingredients ?? []).some((i) => i.name?.toLowerCase().includes(q))
+      || r.cuisine?.toLowerCase().includes(q)
+      || (r.diet ?? []).some((d) => String(d).toLowerCase().includes(q));
   });
 }
 
@@ -380,6 +451,24 @@ export async function render(container, { signal } = {}) {
     await handleDetailAction(e);
   });
 
+  // DIE CHECKBOXEN DER TEILWAHL laufen ueber change an derselben Huelle wie
+  // die Knöpfe: Aufklapper und Detailspalte haengen beide darin, und ein
+  // Handler je Kaetzchen verstünde den Neuaufbau (renderIngredientSections)
+  // nicht. Der Vollbild-Abschnitt traegt keine Checkboxen - hier findet sein
+  // Neuaufbau nie ein Ziel.
+  split.addEventListener('change', (e) => {
+    const check = e.target?.closest?.('.recipe-detail__ingredient-check');
+    if (!check) return;
+    const section = check.closest('.recipe-detail__ingredients-section');
+    const recipeId = Number(section?.dataset.recipeId);
+    const ingredientId = Number(check.getAttribute('data-ingredient-id'));
+    if (!recipeId || !ingredientId) return;
+    const recipe = state.recipes.find((r) => r.id === recipeId);
+    if (!recipe) return;
+    toggleIngredientSelection(recipeId, ingredientId, check.checked);
+    updateShoppingButtons(recipe);
+  });
+
   // Kein eigener keydown-Handler mehr: das Aufklappen sitzt auf einem echten
   // <button>, der Enter und Space von sich aus verarbeitet. Der frühere Handler
   // gehörte zur Karte, die role="button" trug und damit ein Bedienelement mit
@@ -574,6 +663,9 @@ function detailHeaderActions(recipe, { fullscreen = false } = {}) {
  * Handler fuer alle Orte desselben Inhalts - Aufklapper, Detailspalte,
  * Vollbild. Der Zeilen-Hauptknopf gehoert ihm nicht: der entscheidet zwischen
  * Spalte (auswaehlen) und Aufklapper (aufklappen) und bleibt am split-view.
+ * Der Zweig 'fullscreen' ist der Ausgang des AUFKLAPPERS (schmale Fenster,
+ * Knopf in dessen Kopfleiste): in der Spalte sitzt derselbe Ausgang im Kopf
+ * (detailHeaderActions), und das Vollbild selbst hat keinen.
  */
 async function handleDetailAction(e) {
   const actionBtn = e.target.closest('[data-action]');
@@ -603,6 +695,11 @@ async function handleDetailAction(e) {
     return;
   }
 
+  if (actionBtn.dataset.action === 'fullscreen') {
+    openRecipeFullscreen(recipe.id, actionBtn);
+    return;
+  }
+
   if (actionBtn.dataset.action === 'add-to-meals') {
     await planRecipe(recipe, actionBtn);
   }
@@ -619,8 +716,11 @@ async function handleDetailAction(e) {
  *
  * Der Kopf fuehrt nur Bearbeiten und Schliessen (detailHeaderActions mit
  * `fullscreen: true` - Duplizieren und Loeschen bleiben an der Liste, wo der
- * Ueberblick ist); die Aktionsknopfe im Koerper (Einplanen, Einkaufsliste)
- * laufen ueber denselben Delegierten (handleDetailAction). Die Zurueck-Geste
+ * Ueberblick ist); der Aktionsknopf im Koerper (Einplanen) laeuft ueber
+ * denselben Delegierten (handleDetailAction). Der Einkaufs-Ausgang steht
+ * hier NICHT (2026-10-21): die Teilwahl gehoert auf die Seite, wo Aufklapper
+ * und Spalte dieselbe Auswahl teilen - das Vollbild ist die Leseflaeche
+ * zum Kochen, nicht der Ort, an dem eingekauft wird. Die Zurueck-Geste
  * schliesst das Vollbild statt die Seite zu verlassen (#871), Escape ebenso,
  * der Fokus kehrt zum Ausloeser zurueck, und jeder Neuaufbau der Liste haelt
  * die Ansicht auf dem Stand der Seite (refreshFullscreenDetail).
@@ -688,9 +788,19 @@ function openRecipeFullscreen(id, trigger) {
  * fuer sich, und eine lange Zutatenliste laeuft nicht vom Zubereitungstext
  * weg. Das geschieht hier durch UMSIEDELN, nicht durch einen zweiten Builder:
  * fillRecipeDetail baut das Detail als Ganzes (der Kanon - keine zweite
- * Quelle fuer denselben Inhalt), und der Zutaten-Abschnitt wandert als
- * KNOTEN in die linke Flaeche; renderIngredientSections() sucht ihn per
- * querySelector und findet ihn in jeder Tiefe weiter.
+ * Quelle fuer denselben Inhalt), und Knoten wandern in die linke Flaeche;
+ * renderIngredientSections() sucht den Abschnitt per querySelector und
+ * findet ihn in jeder Tiefe weiter.
+ *
+ * DIE KOPF-ZEILEN WANDERN MIT: die Mahlzeit-Chips und die Angaben zu
+ * Portionen, Zeiten, Kueche und Diets stehen im Aufklapper und in der
+ * Spalte UEBER den Zutaten - der Kochvorgang liest sich von oben: WANN
+ * wird daraus eine Mahlzeit, WIE VIEL Portionen, WIE LANG dauert es, und
+ * DANN die Zutaten. Unter 60rem ist die linke Flaeche die ganze Seite;
+ * liesse man die Zeilen rechts, stuenden sie UNTER dem, was sie einleiten
+ * sollen. Sie wandern deshalb mit den Zutaten zusammen in die linke
+ * Flaeche, ueber ihnen - dieselben Klassen, dieselbe Reihenfolge, nur ein
+ * anderer Traeger.
  *
  * Ohne Zutaten gibt es keine linke Flaeche: zurueck kommt das Detail allein,
  * und der Koerper bleibt der eine Scrollport im Lesemass.
@@ -698,13 +808,26 @@ function openRecipeFullscreen(id, trigger) {
 function recipeFullscreenDetail(recipe) {
   const detail = document.createElement('div');
   detail.className = 'recipe-detail recipe-detail--fullscreen';
-  fillRecipeDetail(detail, recipe);
+  fillRecipeDetail(detail, recipe, { fullscreen: true });
 
   const ingredients = detail.querySelector('.recipe-detail__ingredients-section');
   if (!ingredients) return detail;
 
   const left = document.createElement('div');
   left.className = 'recipe-fullscreen__ingredients';
+  /* Die Kopf-Zeilen VOR dem Zutaten-Abschnitt sind alles, was die linke
+   * Flaeche ausser den Zutaten fuehrt: Mahlzeit-Chips (.recipe-card__meal-types)
+   * und die Meta-Zeilen (.recipe-detail__meta). Rueckwaerts sammeln und
+   * vorwaerts anhaengen - appendChild vorwaerts abgeraeumt wuerde die
+   * Reihenfolge drehen. */
+  const headRows = [];
+  let node = ingredients.previousElementSibling;
+  while (node && (node.classList.contains('recipe-card__meal-types')
+    || node.classList.contains('recipe-detail__meta'))) {
+    headRows.unshift(node);
+    node = node.previousElementSibling;
+  }
+  for (const row of headRows) left.appendChild(row);
   left.appendChild(ingredients);
 
   const right = document.createElement('div');
@@ -1124,6 +1247,36 @@ function buildRecipeList() {
       detail.hidden = true;
 
       fillRecipeDetail(detail, recipe);
+      // DER AUSGANG INS VOLLBILD AM TELEFON: unter der Schwelle ist der
+      // Aufklapper die Detailflaeche, und er bekommt denselben Ausgang, den
+      // der Spaltenkopf ab der Schwelle fuehrt - sonst waere das Vollbild
+      // eine Desktop-Angelegenheit, obwohl gerade dort beim Kochen der
+      // Platz knapp ist. DER KNOPF STEHT OBEN, nicht unten: der Aufklapper
+      // ist eine Vorschau, und der Ausgang zur grossen Leseflaeche gehoert
+      // an seinen Anfang - wer bis zur Aktionszeile liest, hat ihn schon
+      // gefunden, und die unten bleibt den Kreislauf-Ausgaengen (Einplanen,
+      // Einkauf) vorbehalten, die das Rezept in die uebrige App tragen.
+      // Er haengt nicht in fillRecipeDetail: der Baustein dient auch der
+      // Spalte (ihren Ausgang traegt der Kopf) und dem Vollbild selbst (ein
+      // Ausgang dorthin, wo man schon ist, waere der zweite Weg zur selben
+      // Flaeche), und er laeuft ueber denselben Delegierten wie Einplanen
+      // und Einkaufsliste (handleDetailAction, Zweig 'fullscreen').
+      // Zurueck aus dem Vollbild landet der Fokus auf ihm.
+      const fullscreenBar = document.createElement('div');
+      fullscreenBar.className = 'recipe-detail__fullscreen-bar';
+      const fullscreenBtn = document.createElement('button');
+      fullscreenBtn.className = 'btn btn--ghost';
+      fullscreenBtn.type = 'button';
+      fullscreenBtn.dataset.action = 'fullscreen';
+      fullscreenBtn.dataset.id = String(recipe.id);
+      fullscreenBtn.setAttribute('aria-label', `${t('recipes.fullscreenLabel')}: ${recipe.title}`);
+      fullscreenBtn.insertAdjacentHTML('beforeend',
+        '<i data-lucide="maximize" class="icon-sm" aria-hidden="true"></i>');
+      const fullscreenLabel = document.createElement('span');
+      fullscreenLabel.textContent = t('recipes.fullscreenLabel');
+      fullscreenBtn.appendChild(fullscreenLabel);
+      fullscreenBar.appendChild(fullscreenBtn);
+      detail.prepend(fullscreenBar);
       li.appendChild(detail);
     }
 
@@ -1137,11 +1290,16 @@ function buildRecipeList() {
 
 /**
  * Der Inhalt eines Rezeptdetails: Mahlzeit-Chips, Zutaten samt Vorrats-
- * Zuordnung, Notizen und die beiden Kreislauf-Ausgaenge. EINE Quelle fuer
- * zwei Orte - den Aufklapper der Zeile (unter der Schwelle) und die
- * Detailspalte (Liste + Detail), damit beide nie auseinanderlaufen.
+ * Zuordnung und Checkboxen der Teilwahl, Notizen und die Kreislauf-Ausgaenge.
+ * EINE Quelle fuer drei Flaechen - den Aufklapper der Zeile (unter der
+ * Schwelle), die Detailspalte (Liste + Detail) und das Vollbild - damit keine
+ * eine eigene Version entwickelt, die auseinanderlaufen koennte. EIN
+ * Unterschied gehoert zum Vertrag: das Vollbild (fullscreen: true) ist die
+ * Leseflaeche und fuehrt weder die Checkboxen der Teilwahl noch den
+ * Einkaufsknopf - die Auswahl wird auf der Seite getroffen, wo beide
+ * Wurzeln dieselbe Karte teilen.
  */
-function fillRecipeDetail(detail, recipe) {
+function fillRecipeDetail(detail, recipe, { fullscreen = false } = {}) {
   const ingredients = recipe.ingredients ?? [];
   const mealTypes = normalizeRecipeMealTypes(recipe.meal_types);
   // Chips nur, wenn sie unterscheiden: gilt ein Rezept für alle Mahlzeiten,
@@ -1214,8 +1372,9 @@ function fillRecipeDetail(detail, recipe) {
 
   // VOLLSTÄNDIGE Zutatenliste, nicht die ersten vier: das Kürzen war nur
   // nötig, um die Kartenhöhe zu bändigen. Ein Detail, das sich öffnet, hat
-  // keinen Grund, etwas zu verschweigen.
-  if (ingredients.length) detail.appendChild(ingredientsSectionEl(recipe));
+  // keinen Grund, etwas zu verschweigen. Die Checkboxen der Teilwahl fehlen
+  // im Vollbild - dort ist der Einkaufs-Ausgang ganz weg.
+  if (ingredients.length) detail.appendChild(ingredientsSectionEl(recipe, { withChecks: !fullscreen }));
 
   if (recipe.notes) {
     const section = detailSectionEl(t('recipes.notesLabel'));
@@ -1279,7 +1438,12 @@ function fillRecipeDetail(detail, recipe) {
   addToMeals.textContent = t('recipes.addToMeals');
   detailActions.appendChild(addToMeals);
 
-  const addToShopping = shoppingTransferButton(recipe, ingredients);
+  // Der Einkaufs-Ausgang steht NUR auf der Seite (Aufklapper und Spalte):
+  // Das Vollbild ist die Leseflaeche zum Kochen, und die Teilwahl der
+  // Zutaten wird dort getroffen, wo der Knopf sie benennt. Ohne ihn bleibt
+  // das Vollbild beim Lesen - Einplanen bleibt, es ist kein Kreislauf
+  // zwischen Modulen, sondern eine Notiz in den eigenen Plan.
+  const addToShopping = fullscreen ? null : shoppingTransferButton(recipe, ingredients);
   if (addToShopping) detailActions.appendChild(addToShopping);
 
   if (recipe.recipe_url) {
@@ -1321,11 +1485,15 @@ function detailSectionEl(title) {
 
 /**
  * Der Zutaten-Abschnitt als EIN Element mit Rezept-ID, damit eine geaenderte
- * Zuordnung ihn an beiden Orten (Aufklapper und Detailspalte) als Ganzes neu
- * bauen kann - samt Sammelknopf, dessen Zahl sich mitaendert.
+ * Zuordnung ihn an allen Flaechen (Aufklapper, Detailspalte, Vollbild) als
+ * Ganzes neu bauen kann - samt Checkboxen der Teilwahl, deren Zustand aus
+ * der Karte (_selectedIngredients) zurueckkommt, nicht aus dem Markup.
+ * withChecks: false laesst die Checkboxen weg - der Weg des Vollbilds, das
+ * den Einkaufs-Ausgang nicht kennt.
  */
-function ingredientsSectionEl(recipe) {
+function ingredientsSectionEl(recipe, { withChecks = true } = {}) {
   const ingredients = recipe.ingredients ?? [];
+  const selected = new Set(selectedIngredientIds(recipe));
   const section = detailSectionEl(t('recipes.ingredientsLabel'));
   section.classList.add('recipe-detail__ingredients-section');
   section.dataset.recipeId = String(recipe.id);
@@ -1361,6 +1529,21 @@ function ingredientsSectionEl(recipe) {
     const secondary = [ing.secondary_quantity, ing.secondary_unit].filter(Boolean).join(' ');
     const amountText = amount && secondary ? `${amount} (${secondary})` : amount;
     label.textContent = amountText ? `${amountText} · ${ing.name}` : ing.name;
+    // CHECKBOX DER TEILWAHL vor dem Namen - nur wo der Einkaufs-Ausgang
+    // ueberhaupt stehen darf (dieselben zwei Riegel wie der Knopf, #1290):
+    // ohne Liste oder ohne beide Schreibrechte waere jedes Kaetzchen ein
+    // Versprechen auf einen 403er. Der Zustand kommt aus der Karte oben,
+    // nicht aus dem Markup - der Neuaufbau (renderIngredientSections)
+    // vergisst ihn so nie.
+    if (withChecks && ing.id != null && state.lists.length && mayTransferRecipeToShopping(recipe.id)) {
+      const check = document.createElement('input');
+      check.type = 'checkbox';
+      check.className = 'recipe-detail__ingredient-check';
+      check.setAttribute('data-ingredient-id', String(ing.id));
+      check.setAttribute('aria-label', label.textContent);
+      if (selected.has(Number(ing.id))) check.checked = true;
+      item.appendChild(check);
+    }
     item.appendChild(label);
     // Zubereitungs-Hinweis (v241) - leiser als der Name, wie er im Modal auch
     // nur Kontext des Namens ist. Leer ist keine Aussage und bleibt stumm.
@@ -1379,13 +1562,20 @@ function ingredientsSectionEl(recipe) {
 /** Baut jeden Zutaten-Abschnitt dieses Rezepts neu (Aufklapper + Spalte + Vollbild). */
 function renderIngredientSections(recipe) {
   // Beide Wurzeln desselben Inhalts: die Seite (Aufklapper und Spalte) und
-  // das Vollbild, das ausserhalb von ihr am Body haengt.
-  const sections = [_container, _fullscreen?.body]
-    .filter(Boolean)
-    .flatMap((root) => [...root.querySelectorAll(
-      `.recipe-detail__ingredients-section[data-recipe-id="${CSS.escape(String(recipe.id))}"]`)]);
-  for (const el of sections) el.replaceWith(ingredientsSectionEl(recipe));
-  if (sections.length && window.lucide) window.lucide.createIcons({ el: _container });
+  // das Vollbild, das ausserhalb von ihr am Body haengt. Die Checkboxen der
+  // Teilwahl stehen nur auf der Seite - der Neuaufbau des Vollbild-Abschnitts
+  // laesst sie weg, wie beim ersten Bau (fillRecipeDetail, fullscreen: true).
+  const rebuild = (root, withChecks) => {
+    const sections = [...root.querySelectorAll(
+      `.recipe-detail__ingredients-section[data-recipe-id="${CSS.escape(String(recipe.id))}"]`)];
+    for (const el of sections) el.replaceWith(ingredientsSectionEl(recipe, { withChecks }));
+    return sections.length;
+  };
+  const onPage = _container ? rebuild(_container, true) : 0;
+  const inFullscreen = _fullscreen?.body ? rebuild(_fullscreen.body, false) : 0;
+  if (onPage + inFullscreen > 0 && window.lucide && _container) {
+    window.lucide.createIcons({ el: _container });
+  }
 }
 
 /* DIE BESTAETIGTE ZUORDNUNG ZU EINER VORRATSZEILE (#1314, Stufe 1).
@@ -1992,7 +2182,11 @@ function shoppingTransferButton(recipe, ingredients) {
   btn.type = 'button';
   btn.dataset.action = 'to-shopping';
   btn.dataset.id = String(recipe.id);
-  btn.textContent = t('common.toShoppingList');
+  // Der Knopf benennt, was er uebernimmt: „Alles auf die Einkaufsliste",
+  // solange kein Kaetzchen steht, und „<n> auf die Einkaufsliste" fuer jede
+  // Teilwahl - dasselbe Verhalten wie vorher im ersten Fall, im zweiten ein
+  // Vertrag, der nur die gewaehlten Zeilen meint.
+  btn.textContent = shoppingButtonLabel(recipe);
   return btn;
 }
 
@@ -2008,7 +2202,15 @@ async function transferRecipe(recipe, btn) {
 
   if (btn) btn.disabled = true;
   try {
-    const res = await api.post(`/recipes/${recipe.id}/to-shopping-list`, { listId: target.id });
+    // TEILWAHL: stehen Kaetzchen an Zutaten, wandert NUR diese Auswahl. Ein
+    // leeres Feld fehlt ganz (kein `ingredientIds: []`) - der Weg faellt auf
+    // die ganze Liste zurueck, derselbe Vertrag wie vor den Checkboxen, und
+    // jeder bestaehende Client und Token bleibt unberuehrt.
+    const selected = selectedIngredientIds(recipe);
+    const res = await api.post(`/recipes/${recipe.id}/to-shopping-list`, {
+      listId: target.id,
+      ...(selected.length ? { ingredientIds: selected } : {}),
+    });
     const added = res.data?.transferred ?? 0;
     const skipped = res.data?.skipped ?? 0;
 
@@ -2029,6 +2231,12 @@ async function transferRecipe(recipe, btn) {
     } else {
       window.yuvomi?.showToast(t('recipes.toShoppingNoIngredients'), 'info');
     }
+    // Die Auswahl antwortete auf EINEN Einkauf: nach jedem erfolgreichen
+    // Transfer faellt der Knopf auf „Alles" zurueck - auch „steht schon
+    // drauf" ist ein erledigter Einkauf. Ein FEHLER haelt die Auswahl, der
+    // Weg laesst sich sofort wieder versuchen.
+    clearIngredientSelection(recipe.id);
+    updateShoppingButtons(recipe);
   } catch (err) {
     window.yuvomi?.showToast(err.data?.error ?? t('common.errorGeneric'), 'danger');
   } finally {
@@ -2147,6 +2355,14 @@ export const __test = {
   state,
   shoppingTransferButton,
   transferRecipe,
+  // Die Teilwahl (2026-10-21): Auswahl-Karte, ihre Helfer und die beiden
+  // Renderer, an denen Checkboxen bzw. ihr Fehlen gemessen werden.
+  selectedIngredientIds,
+  toggleIngredientSelection,
+  clearIngredientSelection,
+  shoppingButtonLabel,
+  ingredientsSectionEl,
+  fillRecipeDetail,
   // R8 H10: Loeschen links im Dialogfuss.
   recipeModalFooterHtml,
 };

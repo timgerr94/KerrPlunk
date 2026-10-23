@@ -325,19 +325,29 @@ test('POST /:listId/items: Kategorie wird aus dem Namen geraten (Keyword-Tabelle
   const milk = await call('POST', `/${list}/items`, { name: 'Milch' });
   assert.equal(milk.status, 201);
   assert.equal(milk.body.data.category, 'Milchprodukte');
+  // Der Rater nennt die Kategorien WIE DER HAUSHALT SIE FUEHRT (umbenannt in
+  // den Einstellungen, services/recipe-providers/categorize.js) - 'apple'
+  // rät 'Produce', das dieser frisch gesaete Test-Haushalt nicht fuehrt.
+  // Die Route prueft das Ergebnis gegen die echten Kategorien und faellt
+  // still auf den Default zurueck, statt eine Phantom-Kategorie zu setzen.
   const apple = await call('POST', `/${list}/items`, { name: 'apple' });
   assert.equal(apple.status, 201);
-  assert.equal(apple.body.data.category, 'Obst & Gemüse');
+  assert.equal(apple.body.data.category, 'Sonstiges');
 });
 
-test('POST /:listId/items: ausdruecklich gewaehlte Kategorie bleibt, auch Sonstiges', async () => {
+test('POST /:listId/items: ausdruecklich gewaehlte Nicht-Default-Kategorie bleibt; Sonstiges loest das Raten aus', async () => {
   const list = await newList();
   const dairy = await call('POST', `/${list}/items`, { name: 'Milch', category: 'Backwaren' });
   assert.equal(dairy.status, 201);
   assert.equal(dairy.body.data.category, 'Backwaren');
+  // 'Sonstiges' ist der Default des Quick-Add und wird ohne ausdrueckliche
+  // Wahl mitgeschickt - die Route behandelt es deshalb als "nicht gewaehlt"
+  // und rät: 'Milch' → Milchprodukte (Bewusst so entschieden: das Raten soll
+  // gerade den unaufmerksamen Default-Fall verbessern, den der Default-
+  // Knopf erzeugt).
   const misc = await call('POST', `/${list}/items`, { name: 'Milch', category: 'Sonstiges' });
   assert.equal(misc.status, 201);
-  assert.equal(misc.body.data.category, 'Sonstiges');
+  assert.equal(misc.body.data.category, 'Milchprodukte');
 });
 
 test('POST /:listId/items: Rate-Ergebnis, das der Haushalt nicht fuehrt, faellt auf den Default zurueck', async () => {
@@ -676,6 +686,28 @@ test('POST /:listId/import-meal-plan: preview rechnet, ohne zu schreiben (Audit 
   assert.equal(items, 0, 'Vorschau legt keine Artikel an');
   const open = db.prepare('SELECT COUNT(*) c FROM meal_ingredients WHERE meal_id = ? AND on_shopping_list = 0').get(meal).c;
   assert.equal(open, 1, 'Zutat bleibt unmarkiert');
+});
+
+// #1608: Jeder Weg auf die Liste ist ein Einkaufs-Signal - auch der Essensplan-
+// Import lernt die Nachkauf-Regel gleichnamiger Vorratszeilen wie die Hand-
+// anlage. Aggregierte Namen lernen einmal, nicht je Zutatenzeile.
+test('POST /:listId/import-meal-plan: Import lernt die Nachkauf-Regel (#1608)', async () => {
+  const list = await newList('Import Lernen');
+  const DAY = 24 * 60 * 60 * 1000;
+  const purchasedAt = new Date(Date.now() - 60 * DAY).toISOString();
+  const haferId = db.prepare(`
+    INSERT INTO pantry_items (name, category, restock_interval_days, last_purchased_at, created_by)
+    VALUES ('Haferflocken', 'Vorrats-Fruehstueck', 14, ?, ?)
+  `).run(purchasedAt, U).lastInsertRowid;
+  const meal = db.prepare(`INSERT INTO meals (date, meal_type, title, created_by) VALUES ('2026-06-10','breakfast','H',?)`).run(U).lastInsertRowid;
+  db.prepare(`INSERT INTO meal_ingredients (meal_id, name, quantity, category) VALUES (?,?,?,?)`).run(meal, 'haferflocken', '40 g', 'Sonstiges');
+  db.prepare(`INSERT INTO meal_ingredients (meal_id, name, quantity, category) VALUES (?,?,?,?)`).run(meal, 'Haferflocken', '40 g', 'Sonstiges'); // aggregiert
+
+  const r = await call('POST', `/${list}/import-meal-plan`, { from: '2026-06-08', to: '2026-06-14' });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.data.added, 1, 'beide Zeilen zu einem Artikel aggregiert');
+  const gelernt = db.prepare('SELECT restock_interval_days d FROM pantry_items WHERE id = ?').get(haferId).d;
+  assert.equal(gelernt, 60, 'einmal aggregiert gelernt, auf die beobachtete Taktung');
 });
 
 // --------------------------------------------------------------------------

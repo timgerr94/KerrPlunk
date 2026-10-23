@@ -2,7 +2,10 @@
  * Modul: Vollbild eines Rezepts - die Leseflaeche ueber der Rezeptseite
  * Zweck: Die Detailspalte ist schmal, und ein Rezept liest sich beim Kochen
  *        besser ohne Liste daneben. Der Kopf der Spalte traegt einen Ausgang
- *        (`maximize`), der dasselbe Detail auf die ganze Flaeche hebt.
+ *        (`maximize`), der dasselbe Detail auf die ganze Flaeche hebt - und
+ *        unter der Schwelle traegt die Aktionszeile des AUFKLAPPERS denselben
+ *        Ausgang: das Vollbild waere sonst eine Desktop-Angelegenheit, obwohl
+ *        gerade beim Kochen am Telefon der Platz knapp ist.
  *
  *        Der Kanon gilt weiter: KEIN zweiter Weg zur Information. Der Inhalt
  *        kommt aus fillRecipeDetail - derselbe Baustein wie im Aufklapper und
@@ -51,10 +54,11 @@ function bodyOf(seite, name) {
 }
 
 // -----------------------------------------------------------------------
-// 1. Der Ausgang: genau einer, in der Spalte, nicht im Vollbild selbst.
+// 1. Der Ausgang: zwei Orte (Spaltenkopf, Aufklapper-Zeile), nicht im
+//    Vollbild selbst.
 // -----------------------------------------------------------------------
 
-test('der Ausgang ins Vollbild steht im Kopf der Spalte und nur dort', () => {
+test('der Ausgang ins Vollbild steht im Kopf der Spalte und kehrt dort nicht wieder auf', () => {
   const seite = pageSrc();
   const kopf = bodyOf(seite, 'detailHeaderActions');
 
@@ -71,6 +75,31 @@ test('der Ausgang ins Vollbild steht im Kopf der Spalte und nur dort', () => {
     'im Vollbild gibt es keinen Ausgang ins Vollbild');
   assert.match(kopf, /fullscreen \? 'recipe-fullscreen-edit' : 'recipes-detail-edit'/,
     'Bearbeiten traegt eine eigene id im Vollbild - zwei Flaechen, zwei Zeugen');
+});
+
+test('der Aufklapper fuehrt denselben Ausgang - am Telefon, nicht nur am Desktop', () => {
+  const seite = pageSrc();
+  const baue = bodyOf(seite, 'buildRecipeList');
+  const fuellung = bodyOf(seite, 'fillRecipeDetail');
+  const delegiert = bodyOf(seite, 'handleDetailAction');
+
+  // Der Knopf entsteht am AUFKLAPPER, nicht im geteilten Baustein: fillRecipeDetail
+  // dient auch der Spalte (deren Kopf den Ausgang traegt) und dem Vollbild selbst
+  // (ein Ausgang dorthin, wo man schon ist, waere der zweite Weg zur selben Flaeche).
+  assert.doesNotMatch(fuellung, /fullscreenLabel/,
+    'fillRecipeDetail haengt den Ausgang nicht selbst an - er stuede sonst auch im Vollbild');
+  assert.match(baue, /dataset\.action = 'fullscreen'/,
+    'der Aufklapper-Knopf traegt die data-action fullscreen');
+  assert.match(baue, /detail\.prepend\(fullscreenBar\)/,
+    'der Ausgang steht OBEN im Aufklapper (Vorschau: erst der Weg zur grossen Flaeche, dann der Inhalt), nicht unten zwischen den Kreislauf-Ausgaengen');
+  assert.match(baue, /recipe-detail__fullscreen-bar/,
+    'die Kopfleiste traegt ihre Klasse - das CSS richtet den Knopf rechtsbuendig aus');
+  assert.match(baue, /t\('recipes\.fullscreenLabel'\)/,
+    'der Knopf heisst wie der Ausgang im Spaltenkopf - dieselbe Frage, dasselbe Wort');
+  assert.match(delegiert, /dataset\.action === 'fullscreen'/,
+    'der Delegierte kennt die Aktion - kein eigener Listener am Knopf');
+  assert.match(delegiert, /openRecipeFullscreen\(recipe\.id, actionBtn\)/,
+    'der Klick reicht den Knopf als Ausloeser mit: der Fokus kehrt nach dem Schliessen zu ihm zurueck');
 });
 
 test('der Vollbild-Kopf fuehrt nur Bearbeiten plus Schliessen', () => {
@@ -109,6 +138,22 @@ test('die Kochbuch-Teilung siedelt den Zutaten-Knoten um, sie baut nicht zweimal
   assert.match(vollbild, /recipe-fullscreen__rest/, 'die rechte Flaeche traegt ihre Klasse');
   assert.match(vollbild, /if \(!ingredients\) return detail;/,
     'ohne Zutaten gibt es keine Teilung - das Detail steht allein');
+
+  // DIE KOPF-ZEILEN WANDERN MIT: Mahlzeit-Chips und Meta-Angaben stehen im
+  // Aufklapper und in der Spalte UEBER den Zutaten; unter der Schwelle ist die
+  // linke Flaeche die ganze Seite, und die Zeilen stuenden sonst UNTER dem,
+  // was sie einleiten sollen. Gesammelt wird rueckwaerts am Abschnitt entlang,
+  // angehaengt vorwaerts - appendChild rueckwaerts wuerde die Reihenfolge drehen.
+  assert.match(vollbild, /recipe-card__meal-types/,
+    'die Mahlzeit-Chips zaehlen zu den Kopf-Zeilen');
+  assert.match(vollbild, /recipe-detail__meta/,
+    'die Meta-Zeilen (Portionen, Zeiten, Kueche, Diets) zaehlen zu den Kopf-Zeilen');
+  assert.match(vollbild, /previousElementSibling/,
+    'die Kopf-Zeilen werden am Abschnitt entlang gefunden, nicht ueber eine Namensliste');
+  assert.match(vollbild, /headRows\.unshift\(node\)/,
+    'rueckwaerts sammeln, vorwaerts anhaengen - die Reihenfolge bleibt die der Ansicht');
+  assert.match(vollbild, /for \(const row of headRows\) left\.appendChild\(row\);\s*left\.appendChild\(ingredients\);/,
+    'die Kopf-Zeilen stehen in der linken Flaeche UEBER den Zutaten - dieselbe Ordnung wie im Detail');
 
   assert.match(fuellen, /classList\.toggle\('recipe-fullscreen__body--split'/,
     'die Gestalt steht als Klasse am Koerper, nicht als Zustand in einem Renderer');
@@ -252,6 +297,20 @@ test('das Vollbild liegt ueber der Seite, teilt sich ab 60rem und faerbt seinen 
     'links eine ruhige Zutaten-Spalte (300-384px, rund 25 Zeichen ohne Umbruch), rechts der Rest');
   assert.match(split.body, /overflow: hidden/,
     'im geteilten Gefuege laeuft der Koerper nicht selbst - sonst gaebe es drei Scrollports');
+
+  // DIE KOPF-ZEILEN IN DER LINKEN FLAECHE: derselbe Stapelrhythmus wie im
+  // Detail (--space-3, die Luecke des .recipe-detail-Rasters), UNABHAENGIG
+  // von der Breite - unter der Schwelle stapeln die Flaechen, und die linke
+  // steht allein oben. align-content: start haelt den Stapel am oberen Rand
+  // statt ihn ueber die Hoehe zu verteilen.
+  const stapel = exact('.recipe-fullscreen__ingredients');
+  assert.ok(stapel, '.recipe-fullscreen__ingredients fehlt in recipes.css');
+  assert.match(stapel.body, /gap: var\(--space-3\)/,
+    'die Kopf-Zeilen und der Zutaten-Abschnitt stapeln im Rhythmus des Details');
+  assert.match(stapel.body, /align-content: start/,
+    'der Stapel haelt oben, er verteilt sich nicht ueber die Hoehe');
+  assert.ok(!stapel.at.some((a) => /min-width/.test(a)),
+    'der Rhythmus gilt auch unter der Schwelle - dort ist die linke Flaeche die ganze Seite');
 
   const flaechen = rules.find((r) => r.selector.includes('.recipe-fullscreen__ingredients')
     && r.selector.includes('.recipe-fullscreen__rest') && /overflow-y:\s*auto/.test(r.body));

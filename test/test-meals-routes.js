@@ -947,6 +947,39 @@ test('POST /:id + /week-to-shopping-list: Vorrats-Kategorie gewinnt bei gleichem
   assert.equal(item2.category, 'Vorrats-Gewürze', 'auch der Wochen-Transfer folgt dem Vorrat');
 });
 
+// #1608: Jeder Weg auf die Liste ist ein Einkaufs-Signal - der Mahlzeit-Transfer
+// lernt wie die Handanlage die Nachkauf-Regel gleichnamiger Vorratszeilen, auf
+// beiden Wegen (Einzel und Woche). `last_purchased_at` bleibt dabei der Anker
+// des Zyklus und wandert erst beim Einlagern (POST /pantry/import-shopping).
+test('POST /:id + /week-to-shopping-list: Transfer lernt die Nachkauf-Regel (#1608)', async () => {
+  const DAY = 24 * 60 * 60 * 1000;
+  const purchasedAt = new Date(Date.now() - 40 * DAY).toISOString();
+  const ins = db.prepare(`
+    INSERT INTO pantry_items (name, category, restock_interval_days, last_purchased_at, created_by)
+    VALUES (?, 'Lernregal', 30, ?, ?)
+  `);
+  // NOCASE in SQLite falten nur ASCII-Buchstaben - der Name der Zutat darf sich
+  // also nur in denen unterscheiden, nicht in Umlauten.
+  const einzelId = Number(ins.run('Lern-Hafer', purchasedAt, U).lastInsertRowid);
+  const wochenId = Number(ins.run('Wochen-Brosamen', purchasedAt, U).lastInsertRowid);
+  const regel = (id) => db.prepare('SELECT restock_interval_days d, last_purchased_at p FROM pantry_items WHERE id = ?').get(id);
+
+  const einzel = (await createMeal({
+    date: '2026-11-16', title: 'Einzel-Lernen',
+    ingredients: [{ name: 'lern-hafer' }], // Gross-/Kleinschreibung ist gleichgueltig
+  })).body.data;
+  assert.equal((await call('POST', `/${einzel.id}/to-shopping-list`, { listId: LIST })).status, 200);
+  assert.equal(regel(einzelId).d, 40, 'Einzel-Transfer stellt die Regel auf die beobachtete Taktung');
+  assert.equal(regel(einzelId).p, purchasedAt, 'der Zyklus-Anker wandert erst beim Einlagern');
+
+  const woche = (await createMeal({
+    date: '2026-11-17', title: 'Wochen-Lernen',
+    ingredients: [{ name: 'Wochen-Brosamen' }],
+  })).body.data;
+  assert.equal((await call('POST', '/week-to-shopping-list', { listId: LIST, week: '2026-11-16' })).status, 200);
+  assert.equal(regel(wochenId).d, 40, 'der Wochen-Transfer lernt genauso');
+});
+
 test.after(() => server.close());
 
 // --------------------------------------------------------------------------

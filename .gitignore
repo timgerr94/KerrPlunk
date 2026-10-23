@@ -1,5 +1,9 @@
-# Dependencies
+# Dependenciesedit source → start.ps1 option 4 → done
 node_modules/
+
+# Build-Overlay (scripts/build.mjs): volle Kopie von public/, minifiziert + Shell-CSS-Bundle.
+# Wird per Container gebaut und nie eingecheckt; der Server sieht dist/ vor public/.
+public/dist/
 
 # External/customized modules
 modules/*

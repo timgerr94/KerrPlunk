@@ -22,7 +22,11 @@ function walkJsFiles(dir) {
   const entries = readdirSync(new URL(dir, import.meta.url), { withFileTypes: true });
   return entries.flatMap((entry) => {
     const path = `${dir}${entry.name}`;
-    if (entry.isDirectory()) return walkJsFiles(`${path}/`);
+    // dist/ IST das Build-Ergebnis (per Container gebaut, nie eingecheckt -
+    // siehe .gitignore): gebundelte Kopien alles dessen, was diese Suite ohnehin
+    // im Quelltext liest. Sie zu scannen misst jeden Befund doppelt und meldet
+    // Phantom-Verstoesse, wo der Bundler die Idiome umgeschrieben hat.
+    if (entry.isDirectory()) return entry.name === 'dist' ? [] : walkJsFiles(`${path}/`);
     return entry.isFile() && entry.name.endsWith('.js') ? [path] : [];
   });
 }
@@ -31,7 +35,8 @@ function walkFrontendFiles(dir) {
   const entries = readdirSync(new URL(dir, import.meta.url), { withFileTypes: true });
   return entries.flatMap((entry) => {
     const path = `${dir}${entry.name}`;
-    if (entry.isDirectory()) return walkFrontendFiles(`${path}/`);
+    // dist/ wie in walkJsFiles - Build-Ergebnis, nie Ziel dieser Suite.
+    if (entry.isDirectory()) return entry.name === 'dist' ? [] : walkFrontendFiles(`${path}/`);
     return entry.isFile() && /\.(html|js)$/.test(entry.name) ? [path] : [];
   });
 }
@@ -905,7 +910,8 @@ test('jedes benutzte Design-Token ist auch definiert', () => {
   const walkCss = (dir) => readdirSync(new URL(dir, import.meta.url), { withFileTypes: true })
     .flatMap((entry) => {
       const path = `${dir}${entry.name}`;
-      if (entry.isDirectory()) return entry.name === 'vendor' ? [] : walkCss(`${path}/`);
+      // dist/ wie in walkJsFiles - Build-Ergebnis, nie Ziel dieser Suite.
+      if (entry.isDirectory()) return ['vendor', 'dist'].includes(entry.name) ? [] : walkCss(`${path}/`);
       return entry.isFile() && entry.name.endsWith('.css') ? [path] : [];
     });
   const files = [...walkFrontendFiles('../public/'), ...walkCss('../public/')];
@@ -1365,6 +1371,161 @@ test('Middle-earth skin color pairs retain readable contrast in both modes', () 
 
   assert.ok(contrastRatio('#817555', '#F5F3ED') >= 3, 'light control border must be visible');
   assert.ok(contrastRatio('#93896E', '#2B2822') >= 3, 'dark control border must be visible');
+});
+
+test('christmas skin ships palette, Christmas-Elegant font and snow wiring', () => {
+  const skin = read('../public/styles/skins.css');
+  const sw = read('../public/sw.js');
+  const init = read('../public/theme-init.js');
+  const router = read('../public/router.js');
+  const settings = read('../public/settings/pages/personal-appearance.js');
+  const snow = read('../public/snow.js');
+
+  assert.ok(existsSync(new URL('../public/snow.js', import.meta.url)), 'public/snow.js must exist');
+  assert.match(skin, /font-family:\s*"christmas-elegant"/);
+  assert.match(skin, /\/fonts\/ChristmasElegantPersonalUse-gxrPp\.ttf/);
+  assert.match(skin, /:root\[data-skin="christmas"\]/);
+  assert.match(skin, /--font-heading-medium:\s*"christmas-elegant"/);
+  assert.match(skin, /\[data-skin="christmas"\]\[data-theme="dark"\]/);
+  assert.match(skin, /--skin-gold-decorative:\s*#C9A227/);
+  assert.match(skin, /\.kp-snow-cap[\s\S]*?pointer-events:\s*none/);
+  assert.match(sw, /'\/fonts\/ChristmasElegantPersonalUse-gxrPp\.ttf'/);
+  assert.match(sw, /'\/snow\.js'/);
+  assert.match(init, /'christmas'/);
+  assert.match(init, /import\('\/snow\.js'\)/);
+  assert.match(router, /'christmas'/);
+  assert.match(router, /import\('\/snow\.js'\)/);
+  assert.match(settings, /value="christmas"/);
+  assert.match(settings, /visualSkinChristmas/);
+  // Die Schneeenngine: an-/abbauen, SPA-tauglich, respektvoll gegenueber
+  // reduced motion und pausiert im Hintergrund-Tab.
+  assert.match(snow, /export function start\(\)/);
+  assert.match(snow, /export function stop\(\)/);
+  assert.match(snow, /prefers-reduced-motion/);
+  assert.match(snow, /MutationObserver/);
+  assert.match(snow, /cancelAnimationFrame/);
+  assert.match(snow, /visibilitychange/);
+  // Runde Knoepfe bekommen keine Haube (ein Bogen auf einem Kreis sieht aus
+  // wie ein schwebendes Stueck) - aber nur der KREIS: jede Kapsel traegt sie.
+  // Der ANGEDOCKTE New-Knopf ist ein Ziel, der schwebende Kreis nicht; seine
+  // Zeilen-Geometrie schuetzt eine eigene Regel gegen die Offsets von
+  // .page-fab. Der Anker ist eine Klasse (kein Inline-Stil), und prune gibt
+  // Ziele frei, die keine mehr sind.
+  assert.match(snow, /skipCircular/);
+  assert.match(snow, /isCircular/);
+  // Kreis ja, Kapsel nein: jeder .btn des Shell-Designs ist eine Kapsel
+  // (--radius-full). Nur Breite ~= Hoehe ist ein Kreis ohne Haube.
+  assert.match(snow, /Math\.abs\(rect\.width - rect\.height\)/);
+  assert.match(snow, /classList\.contains\('page-fab'\)/);
+  assert.match(snow, /page-fab--docked/);
+  assert.match(skin, /\.page-fab--docked\.kp-snow-host\s*\{[\s\S]*?bottom:\s*auto/);
+  // Einrueckung nach Mass (Eckenradius + Polster) statt fester Prozentzahl,
+  // und die Haube waechst nach OBEN: Unterkante bleibt auf der Knopf-
+  // Oberkante liegen (bottom: 100%), statt ins Knopfgesicht zu rutschen.
+  assert.match(snow, /effectiveRadius/);
+  assert.match(snow, /capInsetPadding/);
+  assert.match(snow, /--kp-snow-inset/);
+  assert.match(skin, /\.kp-snow-cap\s*\{[\s\S]*?bottom:\s*100%/);
+  // Kein Schmelzen mehr: liegt alles, bleibt es liegen. Boden-Wehe nur auf
+  // breiten Bildschirmen, auf schmalen traegt die untere Werkzeugleiste
+  // (Pille) den Schnee als Haube. Die Wehe ist KEIN flaches Div, sondern
+  // wird pro Spalte akkumuliert und auf die Leinwand gezeichnet - wie das
+  // snowLevels-Array des urspruenglichen snow.js.
+  assert.doesNotMatch(snow, /meltStep|state\.melting/);
+  assert.match(snow, /allFull\(\)/);
+  assert.match(snow, /groundBreakpoint/);
+  assert.match(snow, /groundSmoothing/);
+  assert.match(snow, /groundColumnWidth/);
+  // Ecken-Aufwehung: die Basis-Kante gilt fuer die Mitte, die Ecken duerfen
+  // darueber hinaus wachsen (eigenes Profil + Wind-Verstaerkung). allFull()
+  // misst dafuer den INNENRAUM, nicht den Peak - sonst stellte der Nachschub
+  // ein, sobald die Ecken die Basis-Kante erreichen.
+  assert.match(snow, /groundCornerRise/);
+  assert.match(snow, /groundCornerFalloff/);
+  assert.match(snow, /edgeProfile/);
+  assert.match(snow, /groundCeiling\(idx\)/);
+  assert.match(snow, /groundInteriorPeak/);
+  assert.match(snow, /Math\.exp\(-Math\.abs\(i\) \/ CONFIG\.groundSmoothing\)/);
+  assert.match(snow, /smoothGround/);
+  assert.match(snow, /drawGround/);
+  // EIN Pfad statt Spalten-Rechtecke: benachbarte fillRect anti-aliasieren
+  // ihre geteilte Kante zu einer hellgrauen Haarlinie - der Umriss um jede
+  // Spalte. closePath + fill hat keine inneren Kanten.
+  assert.match(snow, /function drawGround\(ctx\) \{[\s\S]*?beginPath/);
+  assert.match(snow, /function drawGround\(ctx\) \{[\s\S]*?closePath\(\)/);
+  assert.doesNotMatch(snow, /fillRect/);
+  assert.doesNotMatch(snow, /kp-snow-ground/);
+  assert.doesNotMatch(skin, /kp-snow-ground/);
+  // Schicht: die Wehe liegt VOR dem Seitenhintergrund (Frostschimmer-
+  // Streifen), aber UNTER Meldungen - kein z-index:9999 mehr, das deckte
+  // Toasts und Offline-Banner zu.
+  assert.doesNotMatch(snow, /z-index: ?9999/);
+  assert.match(snow, /--z-nav/);
+  assert.match(snow, /nav-bottom__items/);
+  // Schuettel-Interaktion: pointerdown auf einem Schuettel-Ziel MIT Haube
+  // zittert den Knopf (eigene Keyframes, die Skalierung der Basis ist
+  // waehrend der Animation ausgeschaltet) und wirft den Schnee als BISSEN
+  // ab - gestreut per canvas-confetti, nicht als ein wegrotierendes
+  // Stueck; Pegel auf 0, neuer Schnee faellt. Listener werden beim Abbau
+  // wieder entfernt.
+  assert.match(snow, /shakeTargets/);
+  assert.match(snow, /onShakePress/);
+  assert.match(snow, /addEventListener\('pointerdown', onShakePress\)/);
+  assert.match(snow, /removeEventListener\('pointerdown', onShakePress\)/);
+  assert.match(snow, /kp-snow-shake/);
+  assert.match(snow, /scatterSnowCrumbs/);
+  assert.match(snow, /confetti\.module\.mjs/);
+  assert.match(snow, /scatterCount/);
+  assert.match(skin, /@keyframes kp-snow-shake/);
+  // Der Ein-Stueck-Wurf ist weg: keine Throw-Keyframes, keine thrown-Klasse
+  // mehr im CSS oder der Engine.
+  assert.doesNotMatch(skin, /kp-snow-cap-throw/);
+  assert.doesNotMatch(skin, /kp-snow-cap--thrown/);
+  assert.doesNotMatch(snow, /kp-snow-cap--thrown/);
+  // FLACKER-FALLE: das Entfernen der Schuettel-Klasse allein liess die
+  // berechnete animation der angedockten New-Knoepfe auf ihren Eintritts-
+  // Runner fab-in zurueckfallen - ein Wechsel des animation-Werts startet
+  // eine NEUE Animation, der Knopf flackerte 420 ms aus. done pinnt
+  // animation:none, und animationend wird am NAMEN geprueft (das Ereignis
+  // blubbert herauf).
+  assert.match(snow, /kp-snow-shake-done/);
+  assert.match(snow, /animationName !== 'kp-snow-shake'/);
+  assert.match(skin, /\.kp-snow-shake-done\s*\{\s*animation:\s*none/);
+  // Die Kaskade regelt die drei transform-Stimmen: kein !important (das
+  // erstickt auch die Keyframes - der Knopf haette sich gar nicht bewegt),
+  // dafuer legt .kp-snow-host:active die Kipp-Skalierung still.
+  assert.doesNotMatch(skin, /transform:\s*none\s*!important/);
+  assert.match(skin, /\.kp-snow-host:active\s*\{[\s\S]*?transform:\s*none/);
+  // Die Seiten-Toolbar ist KEIN Ziel: ihre fast randbreite Haube auf dem
+  // klebenden Kopf las sich als weisse, schwebende Linie ueber dem Kopf.
+  assert.doesNotMatch(snow, /targetSelector:[^\n]*page-toolbar/);
+  assert.doesNotMatch(skin, /\.page-toolbar > \.kp-snow-cap/);
+  assert.match(skin, /\.kp-snow-host\s*\{[\s\S]*?position:\s*relative/);
+  assert.match(snow, /kp-snow-host/);
+  assert.match(snow, /matches\(CONFIG\.targetSelector\)/);
+});
+
+test('christmas skin color pairs retain readable contrast in both modes', () => {
+  const textPairs = [
+    ['light primary text', '#241E15', '#FFF9EE'],
+    ['light secondary text', '#61543A', '#FFF9EE'],
+    ['light accent text', '#A62B2F', '#F7F1E4'],
+    ['light button label', '#FFFFFF', '#A62B2F'],
+    ['light gold label', '#8A6D2F', '#FFF9EE'],
+    ['light title accent', '#8C2226', '#FFF9EE'],
+    ['dark primary text', '#F4EEDD', '#2A241C'],
+    ['dark secondary text', '#B7A889', '#2A241C'],
+    ['dark accent text', '#D2B57C', '#362E23'],
+    ['dark button label', '#16110C', '#C9A227'],
+    ['dark button hover label', '#16110C', '#B8951F'],
+    ['dark red label', '#E0989C', '#362E23'],
+  ];
+  for (const [label, foreground, background] of textPairs) {
+    assert.ok(contrastRatio(foreground, background) >= 4.5, `${label} must meet WCAG AA`);
+  }
+
+  assert.ok(contrastRatio('#80714A', '#F7F1E4') >= 3, 'light control border must be visible');
+  assert.ok(contrastRatio('#91836B', '#2A241C') >= 3, 'dark control border must be visible');
 });
 
 test('personal settings leaves exist and export async render functions', () => {
@@ -8457,7 +8618,8 @@ test('keine spezifischere Regel ueberschreibt eine zurueckgenommene Zustandsrege
   const templateSources = [];
   const walk = (dir) => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      if (entry.name === 'vendor' || entry.name === 'styles') continue;
+      // dist/ wie in walkJsFiles - Build-Ergebnis, nie Ziel dieser Suite.
+      if (entry.name === 'vendor' || entry.name === 'styles' || entry.name === 'dist') continue;
       const url = new URL(`${entry.name}${entry.isDirectory() ? '/' : ''}`, dir);
       if (entry.isDirectory()) walk(url);
       else if (entry.name.endsWith('.js')) templateSources.push(readFileSync(url, 'utf8'));
@@ -11412,9 +11574,10 @@ function readOptionValue(call, name) {
 function collectDialogCalls() {
   const base = new URL('../public/', import.meta.url);
   const walk = (dir) => readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
-    const child = new URL(`${entry.name}${entry.isDirectory() ? '/' : ''}`, dir);
-    if (entry.isDirectory()) return walk(child);
-    return entry.name.endsWith('.js') ? [child] : [];
+    // dist/ wie in walkJsFiles - Build-Ergebnis: die gebundelte Kopie eines
+    // Modals zaehlte als zweiter Nutzer ohne Anmeldung.
+    if (entry.isDirectory()) return entry.name === 'dist' ? [] : walk(new URL(`${entry.name}/`, dir));
+    return entry.name.endsWith('.js') ? [new URL(entry.name, dir)] : [];
   });
 
   const calls = [];
@@ -11545,9 +11708,9 @@ test('jeder als gefaehrlich markierte Dialog nennt seine Folgen', () => {
 test('jeder Nutzer des Category-Managers liefert seinen eigenen Folgentext', () => {
   const base = new URL('../public/', import.meta.url);
   const walk = (dir) => readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
-    const child = new URL(`${entry.name}${entry.isDirectory() ? '/' : ''}`, dir);
-    if (entry.isDirectory()) return walk(child);
-    return entry.name.endsWith('.js') ? [child] : [];
+    // dist/ wie in walkJsFiles - Build-Ergebnis, nie Ziel dieser Suite.
+    if (entry.isDirectory()) return entry.name === 'dist' ? [] : walk(new URL(`${entry.name}/`, dir));
+    return entry.name.endsWith('.js') ? [new URL(entry.name, dir)] : [];
   });
 
   const de = JSON.parse(read('../public/locales/de.json'));
@@ -12903,7 +13066,8 @@ test('ein Umschalt-Knopf traegt seinen Namen selbst, nicht in einem Kind', () =>
     for (const eintrag of readdirSync(verzeichnis, { withFileTypes: true })) {
       const pfad = new URL(`${eintrag.name}${eintrag.isDirectory() ? '/' : ''}`, verzeichnis);
       if (eintrag.isDirectory()) {
-        if (eintrag.name === 'vendor') continue;
+        // dist/ wie in walkJsFiles - Build-Ergebnis, nie Ziel dieser Suite.
+        if (eintrag.name === 'vendor' || eintrag.name === 'dist') continue;
         sammle(pfad);
       } else if (/\.(?:js|html)$/.test(eintrag.name)) {
         dateien.push(pfad);
@@ -14435,7 +14599,8 @@ test('kein var() auf ein Token, das nirgends entsteht', () => {
   const collectJs = (dir) => {
     for (const entry of readdirSync(new URL(dir, import.meta.url), { withFileTypes: true })) {
       if (entry.isDirectory()) {
-        if (entry.name !== 'vendor') collectJs(`${dir}${entry.name}/`);
+        // dist/ wie in walkJsFiles - Build-Ergebnis, nie Ziel dieser Suite.
+        if (entry.name !== 'vendor' && entry.name !== 'dist') collectJs(`${dir}${entry.name}/`);
         continue;
       }
       if (!entry.name.endsWith('.js')) continue;

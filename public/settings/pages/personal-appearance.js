@@ -72,9 +72,8 @@ function currentTheme() {
 }
 
 function currentSkin() {
-  return safeStorageGet('yuvomi-skin', 'default') === 'middle-earth'
-    ? 'middle-earth'
-    : 'default';
+  const stored = safeStorageGet('yuvomi-skin', 'default');
+  return stored === 'middle-earth' || stored === 'christmas' ? stored : 'default';
 }
 
 function formatOptions(selected) {
@@ -261,6 +260,7 @@ function renderPage(container, preferences, isAdmin) {
           <select class="form-input" id="visual-skin-select">
             <option value="default"${skin === 'default' ? ' selected' : ''}>${t('settings.visualSkinDefault')}</option>
             <option value="middle-earth"${skin === 'middle-earth' ? ' selected' : ''}>${t('settings.visualSkinMiddleEarth')}</option>
+            <option value="christmas"${skin === 'christmas' ? ' selected' : ''}>${t('settings.visualSkinChristmas')}</option>
           </select>
         </div>
       </div>
@@ -405,7 +405,7 @@ function applyTheme(value) {
 }
 
 function applySkin(value) {
-  const skin = value === 'middle-earth' ? 'middle-earth' : 'default';
+  const skin = value === 'middle-earth' || value === 'christmas' ? value : 'default';
   safeStorageSet('yuvomi-skin', skin);
   if (window.yuvomi?.applySkin) {
     try {
@@ -416,7 +416,7 @@ function applySkin(value) {
     }
   }
 
-  if (skin === 'middle-earth') {
+  if (skin !== 'default') {
     document.documentElement.setAttribute('data-skin', skin);
   } else {
     document.documentElement.removeAttribute('data-skin');

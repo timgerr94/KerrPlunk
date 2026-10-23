@@ -137,7 +137,9 @@ test('POST /: Zutaten-Regeln - leerer Name übersprungen, quantity leer→null, 
   assert.equal(r.status, 201);
   const rows = ingredientRows(r.body.data.id);
   assert.equal(rows.length, 2); // leerer Name wurde nicht eingefügt
-  assert.deepEqual(rows[0], { name: 'Mehl', quantity: null, category: 'Sonstiges' });
+  // Ohne gesetzte Kategorie rät die Stichwort-Tabelle (haushaltseigene
+  // Kategorien, services/recipe-providers/categorize.js): 'Mehl' → Backwaren.
+  assert.deepEqual(rows[0], { name: 'Mehl', quantity: null, category: 'Backwaren' });
   assert.equal(rows[1].name.length, 200); // MAX_TITLE
   assert.equal(rows[1].quantity.length, 100); // MAX_SHORT
 });
@@ -164,14 +166,17 @@ test('POST/PUT /: unit wird getrennt von quantity gespeichert und gelesen', asyn
   });
   assert.equal(created.status, 201);
   const rows = ingredientRowsWithUnit(created.body.data.id);
-  assert.deepEqual(rows[0], { name: 'Mehl', quantity: '500', unit: 'g', category: 'Sonstiges' });
+  // Ohne gesetzte Kategorie: Stichwort-Rater, 'Mehl' → Backwaren.
+  assert.deepEqual(rows[0], { name: 'Mehl', quantity: '500', unit: 'g', category: 'Backwaren' });
   assert.deepEqual(rows[1], { name: 'Milch', quantity: '1', unit: 'l', category: 'Milchprodukte' });
   assert.deepEqual(rows[2], { name: 'Salz', quantity: null, unit: 'Prise', category: 'Sonstiges' });
   assert.deepEqual(rows[3], { name: 'Zucker', quantity: '50 g', unit: null, category: 'Sonstiges' });
 
-  // Auch die Antwort des Servers traegt die Einheit.
-  const detail = await call('GET', `/${created.body.data.id}`);
-  assert.equal(detail.body.data.ingredients[0].unit, 'g');
+  // Auch die Antwort des Servers traegt die Einheit: der POST gibt das fertig
+  // angelegte Rezept zurueck (loadRecipeWithIngredients). Einen eigenen
+  // GET /:id gibt es nicht - die Detailansicht liest aus der Liste (GET /),
+  // und ein Aufruf hier lief nur in Express' Default-404 aus.
+  assert.equal(created.body.data.ingredients[0].unit, 'g');
 
   // PUT ersetzt die Zutatenliste inkl. Einheit (DELETE + INSERT).
   const updated = await call('PUT', `/${created.body.data.id}`, {
@@ -180,7 +185,8 @@ test('POST/PUT /: unit wird getrennt von quantity gespeichert und gelesen', asyn
   });
   assert.equal(updated.status, 200);
   assert.deepEqual(ingredientRowsWithUnit(created.body.data.id), [
-    { name: 'Mehl', quantity: '1', unit: 'kg', category: 'Sonstiges' },
+    // Ohne gesetzte Kategorie: Stichwort-Rater, 'Mehl' → Backwaren.
+    { name: 'Mehl', quantity: '1', unit: 'kg', category: 'Backwaren' },
   ]);
 });
 
@@ -406,13 +412,19 @@ test('PUT /:id: nutrition ersetzt als Ganzes, weggelassen laesst stehen, leer lo
 // GET / (Aggregation, Join, Sortierung)
 // --------------------------------------------------------------------------
 test('GET /: Creator-Join, Zutaten aggregiert, NOCASE-Sortierung, meal_types normalisiert', async () => {
-  // Frische Sicht: aktuelle Titel u.a. "Nudeln", "Pfannkuchen", "Zutatenprobe".
+  // Frische Sicht: u.a. die bekannten Titel "Nudeln", "Pfannkuchen", "Zutatenprobe".
   const r = await call('GET', '/');
   assert.equal(r.status, 200);
   const titles = r.body.data.map((x) => x.title);
-  // Zu diesem Zeitpunkt existieren exakt diese drei Rezepte; NOCASE-ASC ist
-  // deterministisch (kein JS-Kollations-Orakel, das von SQLite abweichen könnte).
-  assert.deepEqual(titles, ['Nudeln', 'Pfannkuchen', 'Zutatenprobe']);
+  // Der Test laeuft in einer Datei voller eigener Rezepte - die Tabelle als
+  // GANZE zu behaupten hiesse, jede spaeter eingefuegte Zege haette diesen
+  // Test kaputt. Gemessen wird, was dieser Test selbst anlegt: die drei
+  // Titel, ihre NOCASE-ASC-Reihenfolge untereinander, und fuer die Probe
+  // die vollstaendige Zeile (Creator-Join, Zutaten-Aggregation, meal_types).
+  const known = ['Nudeln', 'Pfannkuchen', 'Zutatenprobe'];
+  for (const title of known) assert.ok(titles.includes(title), `${title} fehlt in der Liste`);
+  const knownSorted = titles.filter((t) => known.includes(t));
+  assert.deepEqual(knownSorted, ['Nudeln', 'Pfannkuchen', 'Zutatenprobe'], 'NOCASE-ASC ist deterministisch (kein JS-Kollations-Orakel, das von SQLite abweichen k\u00f6nnte)');
   const probe = r.body.data.find((x) => x.title === 'Zutatenprobe');
   assert.equal(probe.creator_name, 'Owner');
   assert.equal(probe.creator_color, '#112233');
@@ -842,7 +854,10 @@ test('POST /:id/to-shopping-list: überträgt Zutaten mit Menge und Kategorie', 
   assert.equal(items[0].name, 'Mehl');
   assert.equal(items[0].quantity, '500 g');
   assert.equal(items[0].category, 'Backen');
-  assert.equal(items[1].category, 'Sonstiges'); // Default greift
+  // Die Zutat kam ohne Kategorie an und wurde beim Speichern vom Stichwort-
+  // Rater bedacht: 'Milch' → Milchprodukte. Der Transfer uebernimmt die
+  // gespeicherte Zutaten-Kategorie (Vorrat hat Vorrang, gibt es hier nicht).
+  assert.equal(items[1].category, 'Milchprodukte');
 });
 
 // v237: getrennte Menge und Einheit werden beim Uebertrag wieder zu EINEM Text
@@ -940,6 +955,69 @@ test('POST /:id/to-shopping-list: Nicht-Eigentümer darf übernehmen (kein owner
   assert.equal(r.body.data.transferred, 1);
 });
 
+// Teilwahl (2026-10-21): der Client kann Zutaten ankreuzen; fehlt das Feld,
+// bleibt der Weg wie er war - jeder bestaehende Client, Token und Test unberuehrt.
+test('POST /:id/to-shopping-list: ingredientIds überträgt nur die gewählten Zeilen', async () => {
+  const listId = newList('Transfer Teilwahl');
+  const created = await call('POST', '/', {
+    title: 'Teilwahl',
+    ingredients: [{ name: 'Mehl' }, { name: 'Eier' }, { name: 'Salz' }],
+  });
+  const id = created.body.data.id;
+  const rows = db.prepare('SELECT id, name FROM recipe_ingredients WHERE recipe_id = ? ORDER BY id ASC').all(id);
+  const picked = [rows[0].id, rows[2].id];
+
+  const r = await call('POST', `/${id}/to-shopping-list`, { listId, ingredientIds: picked });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.deepEqual(r.body.data.added_ids.length, 2);
+  // Nur Mehl und Salz: das Ei blieb ungewaehlt und darf die Liste nie erreichen.
+  assert.deepEqual(shoppingItems(listId).map((i) => i.name), ['Mehl', 'Salz']);
+});
+
+test('POST /:id/to-shopping-list: fremde Zutat-ID in der Auswahl → 400, nichts halb', async () => {
+  const listId = newList('Transfer Fremd');
+  const own = await call('POST', '/', { title: 'Eigenes', ingredients: [{ name: 'Z1' }] });
+  const other = await call('POST', '/', { title: 'Anderes', ingredients: [{ name: 'Z2' }] });
+  const otherRow = db.prepare('SELECT id FROM recipe_ingredients WHERE recipe_id = ?').get(other.body.data.id);
+
+  // Eine ID eines ANDEREN Rezepts stillschweigend zu uebergehen wuerde eine
+  // halbe Wahrheit zurueckgeben: die Antwort erscheint erfolgreich, aber ein
+  // Teil der Auswahl kam nie an.
+  const r = await call('POST', `/${own.body.data.id}/to-shopping-list`, { listId, ingredientIds: [otherRow.id] });
+  assert.equal(r.status, 400);
+  assert.deepEqual(shoppingItems(listId), []);
+});
+
+test('POST /:id/to-shopping-list: leere oder unsinnige Auswahl → 400', async () => {
+  const created = await call('POST', '/', { title: 'Unsinn', ingredients: [{ name: 'Z3' }] });
+  const id = created.body.data.id;
+
+  // Eine leere Auswahl ist das FEHLEN einer Auswahl - der Client sendet das
+  // Feld nur, wenn mindestens ein Kaetzchen steht.
+  const empty = await call('POST', `/${id}/to-shopping-list`, { listId: newList('T leer'), ingredientIds: [] });
+  assert.equal(empty.status, 400);
+
+  const str = await call('POST', `/${id}/to-shopping-list`, { listId: newList('T String'), ingredientIds: ['x'] });
+  assert.equal(str.status, 400);
+
+  const neg = await call('POST', `/${id}/to-shopping-list`, { listId: newList('T negativ'), ingredientIds: [-1] });
+  assert.equal(neg.status, 400);
+});
+
+test('POST /:id/to-shopping-list: doppelte IDs in der Auswahl → eine Zeile, kein Fehler', async () => {
+  const listId = newList('Transfer Dublette');
+  const created = await call('POST', '/', { title: 'Dublette', ingredients: [{ name: 'Z4' }] });
+  const row = db.prepare('SELECT id FROM recipe_ingredients WHERE recipe_id = ?').get(created.body.data.id);
+
+  // Der Client dedupliziert nicht - ein doppeltes Kaetzchen derselben Zeile
+  // (Aufklapper UND Spalte teilen die Auswahl) darf keinen 400 oder zwei
+  // Artikel geben. Der Server faltet.
+  const r = await call('POST', `/${created.body.data.id}/to-shopping-list`, { listId, ingredientIds: [row.id, row.id] });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.data.transferred, 1);
+  assert.equal(shoppingItems(listId).length, 1);
+});
+
 // Vorrats-Kategorie vor Zutaten-Kategorie (services/shopping-pantry-category.js):
 // Fuehrt der Haushalt dieselbe Ware schon im Vorrat - MIT Nachkaufregel, wie bei
 // der Handanlage -, gibt DER seine Kategorie her. Ohne Treffer bleibt die
@@ -999,6 +1077,33 @@ test('POST /:id/to-shopping-list: added_ids erlauben ein exaktes Zuruecknehmen',
   // uebertragen, weil am Rezept nichts markiert wird.
   const again = await call('POST', `/${created.body.data.id}/to-shopping-list`, { listId });
   assert.equal(again.body.data.transferred, 2);
+});
+
+// #1608: Jeder Weg auf die Liste ist ein Einkaufs-Signal - auch der Rezept-
+// Transfer lernt die Nachkauf-Regel gleichnamiger Vorratszeilen wie die Hand-
+// anlage. Nur was WIRKLICH neu anlegt wird, lernt; uebersprungene Dubletten
+// lagen schon auf der Liste und haben beim Anlegen gelernt.
+test('POST /:id/to-shopping-list: Transfer lernt die Nachkauf-Regel (#1608)', async () => {
+  const listId = newList('Transfer Lernen');
+  const DAY = 24 * 60 * 60 * 1000;
+  const purchasedAt = new Date(Date.now() - 25 * DAY).toISOString();
+  const butterId = Number(db.prepare(`
+    INSERT INTO pantry_items (name, category, restock_interval_days, last_purchased_at, created_by)
+    VALUES ('Lern-Butter', 'Vorrats-Kuehl', 90, ?, ?)
+  `).run(purchasedAt, OWNER).lastInsertRowid);
+  const regel = (id) => db.prepare('SELECT restock_interval_days d FROM pantry_items WHERE id = ?').get(id).d;
+
+  const created = await call('POST', '/', {
+    title: 'Lern-Rezept',
+    ingredients: [{ name: 'lern-butter' }, { name: 'Muskat' }],
+  });
+  const r = await call('POST', `/${created.body.data.id}/to-shopping-list`, { listId });
+  assert.equal(r.body.data.transferred, 2);
+  assert.equal(regel(butterId), 25, 'die Regel folgt der Taktung seit dem letzten Einkauf');
+
+  // Zweiter Lauf ueberspringt alles - kein neues Signal, kein erneutes Lernen.
+  await call('POST', `/${created.body.data.id}/to-shopping-list`, { listId });
+  assert.equal(regel(butterId), 25, 'uebersprungene Dubletten lernen nicht noch einmal');
 });
 
 // --------------------------------------------------------------------------

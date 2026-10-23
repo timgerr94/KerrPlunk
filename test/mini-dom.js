@@ -47,6 +47,30 @@ class MiniElement {
   set className(value) { this.attributes.set('class', String(value)); }
   get className() { return this.attributes.get('class') ?? ''; }
 
+  /* classList, rueckwirkend auf das class-Attribut gerechnet: Renderer wie
+   * ingredientsSectionEl (recipes.js) markieren ihre Wurzel darueber, und das
+   * Attribut muss im outerHTML sichtbar bleiben - ein neben dem Attribut
+   * gepflegter zweiter Klassenspeicher wuerde in Tests unsichtbar bleiben.
+   * Keine Vollstaendigkeit: nur was Renderer wirklich rufen (add/remove/
+   * contains/toggle). */
+  get classList() {
+    const el = this;
+    const read = () => new Set((el.attributes.get('class') ?? '').split(/\s+/).filter(Boolean));
+    const write = (set) => { el.className = [...set].join(' '); };
+    return {
+      add: (...names) => { const s = read(); for (const n of names) s.add(n); write(s); },
+      remove: (...names) => { const s = read(); for (const n of names) s.delete(n); write(s); },
+      contains: (name) => read().has(name),
+      toggle: (name, force) => {
+        const s = read();
+        const on = force ?? !s.has(name);
+        if (on) s.add(name); else s.delete(name);
+        write(s);
+        return on;
+      },
+    };
+  }
+
   set type(value) { this.attributes.set('type', String(value)); }
   get type() { return this.attributes.get('type') ?? ''; }
 

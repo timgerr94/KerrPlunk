@@ -396,6 +396,23 @@
   gap: var(--space-1) var(--space-2);
 }
 
+/* CHECKBOX DER TEILWAHL VOR DER ZUTAT (2026-10): der Einkaufsknopf des Details
+ * nennt ohne Auswahl „Alles auf die Einkaufsliste", mit ihr „<n> auf die
+ * Einkaufsliste" - das Kaetzchen ist der Weg dorthin. MITTE STATT GRUNDLINIE:
+ * das Flex der Zeile richtet den Text auf der Baseline, ein Kaetzchen auf
+ * derselben Linie verlöre sein Klickziel an die Zeilenhoehe. Die Farbe gibt
+ * die Modul-Stimme her, nicht das globale Violett (DESIGN: --module-accent
+ * vor --color-accent). */
+.recipe-detail__ingredient-check {
+  flex: 0 0 auto;
+  align-self: center;
+  width: var(--space-4);
+  height: var(--space-4);
+  margin: 0;
+  accent-color: var(--module-accent, var(--color-accent));
+  cursor: pointer;
+}
+
 /* Zubereitungs-Hinweis einer Zutat (v241, "thinly sliced"): leiser als der
  * Name, aber kursiv statt grau - es ist Kochanweisung, keine Fussnote, und die
  * Farbe Grau gehoert den Systemzeilen darunter. */
@@ -731,6 +748,16 @@ button.recipe-detail__ingredient-match:hover {
     max(var(--space-3), env(safe-area-inset-left));
 }
 
+/* DIE KOPFLEISTE DES AUFKLAPPERS: der Ausgang ins Vollbild steht am Anfang
+ * der Vorschau (buildRecipeList in recipes.js), rechtsbuendig wie eine
+ * Werkzeugzeile - der Titel der Zeile darueber benennt das Rezept bereits,
+ * links braeuchte er einen zweiten Anlauf. Nur der Aufklapper hat sie: die
+ * Spalte fuehrt denselben Ausgang im Kopf, das Vollbild selbst keineswegs. */
+.recipe-detail__fullscreen-bar {
+  display: flex;
+  justify-content: flex-end;
+}
+
 /* Der Kopf der Detailspalte (layout.css) mit dem Polster des Vollbilds: die
  * Trennlinie bleibt, das Seitenpolster traegt der Traeger - sonst stuende der
  * Titel doppelt eingerueckt. */
@@ -780,7 +807,21 @@ button.recipe-detail__ingredient-match:hover {
   }
 }
 
-/* Der duenne Akzent-Balken an allen drei Lauflaechen des Vollbilds - dasselbe
+/* DIE KOPF-ZEILEN WANDERN MIT (recipeFullscreenDetail in recipes.js):
+ * Mahlzeit-Chips und Meta-Zeilen stehen im Aufklapper und in der Spalte
+ * UEBER den Zutaten - unter 60rem ist die linke Flaeche die ganze Seite,
+ * und die Zeilen gehoeren an denselben Ort wie ueberall. Der Detail-Raster
+ * (.recipe-detail, gap --space-3) gab ihnen dort ihren Rhythmus - hier
+ * traegt die Flaeche ihn selbst, mit derselben Stufe, UNABHAENGIG von der
+ * Breite: unter der Schwelle stapeln die beiden Flaechen, und die linke
+ * steht allein oben. */
+.recipe-fullscreen__ingredients {
+  display: grid;
+  gap: var(--space-3);
+  align-content: start;
+}
+
+/* Der duenne Akzent-Balken an allen drei Laufflächen des Vollbilds - dasselbe
  * Rezept wie .list-scroller (list-row.css): duenn, Akzent auf transparenter
  * Spur, abgerundeter Daumen mit sichtbarem Hover. Der Akzent kommt vom
  * Traeger (.recipe-fullscreen), siehe oben. */

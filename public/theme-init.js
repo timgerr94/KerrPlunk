@@ -39,10 +39,19 @@
     document.documentElement.removeAttribute('data-theme');
   }
 
-  if (localStorage.getItem('yuvomi-skin') === 'middle-earth') {
-    document.documentElement.setAttribute('data-skin', 'middle-earth');
+  var storedSkin = localStorage.getItem('yuvomi-skin');
+  if (storedSkin === 'middle-earth' || storedSkin === 'christmas') {
+    document.documentElement.setAttribute('data-skin', storedSkin);
   } else {
     document.documentElement.removeAttribute('data-skin');
+  }
+
+  // Der Christmas-Skin bringt seinen eigenen Schneefall mit (public/snow.js).
+  // Dieses Skript stellt den ERSTZUSTAND her, der Router (applySkin) die
+  // spaeteren Wechsel; snow.js wartet selbst auf DOMContentLoaded. Solange ein
+  // anderer Skin gespeichert ist, kostet der Ausdruck hier nichts.
+  if (storedSkin === 'christmas') {
+    import('/snow.js').then(function (snow) { snow.start(); }).catch(function () { /* offline/no-op */ });
   }
 
   // DIE STATUSBAR GEHOERT ZUR THEME-ENTSCHEIDUNG, ALSO HIERHER.

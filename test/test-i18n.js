@@ -228,7 +228,12 @@ test('jeder statisch geschriebene t()-Schlüssel steht auch in der Referenz-Loca
   const files = [];
   const walk = (dir) => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      if (entry.name === 'vendor' || entry.name === 'locales') continue;
+      // dist/ ist das per Container gebaute Bundle (nie eingecheckt, siehe
+      // .gitignore): eine gebundelte Kopie alles dessen, was dieser Scan im
+      // Quelltext ohnehin liest. Der Bundler zerschneidet die t()-Aufrufe
+      // sichtbar fuer die Zeilenzaehlung, und der Scan meldete Schluessel aus
+      // Variablennamen als fehlende Uebersetzungen.
+      if (entry.name === 'vendor' || entry.name === 'locales' || entry.name === 'dist') continue;
       const child = new URL(`${entry.name}${entry.isDirectory() ? '/' : ''}`, dir);
       if (entry.isDirectory()) walk(child);
       else if (entry.name.endsWith('.js')) files.push(child);
@@ -548,7 +553,7 @@ test('kein String im Frontend-JS traegt einen Gedankenstrich', async () => {
   const { withoutCommentsKeepingLines } = await import('./source-text.js');
   const root = new URL('../public/', import.meta.url);
   const files = readdirSync(root, { recursive: true })
-    .filter((f) => f.endsWith('.js') && !f.startsWith('vendor/'));
+    .filter((f) => f.endsWith('.js') && !f.startsWith('vendor/') && !f.startsWith('dist/'));
   assert.ok(files.length > 100, `zu wenige Dateien gelesen: ${files.length}`);
   const hits = [];
   for (const file of files) {
