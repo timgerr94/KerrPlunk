@@ -27,7 +27,7 @@ import { mountEmptyState } from '/utils/empty-state.js';
 import { subtreeIds, folderPath, flattenFolderTree } from '/utils/folder-tree.js';
 import { dateStatus } from '/utils/date-status.js';
 import { expiryChipSpec, expiryViewerSpec } from '/utils/document-expiry.js';
-import { installPopoverMenus } from '/utils/popover-menu.js';
+import { installPopoverMenus, showPopover, hidePopover, SUPPORTS_POPOVER } from '/utils/popover-menu.js';
 import { setBulkPill, clearBulkPill } from '/utils/bulk-pill.js';
 import { createPageController } from '/utils/page-lifecycle.js';
 import {
@@ -518,13 +518,14 @@ function documentsToolsMenuHtml() {
     ['asc', t('documents.sortAscending'), 'arrow-up-narrow-wide'],
     ['desc', t('documents.sortDescending'), 'arrow-down-wide-narrow'],
   ];
+  const popoverAttr = SUPPORTS_POPOVER ? ' popover' : ' hidden';
   return `
     <button type="button" class="btn btn--secondary btn--icon documents-tools-btn popover-menu__trigger"
             popovertarget="documents-tools-menu" aria-haspopup="menu" aria-expanded="false"
             aria-label="${esc(label)}" title="${esc(label)}">
       <i data-lucide="arrow-up-down" class="icon-md" aria-hidden="true"></i>
     </button>
-    <div class="popover-menu documents-tools-menu" id="documents-tools-menu" popover role="menu" aria-label="${esc(label)}">
+    <div class="popover-menu documents-tools-menu" id="documents-tools-menu"${popoverAttr} role="menu" aria-label="${esc(label)}">
       <div class="popover-menu__group" role="group" aria-labelledby="documents-tools-sort-label">
         <div class="popover-menu__label" id="documents-tools-sort-label">${esc(t('documents.sortLabel'))}</div>
         ${SORTS.map((sort) => {
@@ -1212,7 +1213,7 @@ let _contextMenu = null;
 function closeContextMenu() {
   if (!_contextMenu) return;
   const { el } = _contextMenu;
-  try { el.hidePopover(); } catch { /* war schon zu */ }
+  hidePopover(el);
 }
 
 // `itemsHtml` liefert die <button role="menuitem" data-menu-action="…">-Einträge,
@@ -1222,7 +1223,11 @@ function openContextMenu(anchorBtn, itemsHtml, onAction) {
   const menu = document.createElement('div');
   menu.className = 'documents-context-menu';
   menu.setAttribute('role', 'menu');
-  menu.setAttribute('popover', 'auto');
+  if (SUPPORTS_POPOVER) {
+    menu.setAttribute('popover', 'auto');
+  } else {
+    menu.setAttribute('hidden', '');
+  }
   menu.insertAdjacentHTML('beforeend', itemsHtml);
   document.body.appendChild(menu);
   if (window.lucide) lucide.createIcons({ el: menu });
@@ -1271,7 +1276,7 @@ function openContextMenu(anchorBtn, itemsHtml, onAction) {
     menu.remove();
   });
 
-  menu.showPopover();
+  showPopover(menu, anchorBtn);
   positionContextMenu(menu, anchorBtn);
   anchorBtn.setAttribute('aria-expanded', 'true');
   _contextMenu = { el: menu, anchorBtn };

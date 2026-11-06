@@ -351,10 +351,14 @@ export async function render(container, { user, signal }) {
           <div class="notes-manage-categories notes-toolbar__tools">
             ${pageToolsMenuHtml({ id: 'notes-tools-menu', label: t('common.moreActions'), items: [
               { action: 'manage-categories', label: t('category.manageTitle'), icon: 'tags' },
+              { action: 'import-from-photo', label: t('notes.importFromPhotoButton'), icon: 'image' },
             ] })}
           </div>`}
         </div>
       </div>
+      <!-- Versteckter Datei-Eingang fuer Foto-Import (ohne capture: System-Picker zeigt
+           auf iOS/Android "Foto aufnehmen", "Aus Galerie waehlen", "Aus Dateien waehlen") -->
+      <input type="file" id="notes-photo-input" accept="image/jpeg,image/png" hidden>
       <div class="notes-scroll page-scrollport">
         <!-- DIE CHIPREIHE IST DAS ERSTE KIND DES PORTS (Kopfregel mobil,
              2026-09-26). Zwischen Kopf und Port kostete sie dauerhaft 65px
@@ -436,15 +440,31 @@ export async function render(container, { user, signal }) {
   // geteilten Popover-Mechanik, der Klick ueber `data-action` am Kopf.
   installPopoverMenus(_container);
   _container.querySelector('.notes-toolbar')?.addEventListener('click', (e) => {
-    if (e.target.closest('.popover-menu__item[data-action="manage-categories"]') && !readOnly()) {
-      // Der Fokus steht auf einem Eintrag, den das Menue gerade versteckt hat;
-      // der Dialog gaebe ihn beim Schliessen dorthin zurueck und er fiele aufs
-      // Dokument. Also vorher auf den Knopf, der das Menue geoeffnet hat.
-      _container.querySelector('.notes-toolbar .page-tools-btn')?.focus();
-      openNoteCategoryManager();
+    const item = e.target.closest('.popover-menu__item[data-action]');
+    if (item && !readOnly()) {
+      const action = item.dataset.action;
+      if (action === 'manage-categories') {
+        // Der Fokus steht auf einem Eintrag, den das Menue gerade versteckt hat;
+        // der Dialog gaebe ihn beim Schliessen dorthin zurueck und er fiele aufs
+        // Dokument. Also vorher auf den Knopf, der das Menue geoeffnet hat.
+        _container.querySelector('.notes-toolbar .page-tools-btn')?.focus();
+        openNoteCategoryManager();
+      } else if (action === 'import-from-photo') {
+        _container.querySelector('.notes-toolbar .page-tools-btn')?.focus();
+        openPhotoImport();
+      }
     }
   });
   findPageFab('fab-new-note').addEventListener('click', addHandler);
+
+  // Foto-Import: Datei-Eingang waehlen und OCR starten
+  const photoInput = _container.querySelector('#notes-photo-input');
+  photoInput?.addEventListener('change', async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    photoInput.value = ''; // Reset fuer erneute Auswahl derselben Datei
+    await handlePhotoImport(file);
+  });
 
   wirePageSearch(_container, {
     id: 'notes-search',
@@ -454,6 +474,194 @@ export async function render(container, { user, signal }) {
       renderGrid();
     },
   });
+}
+
+// --------------------------------------------------------
+// Import From Photo (OCR)
+// --------------------------------------------------------
+
+/**
+ * Oeffnet den Datei-Eingang fuer Foto-Import.
+ * Auf iOS/Android oeffnet der System-Picker mit Optionen:
+ * Foto aufnehmen, Aus Galerie waehlen, Aus Dateien waehlen.
+ */
+function openPhotoImport() {
+  const photoInput = document.getElementById('notes-photo-input');
+  if (photoInput) photoInput.click();
+}
+
+/**
+ * Verwaehlt ein ausgewertetes Foto: liest es als Base64, sendet es an den
+ * OCR-Endpunkt und zeigt das Ergebnis in einer Vorschau an.
+ *
+ * @param {File} file Die ausgewertete Bilddatei
+ */
+async function handlePhotoImport(file) {
+  if (readOnly()) return;
+
+  // Dateityp pruefen (clientseitig vorab, fuer sofortiges Feedback)
+  const mime = file.type.toLowerCase();
+  if (!['image/jpeg', 'image/jpg', 'image/png'].includes(mime)) {
+    window.yuvomi?.showToast(t('notes.ocrUnsupportedFile'), 'danger');
+    return;
+  }
+
+  // Dateigroesse pruefen (gleiche Grenze wie Server)
+  const maxBytes = 5 * 1024 * 1024; // 5 MB, entspricht MAX_UPLOAD_BYTES
+  if (file.size > maxBytes) {
+    window.yuvomi?.showToast(
+      t('notes.ocrFileTooLarge', { size: 5 }),
+      'danger'
+    );
+    return;
+  }
+
+  // Als Base64 Data-URL einlesen
+  const dataUrl = await readFileAsDataUrl(file);
+
+  try {
+    const res = await api.post('/ocr/import', {
+      file: dataUrl,
+      fileName: file.name,
+    });
+
+    const ocrResult = res || {};
+
+    if (!ocrResult.success) {
+      window.yuvomi?.showToast(
+        ocrResult.error || t('notes.ocrErrorMessage'),
+        'danger'
+      );
+      return;
+    }
+
+    const title = ocrResult.analysis?.title || '';
+    const body = ocrResult.analysis?.body || '';
+
+    if (!title.trim() && !body.trim()) {
+      window.yuvomi?.showToast(t('notes.ocrErrorMessage'), 'danger');
+      return;
+    }
+
+    showOcrPreview({ title, body, ocrText: ocrResult.ocrText }, file.name);
+  } catch (err) {
+    console.error('[Notes] OCR import failed:', err);
+    if (err.status === 502) {
+      window.yuvomi?.showToast(t('notes.ocrServiceUnavailable'), 'danger');
+    } else if (err.status === 400) {
+      window.yuvomi?.showToast(err.data?.error ?? t('notes.ocrErrorMessage'), 'danger');
+    } else {
+      window.yuvomi?.showToast(t('notes.ocrError'), 'danger');
+    }
+  }
+}
+
+/**
+ * Liest eine File als Base64 Data-URL.
+ *
+ * @param {File} file
+ * @returns {Promise<string>}
+ */
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
+
+/**
+ * Zeigt die OCR-Vorschau mit Titel und Body an.
+ * Der Nutzer kann Titel und Text bearbeiten und als Notiz speichern.
+ * Markdown-Checkboxen (- [ ] Item) werden unverändert übernommen.
+ *
+ * @param {object} ocrResult { title, body, ocrText }
+ * @param {string} fileName Der Originaldateiname
+ */
+function showOcrPreview(ocrResult, fileName) {
+  const { title = '', body = '', ocrText = '' } = ocrResult;
+  const content = `
+    <div class="ocr-preview" data-note-id="ocr-preview">
+      <div class="form-group">
+        <label class="form-label" id="ocr-preview-title-label">${t('notes.ocrPreviewTitle')}</label>
+        <input type="text" class="form-input" id="ocr-preview-title" value="${esc(title)}">
+      </div>
+      <div class="form-group">
+        <label class="form-label" id="ocr-preview-body-label">${t('notes.ocrPreviewBody')}</label>
+        <textarea class="form-input" id="ocr-preview-body" rows="12" style="resize:vertical;font-family:monospace;">${esc(body)}</textarea>
+        <p class="form-label__hint">${t('notes.importFromPhotoLabel')}: ${esc(fileName)}</p>
+      </div>
+      <div class="form-group" style="margin-top:var(--space-2);">
+        <label class="form-label" id="ocr-preview-raw-label">${t('notes.ocrRawText')}</label>
+        <textarea class="form-input" id="ocr-preview-raw" rows="4" style="resize:vertical;font-family:monospace;font-size:0.875rem;opacity:0.7;">${esc(ocrText)}</textarea>
+        <p class="form-label__hint">${t('notes.ocrRawHint')}</p>
+      </div>
+    </div>
+    <div class="modal-panel__footer modal-panel__footer--plain ocr-preview__footer">
+      <button type="button" class="btn btn--secondary" id="ocr-preview-cancel">${t('common.cancel')}</button>
+      <button type="button" class="btn btn--primary" id="ocr-preview-save">${t('common.save')}</button>
+    </div>
+  `;
+
+  openSharedModal({
+    title: t('notes.ocrPreviewTitle'),
+    size: 'lg',
+    content,
+    onSave(panel) {
+      const saveBtn = panel.querySelector('#ocr-preview-save');
+      const cancelBtn = panel.querySelector('#ocr-preview-cancel');
+
+      saveBtn?.addEventListener('click', () => {
+        const titleInput = panel.querySelector('#ocr-preview-title');
+        const bodyTextarea = panel.querySelector('#ocr-preview-body');
+        const finalTitle = titleInput?.value?.trim() || '';
+        const finalBody = bodyTextarea?.value?.trim() || '';
+        if (!finalTitle.trim() && !finalBody.trim()) {
+          window.yuvomi?.showToast(t('notes.ocrErrorMessage'), 'danger');
+          return;
+        }
+        closeModal({ force: true });
+        openNoteModalFromOcr(finalTitle, finalBody, fileName);
+      });
+
+      cancelBtn?.addEventListener('click', () => {
+        closeModal();
+      });
+    },
+    onClose() {
+      // Nichts tun - nur schliessen
+    },
+  });
+}
+
+/**
+ * Erstellt eine neue Notiz mit OCR-Titel und -Body.
+ * Markdown-Checkboxen (- [ ] Item) werden unverändert übernommen.
+ *
+ * @param {string} title Der Notiz-Titel aus OCR-Analyse
+ * @param {string} body Der Notiz-Inhalt aus OCR-Analyse (inkl. Checkboxen)
+ * @param {string} fileName Der Originaldateiname
+ */
+async function openNoteModalFromOcr(title, body, fileName) {
+  // Notiz-Titel aus OCR-Analyse oder Dateinamen ableiten (ohne Endung)
+  const noteTitle = title
+    || (fileName ? fileName.replace(/\.(jpg|jpeg|png)$/i, '') : t('notes.importFromPhoto'));
+
+  try {
+    const res = await api.post('/notes', {
+      content: body,
+      title: noteTitle,
+      color: NOTE_COLORS[0],
+    });
+
+    // Notiz neu laden und in Grid anzeigen
+    await reloadNotes();
+    window.yuvomi?.showToast(t('notes.createdToast'), 'success');
+  } catch (err) {
+    console.error('[Notes] Failed to create note from OCR:', err);
+    window.yuvomi?.showToast(t('notes.loadError'), 'danger');
+  }
 }
 
 // --------------------------------------------------------

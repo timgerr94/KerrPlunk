@@ -1102,6 +1102,17 @@
   align-items: center;
 }
 
+/* Umschalt-Chips der Mahlzeit-Auswahl im Zufalls-Dialog: Form und Aktivton
+ * kommen aus filter-chip.css (dieselben Chips wie im Rezept-Editor), hier
+ * steht nur der Zeilenumbruch der Optionen - derselbe Container-Satz wie
+ * .recipe-meal-types in recipes.css, modul-lokal benannt, weil Stylesheets
+ * je Seite geladen werden. */
+.meal-randomize-modal__meal-types {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
 /* Vorschauzeile: sagt vor dem Klick, wie viele Slots gefüllt und wie viele
  * bestehende Mahlzeiten überschrieben werden. Sekundär gesetzt - sie informiert,
  * sie warnt nicht; die Entscheidung trägt der Toggle darüber. */

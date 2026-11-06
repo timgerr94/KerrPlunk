@@ -29,6 +29,115 @@
 
 import { esc } from '/utils/html.js';
 
+/** Ob der Browser die native Popover-API unterstuetzt (iOS 17+, Chrome 114+, etc.). */
+export const SUPPORTS_POPOVER = typeof HTMLElement.prototype.showPopover === 'function';
+
+/** Aktuell offene Fallback-Panels (nur bei nicht-unterstuetzenden Browsern). */
+const openFallbackPanels = new Set();
+
+/** Ob die document-level Listener für den Fallback bereits registriert sind. */
+let fallbackDocumentListeners = false;
+
+/**
+ * Zeigt ein Popover-Panel an — nativ oder per Fallback.
+ * @param {HTMLElement} panel
+ * @param {HTMLElement|null} trigger
+ */
+export function showPopover(panel, trigger = null) {
+  if (!panel) return;
+  if (SUPPORTS_POPOVER) {
+    try { panel.showPopover(); } catch { /* bereits offen */ }
+    return;
+  }
+  if (openFallbackPanels.has(panel)) return;
+  // Andere offene Fallback-Menues schliessen
+  document.querySelectorAll('.popover-menu--open').forEach((other) => {
+    if (other !== panel) hidePopover(other);
+  });
+  openFallbackPanels.add(panel);
+  // Im Fallback-Pfad das Panel an document.body haengen, damit es nicht in
+  // einem Stapel-Kontext eines Vorfahren (z.B. Widget mit z-index) gefangen
+  // ist. Die native Popover-API foerdert ins Top-Layer; unser Fallback muss
+  // das manuell nachbilden.
+  if (!panel.isConnected || panel.parentElement !== document.body) {
+    document.body.appendChild(panel);
+  }
+  panel.classList.add('popover-menu--open');
+  panel.removeAttribute('hidden');
+  if (trigger) trigger.setAttribute('aria-expanded', 'true');
+  positionPopover(panel, trigger);
+  const items = itemsOf(panel);
+  if (items.length) focusItem(items, 0);
+}
+
+/**
+ * Blendet ein Popover-Panel aus — nativ oder per Fallback.
+ * @param {HTMLElement} panel
+ */
+export function hidePopover(panel) {
+  if (!panel) return;
+  if (SUPPORTS_POPOVER) {
+    try { panel.hidePopover(); } catch { /* bereits zu */ }
+    return;
+  }
+  openFallbackPanels.delete(panel);
+  panel.classList.remove('popover-menu--open');
+  panel.setAttribute('hidden', '');
+  panel.style.opacity = '';
+  panel.style.transform = '';
+  const trigger = document.querySelector(`[popovertarget="${panel.id}"]`);
+  trigger?.setAttribute('aria-expanded', 'false');
+}
+
+/** Positioniert ein Popover-Panel am Ausloeser. */
+function positionPopover(panel, trigger) {
+  if (!trigger) return;
+  const rect = trigger.getBoundingClientRect();
+  const width = panel.offsetWidth || 200;
+  const height = panel.offsetHeight || 48;
+  const gap = 4;
+  const topStart = panel.dataset?.placement === 'top-start';
+  const left = Math.min(Math.max(8, topStart ? rect.left : rect.right - width), window.innerWidth - width - 8);
+  let top = topStart ? rect.top - height - gap : rect.bottom + gap;
+  if (topStart && top < 8) top = rect.bottom + gap;
+  else if (!topStart && top + height > window.innerHeight - 8) top = rect.top - height - gap;
+  panel.style.left = `${Math.round(left)}px`;
+  panel.style.top = `${Math.round(Math.max(8, top))}px`;
+  const above = top < rect.top;
+  panel.style.transformOrigin = `${above ? 'bottom' : 'top'} ${topStart ? 'left' : 'right'}`;
+  panel.style.opacity = '1';
+  panel.style.transform = 'none';
+}
+
+/** Schliesst alle offenen Fallback-Menues bei Klick daneben. */
+function onDocumentClickFallback(event) {
+  if (SUPPORTS_POPOVER) return;
+  const target = event.target;
+  document.querySelectorAll('.popover-menu--open').forEach((panel) => {
+    if (!panel.contains(target) && !target.closest(`[popovertarget="${panel.id}"]`)) {
+      hidePopover(panel);
+    }
+  });
+}
+
+/** ESC schliesst offene Fallback-Menues. */
+function onKeydownFallback(event) {
+  if (SUPPORTS_POPOVER || event.key !== 'Escape') return;
+  document.querySelectorAll('.popover-menu--open').forEach((panel) => {
+    hidePopover(panel);
+    const trigger = document.querySelector(`[popovertarget="${panel.id}"]`);
+    trigger?.focus();
+  });
+}
+
+/** Registriert document-level Listener für den Fallback-Modus (einmalig). */
+function ensureFallbackDocumentListeners() {
+  if (fallbackDocumentListeners || SUPPORTS_POPOVER) return;
+  fallbackDocumentListeners = true;
+  document.addEventListener('click', onDocumentClickFallback, true);
+  document.addEventListener('keydown', onKeydownFallback);
+}
+
 /**
  * Baut Trigger und Panel als HTML-String.
  *
@@ -71,13 +180,17 @@ export function popoverMenuHtml({ id, label, items = [], triggerClass = 'btn btn
     </button>`;
   }).join('');
 
+  // Bei nicht-unterstuetzenden Browsern das Panel per `hidden` ausblenden,
+  // da das `popover`-Attribut ignoriert wird und das Panel sonst sichtbar steht.
+  const popoverAttr = SUPPORTS_POPOVER ? ' popover' : ' hidden';
+
   return `
     <button type="button" class="${triggerClass} popover-menu__trigger"
             popovertarget="${esc(id)}" aria-haspopup="menu" aria-expanded="false"
             aria-label="${esc(label)}" title="${esc(label)}">
       <i data-lucide="${esc(icon)}" class="icon-md" aria-hidden="true"></i>
     </button>
-    <div class="popover-menu" id="${esc(id)}" popover role="menu">${entries}</div>`;
+    <div class="popover-menu" id="${esc(id)}"${popoverAttr} role="menu">${entries}</div>`;
 }
 
 /**
@@ -264,7 +377,8 @@ function onKeydown(event) {
 function onItemClick(event) {
   const item = event.target?.closest?.('.popover-menu__item');
   if (!item) return;
-  item.closest('.popover-menu')?.hidePopover?.();
+  const panel = item.closest('.popover-menu');
+  if (panel) hidePopover(panel);
 }
 
 /**
@@ -281,8 +395,30 @@ function onItemClick(event) {
 export function installPopoverMenus(root) {
   if (!root || root.dataset.popoverMenus) return;
   root.dataset.popoverMenus = 'true';
-  root.addEventListener('beforetoggle', onBeforeToggle, { capture: true });
-  root.addEventListener('toggle', onToggle, { capture: true });
-  root.addEventListener('click', onItemClick, { capture: true });
-  root.addEventListener('keydown', onKeydown);
+
+  if (SUPPORTS_POPOVER) {
+    root.addEventListener('beforetoggle', onBeforeToggle, { capture: true });
+    root.addEventListener('toggle', onToggle, { capture: true });
+    root.addEventListener('click', onItemClick, { capture: true });
+    root.addEventListener('keydown', onKeydown);
+  } else {
+    // Fallback: Trigger-Klicks togglen das Menü, Klick daneben und ESC schliessen.
+    root.addEventListener('click', (event) => {
+      const trigger = event.target.closest('.popover-menu__trigger');
+      if (!trigger) return;
+      const panel = document.getElementById(trigger.getAttribute('popovertarget'));
+      if (!panel) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (openFallbackPanels.has(panel)) {
+        hidePopover(panel);
+      } else {
+        showPopover(panel, trigger);
+      }
+    }, { capture: true });
+    root.addEventListener('click', onItemClick, { capture: true });
+    root.addEventListener('keydown', onKeydown);
+  }
+
+  ensureFallbackDocumentListeners();
 }

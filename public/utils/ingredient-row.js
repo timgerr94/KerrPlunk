@@ -28,6 +28,7 @@ import { DEFAULT_CATEGORY_NAME, categoryLabel } from '/utils/shopping-categories
  * @param {Array<{name:string}>} [opts.categories] Verfügbare Kategorien (bereits gefiltert)
  * @param {boolean} [opts.withUnit]  Einheiten-Feld rendern (Rezept-Modal: true, Mahlzeiten: nein)
  * @param {boolean} [opts.withNote]  Notiz-Feld rendern (Rezept-Modal: true, Mahlzeiten: nein)
+ * @param {boolean} [opts.showMore]  "..."-Button + Sekundaerfelder rendern (Rezept-Modal: true)
  * @returns {string} HTML-String einer `.ingredient-row`
  */
 export function ingredientRowHTML({
@@ -43,6 +44,7 @@ export function ingredientRowHTML({
   categories = [],
   withUnit = false,
   withNote = false,
+  showMore = false,
 } = {}) {
   const resolvedCategory = categories.some((c) => c.name === category)
     ? category
@@ -68,13 +70,38 @@ export function ingredientRowHTML({
     ? `<input type="text" class="form-input ingredient-row__note" placeholder="${t('meals.ingredientNotePlaceholder')}" value="${esc(note)}">`
     : '';
 
+  // "..."-Button und Sekundaerfelder (secondary quantity, secondary unit, section).
+  // Nur beim Rezept-Modal (showMore: true). Die Felder starten hidden und werden
+  // per Klick auf den "..."-Button eingeblendet. Sie reisen als data-Attribute
+  // mit, damit sie beim PUT erhalten bleiben, auch wenn der Nutzer sie nie
+  // oeffnet.
+  const dragHandle = showMore
+    ? `<button type="button" class="ingredient-row__drag" data-action="drag-handle" aria-label="${t('meals.ingredientDragLabel')}"><i data-lucide="grab" class="icon-sm" aria-hidden="true"></i></button>`
+    : '';
+
+  const moreButton = showMore
+    ? `<button type="button" class="ingredient-row__more" data-action="toggle-ingredient-more" aria-label="${t('meals.ingredientMoreLabel')}"><i data-lucide="more-horizontal" class="icon-sm" aria-hidden="true"></i></button>`
+    : '';
+
+  const moreFields = showMore
+    ? `
+      <div class="ingredient-row__more-fields" hidden>
+        <input type="text" class="form-input ingredient-row__sec-qty" placeholder="${t('meals.ingredientSecQtyPlaceholder')}" value="${esc(secondaryQuantity)}" aria-label="${t('meals.ingredientSecQtyLabel')}">
+        <input type="text" class="form-input ingredient-row__sec-unit" placeholder="${t('meals.ingredientSecUnitPlaceholder')}" value="${esc(secondaryUnit)}" aria-label="${t('meals.ingredientSecUnitLabel')}">
+        <input type="text" class="form-input ingredient-row__section" placeholder="${t('meals.ingredientSectionPlaceholder')}" value="${esc(section)}" aria-label="${t('meals.ingredientSectionLabel')}">
+      </div>`
+    : '';
+
   return `
     <div class="ingredient-row${withUnit ? ' ingredient-row--with-unit' : ''}${withNote ? ' ingredient-row--with-note' : ''}" data-ing-id="${id ?? ''}"${section ? ` data-section="${esc(section)}"` : ''}${secondaryQuantity ? ` data-secondary-quantity="${esc(secondaryQuantity)}"` : ''}${secondaryUnit ? ` data-secondary-unit="${esc(secondaryUnit)}"` : ''}>
+      ${dragHandle}
       <input type="text" class="form-input ingredient-row__name" placeholder="${t('meals.ingredientNamePlaceholder')}" value="${esc(name)}">
       ${noteInput}
       <input type="text" class="form-input ingredient-row__qty" placeholder="${t('meals.ingredientQtyPlaceholder')}" value="${esc(quantity)}">
       ${unitInput}
       <select class="form-input ingredient-row__cat" aria-label="${t('meals.ingredientCategoryLabel')}">${catOptions}</select>
+      ${moreButton}
+      ${moreFields}
       ${rowActionHtml({
         icon: 'x',
         tone: 'danger',

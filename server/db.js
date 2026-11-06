@@ -10276,6 +10276,17 @@ const MIGRATIONS = [
       ALTER TABLE recipe_ingredients ADD COLUMN section TEXT;
     `,
   },
+  {
+    version: 245,
+    description: 'Recipe unreviewed flag for photo imports',
+    up: `
+      -- Ein Rezept, das per Foto importiert wurde, bekommt das Flag
+      -- unreviewed = 1, bis der Nutzer es im Bearbeitungs-Modal einmal
+      -- gespeichert hat. In der Liste wird dann ein kleines "!"-Badge
+      -- neben dem Titel angezeigt.
+      ALTER TABLE recipes ADD COLUMN unreviewed INTEGER NOT NULL DEFAULT 0;
+    `,
+  },
 ];
 /**
  * Hat ein ANDERER Prozess genau diese Migration inzwischen verbucht? (#1331)

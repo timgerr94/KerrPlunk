@@ -1921,6 +1921,65 @@ router.patch('/:id/archive', (req, res) => {
   }
 });
 
+// --------------------------------------------------------
+// PATCH /api/v1/tasks/:id/assignments
+// Weist eine Aufgabe einer oder mehreren Personen zu oder hebt die Zuweisung auf.
+// Body: { user_ids: number[] }  (leeres Array = alle Zuweisungen entfernen)
+// Response: { data: Task }
+// --------------------------------------------------------
+router.patch('/:id/assignments', (req, res) => {
+  try {
+    const task = db.get().prepare('SELECT * FROM tasks WHERE id = ?').get(req.params.id);
+    if (!task) return res.status(404).json({ error: 'Task not found.', code: 404 });
+    // 404 statt 403: ob die Aufgabe existiert, ist selbst schon eine Auskunft.
+    if (!mayAccessTask(task, req.authUserId || req.session.userId)) {
+      return res.status(404).json({ error: 'Task not found.', code: 404 });
+    }
+    // Zuweisung ändert die Definition der Aufgabe (#830).
+    if (!mayEditTaskDefinition(task, req)) return res.status(403).json(LOCKED_ERROR);
+
+    const { user_ids } = req.body;
+    if (!Array.isArray(user_ids))
+      return res.status(400).json({ error: 'user_ids must be an array.', code: 400 });
+
+    const userIds = user_ids.map(Number).filter((uid) => Number.isInteger(uid) && uid > 0);
+    // Duplikate entfernen, Reihenfolge beibehalten.
+    const uniqueIds = [...new Set(userIds)];
+
+    // Prüfen, dass alle Ziel-User existieren und Haushaltsmitglieder sind.
+    if (uniqueIds.length) {
+      const placeholders = uniqueIds.map(() => '?').join(',');
+      const found = db.get().prepare(
+        `SELECT id FROM users WHERE id IN (${placeholders})`
+      ).all(...uniqueIds).map((r) => r.id);
+      const unknown = uniqueIds.filter((id) => !found.includes(id));
+      if (unknown.length) {
+        return res.status(400).json({
+          error: `Unknown user id${unknown.length > 1 ? 's' : ''}: ${unknown.join(', ')}.`,
+          code: 400,
+        });
+      }
+    }
+
+    const me = req.authUserId || req.session.userId;
+    const changed = db.get().transaction(() => {
+      setAssignments(db.get(), task.id, uniqueIds);
+      return db.get().prepare(
+        `SELECT t.*, ${ASSIGNED_USERS_SQL}
+         FROM tasks t
+         WHERE t.id = ?`
+      ).get(task.id);
+    })();
+
+    const updated = addAssignedUsers(changed);
+    res.json({ data: updated });
+    pushToCalDAV('Zuweisung');
+  } catch (err) {
+    log.error('PATCH /:id/assignments error:', err);
+    res.status(500).json({ error: 'Internal server error.', code: 500 });
+  }
+});
+
 /**
  * PATCH /api/v1/tasks/:id/check
  * Einen Checklisten-Eintrag in der Beschreibung ab- oder anhaken, ohne den

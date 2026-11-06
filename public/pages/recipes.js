@@ -10,7 +10,7 @@ import { openModal as openSharedModal, closeModal as closeSharedModal, advancedS
 import { DEFAULT_CATEGORY_NAME } from '/utils/shopping-categories.js';
 import { renderKitchenTabsBar } from '/utils/kitchen-tabs.js';
 import { resolveShoppingTarget, announceTransfer, mayTransferRecipeToShopping } from '/utils/kitchen-transfer.js';
-import { popoverMenuHtml, installPopoverMenus } from '/utils/popover-menu.js';
+import { popoverMenuHtml, installPopoverMenus, SUPPORTS_POPOVER } from '/utils/popover-menu.js';
 import { ingredientRowHTML } from '/utils/ingredient-row.js';
 import { scheduleUndoableDelete, expandIn, collapseOut } from '/utils/ux.js';
 import { normalizeRecipeMealTypes, RECIPE_MEAL_TYPE_KEYS } from '/utils/recipe-meal-types.js';
@@ -24,9 +24,13 @@ import { mountEmptyState, mountLoadError } from '/utils/empty-state.js';
 import { renderPageSearch, wirePageSearch } from '/utils/page-search.js';
 import { mealTypeList, ensureMealTypeNames } from '/utils/meal-types.js';
 import { recipeThumbEl } from '/utils/recipe-thumb.js';
-import { navModuleAccess } from '/permissions.js';
+import { navModuleAccess, isNavModuleReadOnly } from '/permissions.js';
 import { mountMasterDetail, splitViewDetailHtml, detailPaneHeaderEl } from '/utils/master-detail.js';
 import { attachOverlay, dropOverlay } from '/utils/overlay-history.js';
+
+function readOnly() {
+  return isNavModuleReadOnly('recipes');
+}
 
 let _container = null;
 /** Handle des geteilten Suchfelds (setValue/clear), gesetzt in render(). */
@@ -353,6 +357,22 @@ export async function render(container, { signal } = {}) {
   sourceFilter.id = 'recipes-source-filter';
   sourceFilter.hidden = true;
   actions.appendChild(sourceFilter);
+
+  // Import from photo button (nur wenn nicht Nur-lesen)
+  if (!readOnly()) {
+    const importBtn = document.createElement('button');
+    importBtn.type = 'button';
+    importBtn.className = 'btn btn--secondary btn--icon';
+    importBtn.id = 'recipes-import-photo';
+    importBtn.setAttribute('aria-label', t('recipes.importFromPhotoButton'));
+    importBtn.setAttribute('title', t('recipes.importFromPhotoButton'));
+    const importIcon = document.createElement('i');
+    importIcon.dataset.lucide = 'image';
+    importIcon.setAttribute('aria-hidden', 'true');
+    importBtn.appendChild(importIcon);
+    actions.appendChild(importBtn);
+  }
+
   toolbar.appendChild(actions);
 
   const list = document.createElement('div');
@@ -376,6 +396,15 @@ export async function render(container, { signal } = {}) {
   fabIcon.dataset.lucide = 'plus';
   fabIcon.setAttribute('aria-hidden', 'true');
   fab.appendChild(fabIcon);
+
+  // Versteckter Datei-Eingang fuer Rezept-Foto-Import (ohne capture: System-Picker zeigt
+  // auf iOS/Android "Foto aufnehmen", "Aus Galerie waehlen", "Aus Dateien waehlen")
+  const photoInput = document.createElement('input');
+  photoInput.type = 'file';
+  photoInput.id = 'recipes-photo-input';
+  photoInput.accept = 'image/jpeg,image/png';
+  photoInput.hidden = true;
+  page.appendChild(photoInput);
 
   // Liste + Detail: der Scrollport wird `.split-view__list` und steht mit der
   // Detailspalte in einer Huelle an seinem bisherigen Platz. Unter der
@@ -422,6 +451,16 @@ export async function render(container, { signal } = {}) {
   openRecipeFromQuery();
 
   fab.addEventListener('click', () => openRecipeModal('create'));
+
+  // Rezept-Foto-Import: Button und Datei-Eingang
+  const importPhotoBtn = page.querySelector('#recipes-import-photo');
+  importPhotoBtn?.addEventListener('click', () => photoInput?.click());
+  photoInput?.addEventListener('change', async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    photoInput.value = ''; // Reset fuer erneute Auswahl derselben Datei
+    await handleRecipePhotoImport(file);
+  });
 
   // Handle im Modul halten: der Zurücksetzen-Pfad des Suchtreffer-Leerzustands
   // braucht `clear()`, nicht nur `input.value = ''` - sonst bliebe der
@@ -501,6 +540,7 @@ function renderSourceFilter() {
     })),
   ];
   const activeLabel = options.find((o) => o.value === state.sourceFilter)?.label ?? '';
+  const popoverAttr = SUPPORTS_POPOVER ? ' popover' : ' hidden';
 
   el.replaceChildren();
   el.insertAdjacentHTML('beforeend', `
@@ -510,7 +550,7 @@ function renderSourceFilter() {
             title="${esc(t('recipes.sourceFilterLabel'))}: ${esc(activeLabel)}">
       <i data-lucide="filter" class="icon-md" aria-hidden="true"></i>
     </button>
-    <div class="popover-menu recipes-source-filter-menu" id="recipes-source-filter-menu" popover role="menu"
+    <div class="popover-menu recipes-source-filter-menu" id="recipes-source-filter-menu"${popoverAttr} role="menu"
          aria-label="${esc(t('recipes.sourceFilterLabel'))}">
       ${options.map((opt) => {
         const active = state.sourceFilter === opt.value;
@@ -1103,6 +1143,16 @@ function buildRecipeList() {
     name.className = 'list-row__name';
     name.textContent = recipe.title;
     toggle.appendChild(name);
+
+    // Unreviewed-Badge: kleines "!" fuer Rezepte, die per Foto importiert
+    // und noch nicht im Bearbeitungs-Modal gespeichert wurden.
+    if (recipe.unreviewed === 1) {
+      const unreviewedBadge = document.createElement('span');
+      unreviewedBadge.className = 'recipe-row__unreviewed-badge';
+      unreviewedBadge.title = t('recipes.recipeUnreviewedBadge');
+      unreviewedBadge.textContent = '!';
+      toggle.appendChild(unreviewedBadge);
+    }
 
     if (isMirrored) {
       // Eigener, unsichtbarer Slot statt das Badge selbst als Flex-Item zu
@@ -1808,17 +1858,19 @@ function openRecipeModal(mode, recipe = null) {
         <div class="recipe-ingredient-list" id="recipe-ingredient-list"></div>
         <button class="btn btn--secondary recipe-add-ingredient" type="button" id="recipe-add-ingredient"><i data-lucide="plus" class="icon-md" aria-hidden="true"></i>${t('meals.addIngredient')}</button>
       </div>
-      <div class="form-group">
-        <label class="form-label" for="recipe-cookTime">${t('Cook Time')}</label>
-        <input id="recipe-cookTime" class="form-input" type="text" placeholder="${t('e.g. 10 minutes')}">
-      </div>
-      <div class="form-group">
-        <label class="form-label" for="recipe-prepTime">${t('Prep Time')}</label>
-        <input id="recipe-prepTime" class="form-input" type="text" placeholder="${t('e.g. 5 minutes')}">
-      </div>
-      <div class="form-group">
-        <label class="form-label" for="recipe-servings">${t('Servings')}</label>
-        <input id="recipe-servings" class="form-input" type="number" min="1" placeholder="${t('# of servings')}">
+      <div class="recipe-times-row">
+        <div class="time-field">
+          <label class="form-label" for="recipe-cookTime">${t('Cook Time')}</label>
+          <input id="recipe-cookTime" class="form-input" type="text" placeholder="${t('e.g. 10 minutes')}">
+        </div>
+        <div class="time-field">
+          <label class="form-label" for="recipe-prepTime">${t('Prep Time')}</label>
+          <input id="recipe-prepTime" class="form-input" type="text" placeholder="${t('e.g. 5 minutes')}">
+        </div>
+        <div class="time-field time-field--servings">
+          <label class="form-label" for="recipe-servings">${t('Servings')}</label>
+          <input id="recipe-servings" class="form-input" type="number" min="1" placeholder="${t('# of servings')}">
+        </div>
       </div>
       ${advancedSection(`
         <div class="form-group">
@@ -1990,12 +2042,15 @@ function openRecipeModal(mode, recipe = null) {
          * saveRecipe). */
         const rowsHtml = [];
         let prevSection = '';
+        let ingIndex = 0;
         for (const i of recipe.ingredients) {
           const section = i.section ?? '';
           if (section && section !== prevSection) {
             rowsHtml.push(`<div class="recipe-section-heading" role="presentation">${esc(section)}</div>`);
           }
           prevSection = section;
+          ingIndex++;
+          const parity = ingIndex % 2 === 1 ? 'ingredient-row--odd' : 'ingredient-row--even';
           rowsHtml.push(ingredientRowHTML({
             name: i.name,
             quantity: i.quantity ?? '',
@@ -2008,13 +2063,18 @@ function openRecipeModal(mode, recipe = null) {
             categories: mealCategories(),
             withUnit: true,
             withNote: true,
-          }));
+            showMore: true,
+          }).replace('class="ingredient-row', `class="ingredient-row ${parity}`));
         }
         ingList.insertAdjacentHTML('beforeend', rowsHtml.join(''));
       }
 
       panel.querySelector('#recipe-add-ingredient')?.addEventListener('click', () => {
-        ingList.insertAdjacentHTML('beforeend', ingredientRowHTML({ categories: mealCategories(), withUnit: true, withNote: true }));
+        const ingCount = ingList.querySelectorAll('.ingredient-row').length;
+        const parity = ingCount % 2 === 0 ? 'ingredient-row--odd' : 'ingredient-row--even';
+        const html = ingredientRowHTML({ categories: mealCategories(), withUnit: true, withNote: true, showMore: true })
+          .replace('class="ingredient-row', `class="ingredient-row ${parity}`);
+        ingList.insertAdjacentHTML('beforeend', html);
         if (window.lucide) window.lucide.createIcons({ el: ingList });
       });
 
@@ -2032,6 +2092,222 @@ function openRecipeModal(mode, recipe = null) {
           }
         });
       });
+
+      // "..."-Button: Sekundaerfelder (secondary quantity, secondary unit,
+      // section) ein-/ausblenden.
+      ingList.addEventListener('click', (e) => {
+        const moreBtn = e.target.closest('[data-action="toggle-ingredient-more"]');
+        if (!moreBtn) return;
+        const fields = moreBtn.closest('.ingredient-row')?.querySelector('.ingredient-row__more-fields');
+        if (!fields) return;
+        const hidden = fields.hasAttribute('hidden');
+        fields.toggleAttribute('hidden');
+        // ARIA auf dem Button aktualisieren.
+        moreBtn.setAttribute('aria-expanded', String(!hidden));
+      });
+
+      // --------------------------------------------------------
+      // Zutaten per Drag & Drop neu anordnen (Maus + Touch)
+      // --------------------------------------------------------
+      let dragState = null;
+
+      const SCROLL_THRESHOLD = 60; // px from edge before auto-scroll kicks in
+      const SCROLL_SPEED = 12; // px per interval
+
+      function getClientPos(e) {
+        if (e.touches && e.touches.length) return { x: e.touches[0].clientX, y: e.touches[0].clientY };
+        return { x: e.clientX, y: e.clientY };
+      }
+
+      function findScrollContainer(el) {
+        // Das Modal-Panel-Body ist der scrollbare Container ueber der Zutatenliste.
+        // Fallback: erstes Elternelement mit overflow: auto/scroll.
+        let node = el.parentElement;
+        while (node && node !== document.body) {
+          if (node.classList.contains('modal-panel__body')) return node;
+          const style = getComputedStyle(node);
+          if (style.overflowY === 'auto' || style.overflowY === 'scroll' || style.overflow === 'auto' || style.overflow === 'scroll') {
+            return node;
+          }
+          node = node.parentElement;
+        }
+        return null;
+      }
+
+      function startScrollLoop(state) {
+        if (state.scrollInterval) return;
+        state.scrollInterval = setInterval(() => {
+          if (!state.scrollContainer || !dragState) return;
+          const rect = state.scrollContainer.getBoundingClientRect();
+          const pos = getClientPos({ clientX: state.lastX, clientY: state.lastY });
+          let delta = 0;
+          if (pos.y < rect.top + SCROLL_THRESHOLD) delta = -SCROLL_SPEED;
+          else if (pos.y > rect.bottom - SCROLL_THRESHOLD) delta = SCROLL_SPEED;
+          if (delta) state.scrollContainer.scrollTop += delta;
+        }, 16);
+      }
+
+      function stopScrollLoop(state) {
+        if (state.scrollInterval) {
+          clearInterval(state.scrollInterval);
+          state.scrollInterval = null;
+        }
+      }
+
+      function startDrag(e, handle) {
+        const row = handle.closest('.ingredient-row');
+        if (!row) return;
+        const pos = getClientPos(e);
+
+        dragState = {
+          row,
+          ingList,
+          startIndex: Array.from(ingList.children).indexOf(row),
+          startX: pos.x,
+          startY: pos.y,
+          rowX: row.offsetLeft,
+          rowY: row.offsetTop,
+          isTouch: e.type === 'touchstart',
+          scrollContainer: findScrollContainer(ingList),
+          lastX: pos.x,
+          lastY: pos.y,
+        };
+
+        // Platzhalter an der Ursprungsposition
+        const placeholder = document.createElement('div');
+        placeholder.className = 'ingredient-row__placeholder';
+        placeholder.style.height = row.offsetHeight + 'px';
+        row.parentNode.insertBefore(placeholder, row);
+        dragState.placeholder = placeholder;
+
+        // Geist-Element das dem Cursor folgt
+        const ghost = row.cloneNode(true);
+        ghost.classList.add('ingredient-row--drag-ghost');
+        ghost.style.width = row.offsetWidth + 'px';
+        ghost.style.opacity = '0.75';
+        ghost.style.position = 'fixed';
+        ghost.style.pointerEvents = 'none';
+        ghost.style.zIndex = '1000';
+        ghost.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)';
+        document.body.appendChild(ghost);
+        dragState.ghost = ghost;
+
+        // Original ausblenden
+        row.style.visibility = 'hidden';
+
+        updateGhostPosition(e, dragState);
+        startScrollLoop(dragState);
+      }
+
+      function updateGhostPosition(e, state) {
+        const pos = getClientPos(e);
+        state.lastX = pos.x;
+        state.lastY = pos.y;
+        state.ghost.style.left = (pos.x - state.startX + state.rowX) + 'px';
+        state.ghost.style.top = (pos.y - state.startY + state.rowY) + 'px';
+      }
+
+      function handleDragMove(e) {
+        if (!dragState) return;
+        if (dragState.isTouch) e.preventDefault();
+        const pos = getClientPos(e);
+        updateGhostPosition(e, dragState);
+
+        // Geist kurz ausblenden damit elementFromPoint das Ziel darunter findet
+        dragState.ghost.style.display = 'none';
+        const target = document.elementFromPoint(pos.x, pos.y);
+        dragState.ghost.style.display = '';
+
+        if (!target) return;
+        const targetRow = target.closest('.ingredient-row');
+        if (targetRow && targetRow !== dragState.row && targetRow.parentNode === dragState.ingList) {
+          const rect = targetRow.getBoundingClientRect();
+          const midpoint = rect.top + rect.height / 2;
+          if (pos.y < midpoint) {
+            targetRow.parentNode.insertBefore(dragState.placeholder, targetRow);
+          } else {
+            targetRow.parentNode.insertBefore(dragState.placeholder, targetRow.nextSibling);
+          }
+        }
+      }
+
+      function endDrag() {
+        if (!dragState) return;
+        stopScrollLoop(dragState);
+        const { row, placeholder, ingList } = dragState;
+
+        // Zeile an Platzhalter-Position zuruecksetzen
+        placeholder.parentNode.replaceChild(row, placeholder);
+        row.style.visibility = '';
+
+        // Geist entfernen
+        if (dragState.ghost) dragState.ghost.remove();
+
+        // Abschnitte neu berechnen
+        recalculateSections(ingList);
+
+        dragState = null;
+      }
+
+      function recalculateSections(list) {
+        let currentSection = null;
+        const children = Array.from(list.children);
+
+        // Abschnittswerte basierend auf Position zuweisen
+        for (const child of children) {
+          if (child.classList.contains('recipe-section-heading')) {
+            currentSection = child.textContent.trim();
+          } else if (child.classList.contains('ingredient-row')) {
+            const sectionInput = child.querySelector('.ingredient-row__section');
+            if (sectionInput) {
+              sectionInput.value = currentSection || '';
+            }
+            child.dataset.section = currentSection || '';
+          }
+        }
+
+        // Leere Abschnitts-Ueberschriften entfernen
+        for (let i = children.length - 1; i >= 0; i--) {
+          const child = children[i];
+          if (child.classList.contains('recipe-section-heading')) {
+            let hasIngredients = false;
+            for (let j = i + 1; j < children.length; j++) {
+              if (children[j].classList.contains('recipe-section-heading')) break;
+              if (children[j].classList.contains('ingredient-row')) {
+                hasIngredients = true;
+                break;
+              }
+            }
+            if (!hasIngredients) child.remove();
+          }
+        }
+      }
+
+      // Drag-Start: Maus
+      ingList.addEventListener('mousedown', (e) => {
+        const handle = e.target.closest('[data-action="drag-handle"]');
+        if (!handle) return;
+        startDrag(e, handle);
+      });
+
+      // Drag-Start: Touch
+      ingList.addEventListener('touchstart', (e) => {
+        const handle = e.target.closest('[data-action="drag-handle"]');
+        if (!handle) return;
+        e.preventDefault();
+        startDrag(e, handle);
+      }, { passive: false });
+
+      // Drag-Bewegung
+      document.addEventListener('mousemove', (e) => handleDragMove(e));
+      document.addEventListener('touchmove', (e) => {
+        if (dragState) e.preventDefault();
+        handleDragMove(e);
+      }, { passive: false });
+
+      // Drag-Ende
+      document.addEventListener('mouseup', endDrag);
+      document.addEventListener('touchend', endDrag);
 
       panel.querySelector('#recipe-cancel')?.addEventListener('click', closeModal);
       panel.querySelector('#recipe-delete')?.addEventListener('click', () => {
@@ -2088,12 +2364,42 @@ async function saveRecipe(panel, mode, recipe) {
     // optionales `?.` haelt eine fremde Zeile (Mahlzeiten) ohne das Feld gueltig.
     const note = row.querySelector('.ingredient-row__note')?.value.trim() || null;
     const category = row.querySelector('.ingredient-row__cat')?.value || DEFAULT_CATEGORY_NAME;
-    // dataset ist camelCase: data-secondary-quantity -> secondaryQuantity.
-    const secondaryQuantity = row.dataset.secondaryQuantity || null;
-    const secondaryUnit = row.dataset.secondaryUnit || null;
-    const section = row.dataset.section || null;
+    // Sekundaerfelder: immer aus den Input-Feldern lesen, falls vorhanden -
+    // auch wenn die Zeile ausgeblendet ist (hidden). Nur wenn die Felder
+    // gar nicht existieren (alte Zeile ohne showMore), auf data-Attribute
+    // zurueckfallen.
+    const secQtyInput = row.querySelector('.ingredient-row__sec-qty');
+    const secUnitInput = row.querySelector('.ingredient-row__sec-unit');
+    const sectionInput = row.querySelector('.ingredient-row__section');
+    const secondaryQuantity = secQtyInput ? (secQtyInput.value.trim() || null) : (row.dataset.secondaryQuantity || null);
+    const secondaryUnit = secUnitInput ? (secUnitInput.value.trim() || null) : (row.dataset.secondaryUnit || null);
+    const section = sectionInput ? (sectionInput.value.trim() || null) : (row.dataset.section || null);
     if (name) ingredients.push({ name, quantity, unit, note, category, secondaryQuantity, secondaryUnit, section });
   });
+
+  /* ABSCHNITTS-GRUPPIERUNG BEIM SPEICHERN: Zutaten ohne Abschnitt zuerst
+   * (relative Reihenfolge erhalten), dann Zutaten mit Abschnitt gruppiert
+   * nach erstem Auftreten des Abschnitts (relative Reihenfolge innerhalb
+   * jeder Gruppe erhalten). Neue Abschnitte landen am Ende. */
+  const noSection = [];
+  const withSection = [];
+  const sectionOrder = [];
+  const sectionMap = new Map();
+  for (const ing of ingredients) {
+    if (!ing.section) {
+      noSection.push(ing);
+    } else {
+      if (!sectionMap.has(ing.section)) {
+        sectionOrder.push(ing.section);
+        sectionMap.set(ing.section, []);
+      }
+      sectionMap.get(ing.section).push(ing);
+    }
+  }
+  const sortedIngredients = [...noSection];
+  for (const sec of sectionOrder) {
+    sortedIngredients.push(...sectionMap.get(sec));
+  }
 
   // Nur mitschicken, wenn der Nutzer das Bild angefasst hat: ein fehlendes Feld
   // laesst das gespeicherte stehen (#1059).
@@ -2105,11 +2411,11 @@ async function saveRecipe(panel, mode, recipe) {
   try {
     let createdId = null;
     if (mode === 'create') {
-      const res = await api.post('/recipes', { title, notes, recipe_url, meal_types, ingredients, cuisine, cookTime, prepTime, servings, diet, ...bildFeld });
+      const res = await api.post('/recipes', { title, notes, recipe_url, meal_types, ingredients: sortedIngredients, cuisine, cookTime, prepTime, servings, diet, ...bildFeld });
       state.recipes.push(res.data);
       createdId = res.data?.id ?? null;
     } else {
-      const res = await api.put(`/recipes/${recipe.id}`, { title, notes, recipe_url, meal_types, ingredients, cuisine, cookTime, prepTime, servings, diet, ...bildFeld });
+      const res = await api.put(`/recipes/${recipe.id}`, { title, notes, recipe_url, meal_types, ingredients: sortedIngredients, cuisine, cookTime, prepTime, servings, diet, unreviewed: 0, ...bildFeld });
       const idx = state.recipes.findIndex((r) => r.id === recipe.id);
       if (idx >= 0) state.recipes[idx] = res.data;
     }
@@ -2123,6 +2429,362 @@ async function saveRecipe(panel, mode, recipe) {
   } catch (err) {
     saveBtn.disabled = false;
     window.yuvomi?.showToast(err.data?.error ?? t('common.errorGeneric'), 'danger');
+  }
+}
+
+// --------------------------------------------------------
+// Import Recipe From Photo (OCR)
+// --------------------------------------------------------
+
+/**
+ * Verwaehlt ein ausgewertetes Foto fuer Rezept-Import: liest es als Base64,
+ * sendet es an den OCR-Endpunkt und zeigt das Ergebnis in einer Vorschau an.
+ *
+ * @param {File} file Die ausgewertete Bilddatei
+ */
+async function handleRecipePhotoImport(file) {
+  if (readOnly()) return;
+
+  // Dateityp pruefen (clientseitig vorab, fuer sofortiges Feedback)
+  const mime = file.type.toLowerCase();
+  if (!['image/jpeg', 'image/jpg', 'image/png'].includes(mime)) {
+    window.yuvomi?.showToast(t('recipes.ocrUnsupportedFile'), 'danger');
+    return;
+  }
+
+  // Dateigroesse pruefen (gleiche Grenze wie Server)
+  const maxBytes = 5 * 1024 * 1024; // 5 MB
+  if (file.size > maxBytes) {
+    window.yuvomi?.showToast(
+      t('recipes.ocrFileTooLarge', { size: 5 }),
+      'danger'
+    );
+    return;
+  }
+
+  // Als Base64 Data-URL einlesen (fuer OCR-Upload UND als Rezept-Bild)
+  const dataUrl = await readRecipeFileAsDataUrl(file);
+
+  try {
+    console.log('OCR Recipe Request', { fileName: file.name, mime, size: file.size });
+
+    const res = await api.post('/ocr/import-recipe', {
+      file: dataUrl,
+      fileName: file.name,
+    });
+
+    console.log('OCR Recipe Response', res);
+    console.log('Recipe Analysis', res?.analysis);
+
+    if (!res || !res.success) {
+      window.yuvomi?.showToast(
+        res?.error || t('recipes.ocrErrorMessage'),
+        'danger'
+      );
+      return;
+    }
+
+    const analysis = res.analysis || {};
+
+    // Validierung: title ist das einzige Pflichtfeld
+    if (!analysis.title || !analysis.title.trim()) {
+      window.yuvomi?.showToast(t('recipes.recipeTitleRequired'), 'danger');
+      return;
+    }
+
+    // Rezept sofort speichern mit unreviewed-Flag, Vorschau entfaellt
+    try {
+      const created = await api.post('/recipes', {
+        title: analysis.title || '',
+        servings: analysis.servings || null,
+        prepTime: analysis.prepTime || null,
+        cookTime: analysis.cookTime || null,
+        diet: analysis.diet || [],
+        ingredients: (analysis.ingredients || []).map((ing) => ({
+          name: ing.name || '',
+          quantity: ing.quantity || null,
+          unit: ing.unit || null,
+          note: ing.note || null,
+          section: ing.section || null,
+        })),
+        notes: Array.isArray(analysis.notes) && analysis.notes.length
+          ? analysis.notes.join('\n\n')
+          : (analysis.notes || null),
+        image_data: dataUrl,
+        unreviewed: 1,
+      });
+
+      state.recipes.push(created.data);
+      renderRecipeList({ repaint: true });
+      window.yuvomi?.showToast(t('recipes.recipeImportedNeedsReview'), 'success');
+    } catch (createErr) {
+      console.error('[Recipe] Failed to save imported recipe:', createErr);
+      window.yuvomi?.showToast(
+        createErr.data?.error ?? t('recipes.recipeCreateError'),
+        'danger'
+      );
+    }
+  } catch (err) {
+    console.error('[Recipe] Photo import failed:', err);
+    if (err.status === 502) {
+      window.yuvomi?.showToast(t('recipes.ocrServiceUnavailable'), 'danger');
+    } else if (err.status === 400) {
+      window.yuvomi?.showToast(err.data?.error ?? t('recipes.ocrErrorMessage'), 'danger');
+    } else if (err.status === 408 || err.code === 'ECONNABORTED') {
+      window.yuvomi?.showToast(t('recipes.ocrTimeout'), 'danger');
+    } else {
+      window.yuvomi?.showToast(t('recipes.ocrError'), 'danger');
+    }
+  }
+}
+
+/**
+ * Liest eine File als Base64 Data-URL.
+ *
+ * @param {File} file
+ * @returns {Promise<string>}
+ */
+function readRecipeFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
+
+/**
+ * Zeigt die Rezept-OCR-Vorschau mit bearbeitbaren Feldern an.
+ * Der Nutzer kann alle Felder bearbeiten bevor das Rezept erstellt wird.
+ *
+ * @param {object} ocrResult { title, servings, prepTime, cookTime, diet, ingredients, notes, ocrText }
+ * @param {string} fileName Der Originaldateiname
+ * @param {string} imageDataUrl Das Originalbild als Data-URL
+ */
+function showRecipeOcrPreview(ocrResult, fileName, imageDataUrl) {
+  const {
+    title = '',
+    servings = '',
+    prepTime = '',
+    cookTime = '',
+    diet = [],
+    ingredients = [],
+    notes = [],
+    ocrText = '',
+  } = ocrResult;
+
+  // Diet als Text-Liste anzeigen (nicht als Chips)
+  const dietText = Array.isArray(diet) && diet.length ? diet.join(', ') : '';
+
+  // Notes als "Step N." Format zusammenbauen
+  const notesText = Array.isArray(notes) && notes.length
+    ? notes.map((n, i) => `Step ${i + 1}.\n${n}`).join('\n\n')
+    : '';
+
+  // Ingredients HTML mit Abschnitts-Ueberschriften zwischen den Zeilen
+  let ingredientsHtml = '';
+  let prevSection = '';
+  for (const ing of ingredients) {
+    const section = ing.section || '';
+    if (section && section !== prevSection) {
+      ingredientsHtml += `
+        <div class="form-group" style="margin-top:var(--space-4);">
+          <label class="form-label" style="font-size:0.875rem;text-transform:uppercase;letter-spacing:0.05em;">${esc(section)}</label>
+          <input type="text" class="form-input recipe-ocr-section" value="${esc(section)}" readonly style="background:transparent;border:none;padding:0;">
+        </div>
+      `;
+      prevSection = section;
+    }
+    ingredientsHtml += `
+      <div class="form-group recipe-ocr-ingredient-row" style="display:flex;gap:var(--space-2);align-items:flex-start;margin-bottom:var(--space-2);">
+        <input type="text" class="form-input recipe-ocr-ingredient-name" placeholder="${t('meals.ingredientNamePlaceholder')}" value="${esc(ing.name || '')}" style="flex:2;">
+        <input type="text" class="form-input recipe-ocr-ingredient-qty" placeholder="${t('meals.ingredientQtyPlaceholder')}" value="${esc(ing.quantity || '')}" style="flex:1;">
+        <input type="text" class="form-input recipe-ocr-ingredient-unit" placeholder="${t('meals.ingredientUnitPlaceholder')}" value="${esc(ing.unit || '')}" style="flex:1;">
+        <input type="text" class="form-input recipe-ocr-ingredient-note" placeholder="${t('meals.ingredientNotePlaceholder')}" value="${esc(ing.note || '')}" style="flex:1.5;">
+      </div>
+    `;
+  }
+
+  const content = `
+    <div class="ocr-recipe-preview" data-note-id="ocr-recipe-preview">
+      <div class="form-group">
+        <label class="form-label" id="ocr-recipe-title-label">${t('recipes.recipeTitleLabel')}</label>
+        <input type="text" class="form-input" id="ocr-recipe-title" value="${esc(title)}" required>
+        <p class="form-label__hint">${t('recipes.recipeTitleRequired')}</p>
+      </div>
+      <div class="form-group">
+        <label class="form-label" id="ocr-recipe-servings-label">${t('recipes.recipeServingsLabel')}</label>
+        <input type="text" class="form-input" id="ocr-recipe-servings" value="${esc(servings)}" placeholder="${t('recipes.servingsPlaceholder')}">
+      </div>
+      <div class="form-group">
+        <label class="form-label" id="ocr-recipe-prepTime-label">${t('recipes.recipePrepTimeLabel')}</label>
+        <input type="text" class="form-input" id="ocr-recipe-prepTime" value="${esc(prepTime)}" placeholder="${t('recipes.prepTimePlaceholder')}">
+      </div>
+      <div class="form-group">
+        <label class="form-label" id="ocr-recipe-cookTime-label">${t('recipes.recipeCookTimeLabel')}</label>
+        <input type="text" class="form-input" id="ocr-recipe-cookTime" value="${esc(cookTime)}" placeholder="${t('recipes.cookTimePlaceholder')}">
+      </div>
+      <div class="form-group">
+        <label class="form-label" id="ocr-recipe-diet-label">${t('recipes.recipeDietLabel')}</label>
+        <input type="text" class="form-input" id="ocr-recipe-diet" value="${esc(dietText)}" placeholder="${t('recipes.dietPlaceholder')}">
+        <p class="form-label__hint">${t('recipes.dietHint')}</p>
+      </div>
+      <div class="form-group">
+        <label class="form-label" id="ocr-recipe-ingredients-label">${t('recipes.recipeIngredientsLabel')}</label>
+        <div id="ocr-recipe-ingredients-list">${ingredientsHtml}</div>
+        <button type="button" class="btn btn--secondary btn--sm" id="ocr-recipe-add-ingredient" style="margin-top:var(--space-2);">
+          <i data-lucide="plus" class="icon-sm" aria-hidden="true"></i>${t('meals.addIngredient')}
+        </button>
+      </div>
+      <div class="form-group">
+        <label class="form-label" id="ocr-recipe-notes-label">${t('recipes.recipeNotesLabel')}</label>
+        <textarea class="form-input" id="ocr-recipe-notes" rows="6" style="resize:vertical;font-family:monospace;">${esc(notesText)}</textarea>
+      </div>
+      <div class="form-group" style="margin-top:var(--space-2);">
+        <label class="form-label" id="ocr-recipe-raw-label">${t('recipes.ocrRawText')}</label>
+        <textarea class="form-input" id="ocr-recipe-raw" rows="4" style="resize:vertical;font-family:monospace;font-size:0.875rem;opacity:0.7;">${esc(ocrText)}</textarea>
+        <p class="form-label__hint">${t('recipes.ocrRawHint')}</p>
+      </div>
+    </div>
+    <div class="modal-panel__footer modal-panel__footer--plain ocr-recipe-preview__footer">
+      <button type="button" class="btn btn--secondary" id="ocr-recipe-cancel">${t('common.cancel')}</button>
+      <button type="button" class="btn btn--primary" id="ocr-recipe-save">${t('common.save')}</button>
+    </div>
+  `;
+
+  openSharedModal({
+    title: t('recipes.importFromPhotoButton'),
+    size: 'lg',
+    content,
+    onSave(panel) {
+      const saveBtn = panel.querySelector('#ocr-recipe-save');
+      const cancelBtn = panel.querySelector('#ocr-recipe-cancel');
+
+      saveBtn?.addEventListener('click', () => {
+        const titleInput = panel.querySelector('#ocr-recipe-title');
+        const servingsInput = panel.querySelector('#ocr-recipe-servings');
+        const prepTimeInput = panel.querySelector('#ocr-recipe-prepTime');
+        const cookTimeInput = panel.querySelector('#ocr-recipe-cookTime');
+        const dietInput = panel.querySelector('#ocr-recipe-diet');
+        const notesTextarea = panel.querySelector('#ocr-recipe-notes');
+
+        const finalTitle = titleInput?.value?.trim() || '';
+        const finalServings = servingsInput?.value?.trim() || '';
+        const finalPrepTime = prepTimeInput?.value?.trim() || '';
+        const finalCookTime = cookTimeInput?.value?.trim() || '';
+        const finalDiet = dietInput?.value?.trim() ? dietInput.value.trim().split(',').map(d => d.trim()).filter(Boolean) : [];
+        const finalNotes = notesTextarea?.value?.trim() || '';
+
+        // Validierung: title erforderlich
+        if (!finalTitle) {
+          window.yuvomi?.showToast(t('recipes.recipeTitleRequired'), 'danger');
+          titleInput?.focus();
+          return;
+        }
+
+        // Ingredients aus den Eingabefeldern sammeln
+        const finalIngredients = [];
+        const ingredientRows = panel.querySelectorAll('.recipe-ocr-ingredient-row');
+        let currentSection = '';
+        for (const row of ingredientRows) {
+          // Pruefen ob die Zeile eine Abschnitts-Ueberschrift ist (readonly input)
+          const sectionInput = row.previousElementSibling?.querySelector('.recipe-ocr-section');
+          // Eigentlich sammeln wir nur die Ingredient-Rows, die Sections sind separat
+          const nameInput = row.querySelector('.recipe-ocr-ingredient-name');
+          const qtyInput = row.querySelector('.recipe-ocr-ingredient-qty');
+          const unitInput = row.querySelector('.recipe-ocr-ingredient-unit');
+          const noteInput = row.querySelector('.recipe-ocr-ingredient-note');
+
+          const name = nameInput?.value?.trim() || '';
+          if (!name) continue;
+
+          finalIngredients.push({
+            name,
+            quantity: qtyInput?.value?.trim() || null,
+            unit: unitInput?.value?.trim() || null,
+            note: noteInput?.value?.trim() || null,
+            section: currentSection || null,
+          });
+        }
+
+        closeSharedModal({ force: true });
+        createRecipeFromOcr(
+          finalTitle,
+          finalServings,
+          finalPrepTime,
+          finalCookTime,
+          finalDiet,
+          finalIngredients,
+          finalNotes,
+          imageDataUrl,
+          fileName
+        );
+      });
+
+      cancelBtn?.addEventListener('click', () => {
+        closeSharedModal();
+      });
+
+      // Zutat hinzufuegen
+      const addBtn = panel.querySelector('#ocr-recipe-add-ingredient');
+      const ingredientsList = panel.querySelector('#ocr-recipe-ingredients-list');
+      addBtn?.addEventListener('click', () => {
+        const newRow = document.createElement('div');
+        newRow.className = 'recipe-ocr-ingredient-row';
+        newRow.style.cssText = 'display:flex;gap:var(--space-2);align-items:flex-start;margin-bottom:var(--space-2);';
+        newRow.innerHTML = `
+          <input type="text" class="form-input recipe-ocr-ingredient-name" placeholder="${t('meals.ingredientNamePlaceholder')}" style="flex:2;">
+          <input type="text" class="form-input recipe-ocr-ingredient-qty" placeholder="${t('meals.ingredientQtyPlaceholder')}" style="flex:1;">
+          <input type="text" class="form-input recipe-ocr-ingredient-unit" placeholder="${t('meals.ingredientUnitPlaceholder')}" style="flex:1;">
+          <input type="text" class="form-input recipe-ocr-ingredient-note" placeholder="${t('meals.ingredientNotePlaceholder')}" style="flex:1.5;">
+        `;
+        ingredientsList?.appendChild(newRow);
+        if (window.lucide) window.lucide.createIcons({ el: newRow });
+      });
+    },
+    onClose() {
+      // Nichts tun - nur schliessen
+    },
+  });
+}
+
+/**
+ * Erstellt ein Rezept aus den OCR-Daten.
+ *
+ * @param {string} title
+ * @param {string} servings
+ * @param {string} prepTime
+ * @param {string} cookTime
+ * @param {string[]} diet
+ * @param {Array<{name,quantity,unit,note,section}>} ingredients
+ * @param {string} notes
+ * @param {string} imageDataUrl
+ * @param {string} fileName
+ */
+async function createRecipeFromOcr(title, servings, prepTime, cookTime, diet, ingredients, notes, imageDataUrl, fileName) {
+  console.log('Recipe Import Payload', { title, servings, prepTime, cookTime, diet, ingredients, notes, fileName });
+
+  try {
+    const res = await api.post('/recipes', {
+      title,
+      servings: servings || null,
+      prepTime: prepTime || null,
+      cookTime: cookTime || null,
+      diet,
+      ingredients,
+      notes: notes || null,
+      image_data: imageDataUrl,
+    });
+
+    console.log('Recipe Creation Result', res);
+
+    // Rezeptliste neu laden
+    renderRecipeList({ repaint: true });
+
+    window.yuvomi?.showToast(t('recipes.recipeCreatedFromPhoto'), 'success');
+  } catch (err) {
+    console.error('[Recipe] Failed to create recipe from OCR:', err);
+    window.yuvomi?.showToast(err.data?.error ?? t('recipes.recipeCreateError'), 'danger');
   }
 }
 

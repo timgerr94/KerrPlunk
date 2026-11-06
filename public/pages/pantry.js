@@ -512,7 +512,7 @@ export async function render(container, { user } = {}) {
     renderList();
   });
   toolbar.querySelector('[data-action="manage-locations"]').addEventListener('click', openLocationManager);
-  fab.addEventListener('click', () => openItemModal('create'));
+  fab.addEventListener('click', () => openItemModal('create', null, state.query));
 
   filters.addEventListener('click', (e) => {
     const chip = e.target.closest('[data-filter]');
@@ -1600,7 +1600,7 @@ async function sendToShopping(items, btn) {
 // Artikel-Formular
 // --------------------------------------------------------
 
-function openItemModal(mode, item = null) {
+function openItemModal(mode, item = null, prefillName = '') {
   const isEdit = mode === 'edit';
   let cleanupDeleteSync = null;
   // Der Dialog zeigt den Artikel, wie ihn die Zeile zeigt: mit der Absicht
@@ -1681,7 +1681,7 @@ function openItemModal(mode, item = null) {
         <button type="button" class="btn btn--primary" id="pantry-save">${esc(isEdit ? t('common.save') : t('common.add'))}</button>
       </div>`,
     onSave(panel) {
-      panel.querySelector('#pantry-name').value = isEdit ? item.name : '';
+      panel.querySelector('#pantry-name').value = isEdit ? item.name : prefillName;
       panel.querySelector('#pantry-quantity').value = isEdit ? String(item.quantity) : '1';
       panel.querySelector('#pantry-unit').value = isEdit ? item.unit : 'pcs';
       panel.querySelector('#pantry-location').value = isEdit && item.location_id ? String(item.location_id) : '';

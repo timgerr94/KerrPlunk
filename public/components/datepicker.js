@@ -29,6 +29,7 @@ import {
 } from '/i18n.js';
 import { api } from '/api.js';
 import { esc } from '/utils/html.js';
+import { showPopover, hidePopover, SUPPORTS_POPOVER } from '/utils/popover-menu.js';
 import { todayKey, weekStartIndex, weekdayOrder } from '/utils/date.js';
 
 // ── lokale Datums-Helfer (kanonisches ISO, lokale Zeitzone) ──────────────
@@ -268,13 +269,12 @@ class YuvomiDatepicker extends HTMLElement {
     // Trigger: das DOM-Popover ist auf jedem Pointer-Typ der Primärpfad - es ist
     // vollständig DOM-getrieben und öffnet auf Desktop wie Touch zuverlässig.
     // Das native OS-Sheet (showPicker) bleibt nur Fallback für Touch-Browser
-    // ohne Popover-API (sehr altes iOS <17): auf iOS ist showPicker() bei einem
-    // versteckten Proxy-Input (opacity:0/aria-hidden) ein stilles No-op ohne
-    // Exception, weshalb es nicht als Primärpfad taugt.
+    // mit Popover-API (iOS 17+): auf iOS 16 ist showPicker() ein stilles No-op
+    // ohne Exception, weshalb es dort nicht als Primärpfad taugt.
     sub.trigger.addEventListener('click', () => {
       if (this.hasAttribute('disabled')) return;
       const coarse = window.matchMedia?.('(pointer: coarse)').matches;
-      if (coarse && !this._supportsPopover() && this._openNative(sub)) return;
+      if (coarse && this._supportsPopover() && this._openNative(sub)) return;
       this._openPopover(sub);
     });
 
@@ -357,8 +357,12 @@ class YuvomiDatepicker extends HTMLElement {
     if (this._popover) return this._popover;
     const el = document.createElement('div');
     el.className = 'ydp-popover';
-    el.setAttribute('popover', 'manual');
     el.setAttribute('role', 'dialog');
+    if (SUPPORTS_POPOVER) {
+      el.setAttribute('popover', 'manual');
+    } else {
+      el.setAttribute('hidden', '');
+    }
     document.body.appendChild(el);
     el.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') { this._closePopover(); this._activeSub?.trigger.focus(); return; }
@@ -396,7 +400,7 @@ class YuvomiDatepicker extends HTMLElement {
       else this._renderTimeList(el, sub);
 
       sub.trigger.setAttribute('aria-expanded', 'true');
-      try { el.showPopover(); } catch { /* bereits offen */ }
+      showPopover(el);
       this._position(sub.trigger, el);
       document.addEventListener('pointerdown', this._onDocPointer, true);
       window.addEventListener('resize', this._reposition, { passive: true });
@@ -421,7 +425,7 @@ class YuvomiDatepicker extends HTMLElement {
 
   _closePopover() {
     if (!this._popover) return;
-    try { this._popover.hidePopover(); } catch { /* war zu */ }
+    hidePopover(this._popover);
     this._activeSub?.trigger.setAttribute('aria-expanded', 'false');
     this._activeSub = null;
     document.removeEventListener('pointerdown', this._onDocPointer, true);

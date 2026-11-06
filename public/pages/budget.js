@@ -25,7 +25,7 @@ import { toLocalDateKey, parseLocalDateKey, addLocalDays,
 import { formatMoney, formatSignedAmount, amountPlaceholder, amountStep, amountMin, applyAmountFormat, amountIsSavable, smallestUnitLabel } from '/utils/money.js';
 import { budgetCategoryLabel } from '/utils/category-labels.js';
 import { trendMarkup } from '/utils/metric-card.js';
-import { installPopoverMenus } from '/utils/popover-menu.js';
+import { installPopoverMenus, SUPPORTS_POPOVER } from '/utils/popover-menu.js';
 import { rowActionHtml } from '/utils/row-action.js';
 import { metricGlanceHtml, wireMetricGlance } from '/utils/metric-glance.js';
 import { intervalUnitLabel } from '/rrule-ui.js';
@@ -1636,13 +1636,14 @@ function listToolsMenuHtml() {
   }
   if (!items.length) return '';
   const label = t('common.moreActions');
+  const popoverAttr = SUPPORTS_POPOVER ? ' popover' : ' hidden';
   return `
     <button type="button" class="btn btn--secondary btn--icon budget-list-tools popover-menu__trigger"
             popovertarget="budget-list-tools-menu" aria-haspopup="menu" aria-expanded="false"
             aria-label="${esc(label)}" title="${esc(label)}">
       <i data-lucide="ellipsis" class="icon-md" aria-hidden="true"></i>
     </button>
-    <div class="popover-menu budget-list-tools-menu" id="budget-list-tools-menu" popover role="menu" aria-label="${esc(label)}">
+    <div class="popover-menu budget-list-tools-menu" id="budget-list-tools-menu"${popoverAttr} role="menu" aria-label="${esc(label)}">
       ${items.join('')}
     </div>`;
 }

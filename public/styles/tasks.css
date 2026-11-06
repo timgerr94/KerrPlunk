@@ -1751,6 +1751,214 @@
 }
 
 /* --------------------------------------------------------
+   Assignee-Board: Spalten nach zugewiesener Person
+   Analog zum Kanban-Board, aber ohne Avatar-Stack in der Karte (die Spalte
+   IST der User) und ohne einklappbare Spaltenköpfe.
+   -------------------------------------------------------- */
+
+.assignee-board {
+  display: flex;
+  gap: var(--space-4);
+  padding: var(--space-2) 0;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .assignee-board {
+    overflow-x: visible;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: var(--space-4);
+    padding: var(--space-4) 0;
+  }
+}
+
+.assignee-col {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 260px;
+  max-width: 320px;
+  background-color: var(--color-surface-2);
+  border-radius: var(--radius-md);
+  border: var(--space-px) solid var(--color-border);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.assignee-col__header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  background-color: var(--color-surface-1);
+  border-bottom: var(--space-px) solid var(--color-border-subtle);
+}
+
+.assignee-col__avatar {
+  width: var(--target-md);
+  height: var(--target-md);
+  border-radius: var(--radius-full);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--text-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-on-accent);
+  flex-shrink: 0;
+}
+
+.assignee-col__title {
+  font-size: var(--text-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+  flex: 1;
+  min-width: 0;
+}
+
+.assignee-col__count {
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+  flex-shrink: 0;
+}
+
+.assignee-col__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2);
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+}
+
+.assignee-card {
+  background-color: var(--color-surface);
+  border-radius: var(--radius-sm);
+  border: var(--space-px) solid var(--color-border-subtle);
+  overflow: hidden;
+  transition: background-color var(--transition-fast), border-color var(--transition-fast);
+  display: flex;
+  flex-direction: column;
+}
+
+.assignee-card:hover {
+  border-color: var(--color-border);
+  background-color: var(--color-surface-hover);
+}
+
+.assignee-card--done {
+  background-color: var(--color-surface-receded);
+}
+
+.assignee-card--done .assignee-card__title {
+  color: var(--color-text-secondary);
+  text-decoration: line-through;
+  text-decoration-color: var(--color-text-secondary);
+}
+
+.assignee-card__title {
+  display: block;
+  padding: var(--space-2) var(--space-3);
+  margin: 0;
+  font-size: var(--text-base);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-primary);
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border: none;
+  background: none;
+  text-align: start;
+}
+
+.assignee-card__meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0 var(--space-3) var(--space-2);
+  font-size: var(--text-xs);
+  overflow: hidden;
+}
+
+.assignee-card__meta > .priority-badge,
+.assignee-card__meta > .due-date {
+  flex-shrink: 0;
+}
+
+.assignee-card__meta > .task-tag {
+  flex: 0 1 auto;
+  min-height: 24px;
+  min-width: 3.5rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.assignee-card__footer {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0 var(--space-3) var(--space-2);
+}
+
+.assignee-card__status-btn {
+  width: var(--target-sm);
+  height: var(--target-sm);
+  border-radius: var(--radius-full);
+  border: none;
+  background: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-tertiary);
+}
+
+.assignee-card__status-btn:hover {
+  color: var(--color-text-primary);
+}
+
+.assignee-card__status-btn::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  width: var(--target-base);
+  height: var(--target-base);
+}
+
+.assignee-card__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4);
+  color: var(--color-text-tertiary);
+  font-size: var(--text-xs);
+  text-align: center;
+  gap: var(--space-1);
+}
+
+.assignee-col__empty-idle {
+  display: block;
+}
+
+.assignee-col__empty-drop {
+  display: none;
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+}
+
+.assignee-board:has(.sortable-chosen) .assignee-col__empty-idle {
+  display: none;
+}
+
+.assignee-board:has(.sortable-chosen) .assignee-col__empty-drop {
+  display: block;
+}
+
+/* --------------------------------------------------------
    Mehrfachauswahl: der Auswahlkreis (Re-Critique 2026-09-27, D5)
 
    Er STEHT AN DER STELLE des Statuskreises, nicht daneben, und traegt dessen

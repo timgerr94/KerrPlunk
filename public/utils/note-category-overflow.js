@@ -1,3 +1,5 @@
+import { showPopover, hidePopover } from '/utils/popover-menu.js';
+
 /** Largest ordered prefix that fits, reserving the measured +N control. */
 export function visibleCategoryCount(widths, available, gap, moreWidth) {
   const total = widths.reduce((sum, width) => sum + width, 0) + Math.max(0, widths.length - 1) * gap;
@@ -43,7 +45,11 @@ export function wireNoteCategoryOverflow(root, formatCount = String, formatMoreA
     tooltip.className = 'note-category-overflow-tooltip u-meta';
     tooltip.id = `note-category-overflow-${++tooltipSequence}`;
     tooltip.setAttribute('role', 'tooltip');
-    tooltip.setAttribute('popover', 'manual');
+    if (typeof HTMLElement.prototype.showPopover === 'function') {
+      tooltip.setAttribute('popover', 'manual');
+    } else {
+      tooltip.setAttribute('hidden', '');
+    }
     document.body.append(tooltip);
     tooltips.push(tooltip);
     button.setAttribute('aria-describedby', tooltip.id);
@@ -51,7 +57,7 @@ export function wireNoteCategoryOverflow(root, formatCount = String, formatMoreA
     let dismissed = false;
     let pinned = false;
     const hide = () => {
-      if (open) tooltip.hidePopover();
+      if (open) hidePopover(tooltip);
       open = false;
     };
     const position = () => {
@@ -64,7 +70,7 @@ export function wireNoteCategoryOverflow(root, formatCount = String, formatMoreA
     };
     const show = () => {
       if (button.hidden || dismissed) return;
-      if (!open) tooltip.showPopover();
+      if (!open) showPopover(tooltip, button);
       open = true;
       position();
     };

@@ -355,6 +355,7 @@ router.post('/', (req, res) => {
       .map(normalizeRecipeDiet).filter(Boolean);
     const vDietList = [...new Set(vDiet)];
     const vTags = Array.isArray(req.body.tags) ? req.body.tags : [];
+    const vUnreviewed = req.body.unreviewed === 1 || req.body.unreviewed === true ? 1 : 0;
 
     // Naehrwerte JE PORTION (v242): der Importer nennt das Feld
     // `nutritionSummary`, die kanonische Antwort (`nutrition`) schreibt ein
@@ -367,12 +368,13 @@ router.post('/', (req, res) => {
 
     const recipeId = db.transaction(() => {
       const result = db.get().prepare(`
-        INSERT INTO recipes (title, notes, recipe_url, meal_types, image_data, image_url, servings, cuisine, cookTime, prepTime, diet, tags, nutrition, created_by)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO recipes (title, notes, recipe_url, meal_types, image_data, image_url, servings, cuisine, cookTime, prepTime, diet, tags, nutrition, unreviewed, created_by)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(vTitle.value, vNotes.value, vRecipeUrl.value, mealTypes.join(','),
         vImage.value ?? null, vImageUrl ?? null, req.body.servings ?? null,
         vCuisine.value ?? null, vCookTime.value ?? null, vPrepTime.value ?? null,
         JSON.stringify(vDietList), JSON.stringify(vTags), nutritionJson,
+        vUnreviewed,
         req.authUserId || req.session.userId);
 
       const rid = Number(result.lastInsertRowid);
@@ -509,7 +511,8 @@ router.put('/:id', (req, res) => {
             prepTime = CASE WHEN ? = 1 THEN ? ELSE prepTime END,
             diet = CASE WHEN ? = 1 THEN ? ELSE diet END,
             tags = CASE WHEN ? = 1 THEN ? ELSE tags END,
-            nutrition = CASE WHEN ? = 1 THEN ? ELSE nutrition END
+            nutrition = CASE WHEN ? = 1 THEN ? ELSE nutrition END,
+            unreviewed = 0
         WHERE id = ?
       `).run(vTitle.value, vNotes.value, vRecipeUrl.value, mealTypes.join(','),
         vImage.value === undefined ? 0 : 1, vImage.value ?? null,

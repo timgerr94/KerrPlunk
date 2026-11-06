@@ -27,7 +27,7 @@ import { findPageFab } from '/utils/fab.js';
 import { setBulkPill, clearBulkPill } from '/utils/bulk-pill.js';
 import { isNavModuleReadOnly } from '/permissions.js';
 import { isSoloHousehold, hidesPrivacyControls } from '/utils/household.js';
-import { popoverMenuHtml, installPopoverMenus, pageToolsMenuHtml, syncPopoverMenuItem } from '/utils/popover-menu.js';
+import { popoverMenuHtml, installPopoverMenus, pageToolsMenuHtml, syncPopoverMenuItem, showPopover } from '/utils/popover-menu.js';
 import { filterButtonHtml, syncFilterButton, openFilterSheet } from '/utils/filter-sheet.js';
 import { toggleRowHtml } from '/settings/components.js';
 import { wireTablist } from '/utils/tablist.js';
@@ -1367,7 +1367,7 @@ let state = {
   // wie jeder andere Filter in dieser Leiste auch (#586).
   // Status, Priorität und Person halten mehrere Werte (#671); innerhalb einer
   // Achse wirken sie ODER, zwischen den Achsen UND. Tags bleiben UND-verknüpft.
-  filters:         { status: ['open'], priority: [], assigned_to: [], category: [], tags: [] },
+  filters:         { status: ['open', 'in_progress'], priority: [], assigned_to: [], category: [], tags: [] },
   groupMode:       'category',   // 'category' | 'due'
   viewMode:        'list',       // 'list' | 'kanban' | 'history' (resolved at render time)
   // Der Verlauf (#791) hat einen eigenen Bestand, weil er etwas anderes zeigt
@@ -1519,16 +1519,16 @@ function filteredTasks() {
 function taskQuery() {
   const params = new URLSearchParams();
   // Kanban-Spalten SIND der Status: den Statusfilter dort nicht an den Server
-  // senden, sonst blieben "In Bearbeitung"/"Erledigt" trotz vorhandener Aufgaben
-  // leer (Audit A1-07/P3). In der Liste wirkt er normal; state bleibt erhalten,
-  // sodass der Filter beim Zurückwechseln wieder greift.
+  // senden, sonst blieben Spalten trotz vorhandener Aufgaben leer (Audit A1-07/P3).
+  // Die Assignee-Ansicht gruppiert nach Person, nicht nach Status – der
+  // Statusfilter wird dort ganz normal mitgesendet.
+  // In der Liste wirkt er normal; state bleibt erhalten, sodass der Filter
+  // beim Zurückwechseln wieder greift.
   // append statt set: jeder Wert ist ein eigener Parameter. Bei den Tags, damit
   // ein Tag mit Komma im Namen am Server nicht in zwei zerfällt; bei den übrigen
   // Achsen, weil sie seit #671 mehrere Werte tragen (ODER-verknüpft).
+  if (state.viewMode === 'kanban' || state.viewMode === 'assignee') params.set('archived', '1');
   if (state.viewMode !== 'kanban') state.filters.status.forEach((v) => params.append('status', v));
-  // Im Kanban ist die Ablage eine Spalte — sie muss also mitkommen, obwohl der
-  // Server sie sonst ausblendet (#688).
-  else params.set('archived', '1');
   state.filters.priority.forEach((v) => params.append('priority', v));
   state.filters.assigned_to.forEach((v) => params.append('assigned_to', v));
   // Der Server kannte die Achse schon (normalizeCategoryFilter, mehrere Werte
@@ -2998,6 +2998,251 @@ function kanbanBoardHtml(cols, grouped) {
     </div>`;
 }
 
+// --------------------------------------------------------
+// Assignee-Ansicht (Spalten nach zugewiesener Person)
+// --------------------------------------------------------
+
+/** In welcher Spalte steht die Aufgabe? Nach zugewiesenen Usern gruppiert. */
+function assigneeColumnOf(task) {
+  const users = task.assigned_users ?? [];
+  if (users.length === 0) return null; // Unassigned column
+  return users.map((u) => u.id); // Multi-assigned: appears in all columns
+}
+
+/**
+ * Aufgaben nach zugewiesener Person gruppieren.
+ * Gibt ein Map von userId -> tasks[] plus einen Eintrag für unassigned.
+ */
+function groupByAssignee(tasks) {
+  const byUser = new Map();
+  const unassigned = [];
+
+  for (const t of tasks) {
+    const users = t.assigned_users ?? [];
+    if (users.length === 0) {
+      unassigned.push(t);
+    } else {
+      for (const u of users) {
+        if (!byUser.has(u.id)) byUser.set(u.id, []);
+        byUser.get(u.id).push(t);
+      }
+    }
+  }
+
+  return { byUser, unassigned };
+}
+
+/**
+ * Eine Karte in der Assignee-Ansicht rendern.
+ * Ohne Avatar-Stack (die Spalte IS der User), dafür mit Status-Weiterschalt-
+ * und Archiv-Button wie im Kanban.
+ */
+function renderAssigneeCard(task) {
+  const archived = isArchived(task);
+  const due  = formatDueDate(task.due_date, task.due_time, task.status === 'done' || archived);
+  const next = archived ? task.status : kanbanNextStatus(task.status);
+  const icon = archived ? 'archive-restore'
+    : next === 'done' ? 'check' : next === 'in_progress' ? 'circle-play' : 'rotate-ccw';
+  const nextLabel = archived
+    ? t('tasks.unarchiveButton')
+    : next === 'done'
+      ? t('tasks.kanbanMoveToDone')
+      : next === 'in_progress'
+        ? t('tasks.kanbanMoveToInProgress')
+        : t('tasks.kanbanMoveToOpen');
+  const nextName = archived
+    ? t('tasks.unarchiveNamed', { title: task.title })
+    : next === 'done'
+      ? t('tasks.kanbanMoveToDoneNamed', { title: task.title })
+      : next === 'in_progress'
+        ? t('tasks.kanbanMoveToInProgressNamed', { title: task.title })
+        : t('tasks.kanbanMoveToOpenNamed', { title: task.title });
+
+  return `
+    <div class="assignee-card ${task.status === 'done' ? 'assignee-card--done' : ''}"
+         data-task-id="${task.id}">
+      <button type="button" class="assignee-card__title u-card-title u-compact">${esc(task.title)}</button>
+      <div class="assignee-card__meta">
+        ${renderPriorityBadge(task.priority)}
+        ${due ? `<span class="due-date ${due.cls}"><i data-lucide="clock" class="icon-sm" aria-hidden="true"></i> ${due.label}</span>` : ''}
+        ${renderLockedBadge(task)}
+        ${renderTagBadges(task.tags, TAG_BADGES_VISIBLE, task.priority)}
+      </div>
+      <div class="assignee-card__footer">
+        ${readOnly() ? '' : `
+        <button class="assignee-card__status-btn" type="button"
+                data-next-status="${next}" title="${esc(nextLabel)}" aria-label="${esc(nextName)}">
+          <i data-lucide="${icon}" aria-hidden="true"></i>
+        </button>`}
+      </div>
+    </div>`;
+}
+
+/**
+ * Das Assignee-Brett als Markup. Eine Spalte pro Haushaltsmitglied plus eine
+ * Spalte für nicht zugewiesene Aufgaben.
+ */
+function renderAssigneeBoard(container) {
+  const listEl = container.querySelector('#task-list');
+  if (!listEl) return;
+
+  const tasks = filteredTasks();
+  const { byUser, unassigned } = groupByAssignee(tasks);
+
+  // Spalten aufbauen: erst alle User (sortiert nach Name), dann Unassigned.
+  const columns = [];
+  for (const u of (state.users ?? []).sort((a, b) => a.display_name.localeCompare(b.display_name))) {
+    columns.push({ userId: u.id, userName: u.display_name, userColor: u.avatar_color, tasks: byUser.get(u.id) ?? [] });
+  }
+  columns.push({ userId: null, userName: t('tasks.assigneeColumnUnassigned'), userColor: null, tasks: unassigned });
+
+  const now = taskSortNow();
+  for (const col of columns) {
+    col.tasks.sort((a, b) => sortTasks(a, b, now));
+  }
+
+  const isFiltered = state.searchQuery.trim().length > 0;
+  const totalVisible = columns.reduce((n, c) => n + c.tasks.length, 0);
+  if (isFiltered && totalVisible === 0) {
+    listEl.replaceChildren();
+    listEl.insertAdjacentHTML('beforeend', emptyStateHTML({
+      variant: 'no-results',
+      title: t('tasks.noResultsTitle'),
+      description: t('tasks.noResultsDescription', { query: state.searchQuery }),
+      action: {
+        label: t('common.searchClear'),
+        icon: 'x',
+        attrs: { id: 'assignee-reset-search' },
+      },
+    }));
+    if (window.lucide) window.lucide.createIcons({ el: listEl });
+    listEl.querySelector('#assignee-reset-search')?.addEventListener('click', () => {
+      state.searchQuery = '';
+      const input = container.querySelector('#tasks-search');
+      if (input) input.value = '';
+      container.querySelector('[data-page-search-clear]')?.setAttribute('hidden', '');
+      renderTaskList(container);
+    });
+    return;
+  }
+
+  const html = `
+    <div class="assignee-board">
+      ${columns.map((col) => {
+        const collapsed = false; // Assignee columns are not collapsible for now
+        const bodyId = `assignee-col-${col.userId ?? 'unassigned'}`;
+        return `
+        <div class="assignee-col" data-user-id="${col.userId ?? 'unassigned'}">
+          <div class="assignee-col__header">
+            <span class="assignee-col__avatar" style="background-color:${col.userColor || 'var(--color-border-subtle)'}">${col.userName.slice(0, 2).toUpperCase()}</span>
+            <span class="assignee-col__title">${esc(col.userName)}</span>
+            <span class="assignee-col__count">${col.tasks.length}</span>
+          </div>
+          <div class="assignee-col__body" id="${bodyId}" data-drop-zone="${col.userId ?? 'unassigned'}">
+            ${col.tasks.length
+              ? col.tasks.map((task) => renderAssigneeCard(task)).join('')
+              : `<div class="assignee-col__empty">
+                   <span class="assignee-col__empty-idle">${t('tasks.assigneeColEmpty')}</span>
+                   <span class="assignee-col__empty-drop">${t('tasks.assigneeDropHint')}</span>
+                 </div>`}
+          </div>
+        </div>
+      `;
+      }).join('')}
+    </div>`;
+
+  listEl.replaceChildren();
+  listEl.insertAdjacentHTML('beforeend', html);
+
+  if (window.lucide) window.lucide.createIcons({ el: listEl });
+  wireAssigneeSortable(container);
+  wireAssigneeClicks(container);
+}
+
+/**
+ * Klicks im Assignee-Brett: Status-Weiterschalt und Kartendetails.
+ */
+function wireAssigneeClicks(container) {
+  const board = container.querySelector('.assignee-board');
+  if (!board) return;
+
+  board.addEventListener('click', async (e) => {
+    const statusBtn = e.target.closest('[data-next-status]');
+    if (statusBtn && !readOnly()) {
+      e.stopPropagation();
+      const card = statusBtn.closest('.assignee-card[data-task-id]');
+      if (!card) return;
+      const task = state.tasks.find((t) => String(t.id) === String(card.dataset.taskId));
+      if (!task) return;
+      await runColumnMove(task, statusBtn.dataset.nextStatus, container);
+      return;
+    }
+
+    const card = e.target.closest('.assignee-card[data-task-id]');
+    if (!card) return;
+    try {
+      const [task, reminder] = await Promise.all([
+        loadTaskForEdit(card.dataset.taskId),
+        loadReminderForTask(card.dataset.taskId),
+      ]);
+      openTaskView(task, reminder, container);
+    } catch (err) {
+      window.yuvomi.showToast(t('tasks.loadError'), 'danger');
+    }
+  });
+}
+
+/**
+ * Eine Aufgabe einer anderen Person zuweisen (Drag-and-Drop zwischen Spalten).
+ * Optimistisch: Karte wird sofort verschoben, dann PATCH /:id/assignments.
+ */
+async function reassignTask(task, targetUserId, container) {
+  if (readOnly()) return;
+  const before = { id: task.id, assigned_users: task.assigned_users ?? [] };
+  const targetColumn = targetUserId ?? 'unassigned';
+
+  // Optimistisch umschreiben: Aufgabe aus allen Spalten entfernen, in Zielspalte einfügen.
+  const taskIndex = state.tasks.findIndex((t) => t.id === task.id);
+  if (taskIndex !== -1) {
+    state.tasks[taskIndex] = { ...task, assigned_users: targetUserId ? [{ id: targetUserId }] : [] };
+  }
+  renderAssigneeBoard(container);
+
+  try {
+    await api.patch(`/tasks/${task.id}/assignments`, { user_ids: targetUserId ? [targetUserId] : [] });
+    await loadTasks(container);
+  } catch (err) {
+    // Rollback bei Fehler.
+    if (taskIndex !== -1) {
+      state.tasks[taskIndex] = before;
+    }
+    renderAssigneeBoard(container);
+    window.yuvomi.showToast(err.message ?? t('common.errorGeneric'), 'danger');
+  }
+}
+
+function wireAssigneeSortable(container) {
+  const board = container.querySelector('.assignee-board');
+  if (!board) return;
+  if (readOnly()) return;
+
+  board.querySelectorAll('[data-drop-zone]').forEach((zone) => {
+    makeSortable(zone, {
+      draggable: '.assignee-card',
+      filter: '[data-next-status]',
+      group: 'assignee-board',
+      sort: false,
+      onEnd: (evt) => {
+        const column = evt.to?.dataset.dropZone;
+        const task = state.tasks.find((t) => String(t.id) === String(evt.item?.dataset.taskId));
+        if (!column || !task) return;
+        const targetUserId = column === 'unassigned' ? null : Number(column);
+        reassignTask(task, targetUserId, container);
+      },
+    }).catch(() => { /* ohne SortableJS bleibt der Status-Button jeder Karte */ });
+  });
+}
+
 /**
  * „Alles Erledigte ablegen" am Kopf der Erledigt-Spalte (#1250).
  *
@@ -3569,6 +3814,10 @@ function renderTaskList(container, { paneQuiet = false } = {}) {
   }
   if (state.viewMode === 'kanban') {
     renderKanban(container);
+    return;
+  }
+  if (state.viewMode === 'assignee') {
+    renderAssigneeBoard(container);
     return;
   }
   const listEl = container.querySelector('#task-list');
@@ -4267,7 +4516,7 @@ function syncViewChrome(container) {
   // Sprung aus #1012 (DECISIONS.md §3).
   // Die Gegenrichtung - Seite auf Lesemass, Kopf freigeben - gibt es nicht:
   // PAGE-016 verlangt, dass ein Mass, das etwas kappt, im Kopf sichtbar ist.
-  container.querySelector('.tasks-page')?.classList.toggle('is-reading-measure', !isKanbanMode());
+  container.querySelector('.tasks-page')?.classList.toggle('is-reading-measure', !isBoardMode());
   // LISTE + DETAIL IN LISTE UND VERLAUF (#1550, Entscheidung 2026-09-29). Ab
   // der Schwelle steht neben einem Verlaufseintrag seine Aufgabe, so wie neben
   // einer Zeile der Liste - damit enden Liste, Brett und Verlauf an derselben
@@ -4279,7 +4528,7 @@ function syncViewChrome(container) {
   // Brett bezieht sich auf einen neuen Containing Block (Drag-Ghosts,
   // fixierte Ebenen). Die Auswahl raeumt setViewMode bei jedem Wechsel ab.
   container.querySelector('.tasks-page')?.classList.toggle(
-    'app-page--list-detail', state.taskSplitViewEnabled && !isKanbanMode(),
+    'app-page--list-detail', state.taskSplitViewEnabled && !isBoardMode(),
   );
   syncSplitHeight(container);
 
@@ -4310,8 +4559,8 @@ function syncViewChrome(container) {
 }
 
 /** Nimmt die Ansicht die volle Content-Spalte ein? */
-function isKanbanMode() {
-  return state.viewMode === 'kanban';
+function isBoardMode() {
+  return state.viewMode === 'kanban' || state.viewMode === 'assignee';
 }
 
 function wireViewToggle(container) {
@@ -4757,8 +5006,8 @@ function doerPanelOf(card) {
 
 function openDoerMenu(card) {
   const panel = doerPanelOf(card);
-  if (!panel || typeof panel.showPopover !== 'function') return false;
-  if (!panel.matches(':popover-open')) panel.showPopover();
+  if (!panel) return false;
+  showPopover(panel);
   return true;
 }
 
@@ -5505,7 +5754,7 @@ export async function render(container, { user, signal } = {}) {
   // View-Mode: URL-Parameter > localStorage > Default 'list'
   const urlView = new URLSearchParams(window.location.search).get('view');
   const savedView = localStorage.getItem('yuvomi-tasks-view');
-  const KNOWN_VIEWS = ['list', 'kanban', 'history'];
+  const KNOWN_VIEWS = ['list', 'kanban', 'assignee', 'history'];
   state.viewMode = KNOWN_VIEWS.includes(urlView) ? urlView
     : KNOWN_VIEWS.includes(savedView) ? savedView
     : 'list';
@@ -5515,7 +5764,7 @@ export async function render(container, { user, signal } = {}) {
   // „Bis heute faellig" kommt nur aus der Adresse (siehe state.dueToday).
   applyDueTodayFromAddress(window.location.search);
 
-  const isKanban = state.viewMode === 'kanban';
+  const isBoard = isBoardMode();
   // Was nur die Aufgabenliste betrifft, blendet `syncViewChrome` gleich nach
   // dem Einhängen aus - hier steht bewusst keine zweite Fassung derselben
   // Bedingung. `isHistory` traegt nur den Anfangszustand des Umschalters.
@@ -5548,15 +5797,20 @@ export async function render(container, { user, signal } = {}) {
                (Kalender-Muster). Der Verlauf ist keine dritte Ansicht der
                Aufgaben, sondern eine Liste von Vorgaengen: er steht im Menue. -->
           <div class="group-toggle group-toggle--icons" id="view-toggle" role="group" aria-label="${t('tasks.viewToggleLabel')}">
-            <button type="button" class="group-toggle__btn ${isKanban || isHistory ? '' : 'group-toggle__btn--active'}" data-view="list"
-                    title="${t('tasks.listView')}" aria-label="${t('tasks.listView')}" aria-pressed="${!isKanban && !isHistory}">
+            <button type="button" class="group-toggle__btn ${isBoard || isHistory ? '' : 'group-toggle__btn--active'}" data-view="list"
+                    title="${t('tasks.listView')}" aria-label="${t('tasks.listView')}" aria-pressed="${!isBoard && !isHistory}">
               <i data-lucide="list" class="icon-md group-toggle__icon" aria-hidden="true"></i>
               <span class="group-toggle__label">${t('tasks.listView')}</span>
             </button>
-            <button type="button" class="group-toggle__btn ${isKanban ? 'group-toggle__btn--active' : ''}" data-view="kanban"
-                    title="${t('tasks.kanbanView')}" aria-label="${t('tasks.kanbanView')}" aria-pressed="${isKanban}">
+            <button type="button" class="group-toggle__btn ${state.viewMode === 'kanban' ? 'group-toggle__btn--active' : ''}" data-view="kanban"
+                    title="${t('tasks.kanbanView')}" aria-label="${t('tasks.kanbanView')}" aria-pressed="${state.viewMode === 'kanban'}">
               <i data-lucide="columns" class="icon-md group-toggle__icon" aria-hidden="true"></i>
               <span class="group-toggle__label">${t('tasks.kanbanView')}</span>
+            </button>
+            <button type="button" class="group-toggle__btn ${state.viewMode === 'assignee' ? 'group-toggle__btn--active' : ''}" data-view="assignee"
+                    title="${t('tasks.assigneeView')}" aria-label="${t('tasks.assigneeView')}" aria-pressed="${state.viewMode === 'assignee'}">
+              <i data-lucide="users" class="icon-md group-toggle__icon" aria-hidden="true"></i>
+              <span class="group-toggle__label">${t('tasks.assigneeView')}</span>
             </button>
           </div>
           ${filterButtonHtml({ id: 'tasks-filter-btn', count: activeFilterCount(), showLabel: true, className: 'tasks-toolbar__filter' })}

@@ -60,7 +60,7 @@ import {
 import { readOfflineSession, rememberOfflineSession, forgetOfflineSession } from '/utils/offline-session.js';
 import { getHouseholdSize, setHouseholdSize, setOtherReaders, getOtherReaders } from '/utils/household.js';
 import { openModal, confirmModal } from '/components/modal.js';
-import { installPopoverMenus } from '/utils/popover-menu.js';
+import { installPopoverMenus, SUPPORTS_POPOVER } from '/utils/popover-menu.js';
 import { prefersInkText } from '/utils/contrast.js';
 import { handleMasterDetailPopstate } from '/utils/master-detail.js';
 import '/components/datepicker.js';
@@ -1247,7 +1247,11 @@ function sidebarAccountEl({ isDisplayShell = false } = {}) {
   const menu = document.createElement('div');
   menu.className = 'popover-menu nav-sidebar__account-menu';
   menu.id = 'nav-account-menu';
-  menu.setAttribute('popover', '');
+  if (SUPPORTS_POPOVER) {
+    menu.setAttribute('popover', '');
+  } else {
+    menu.setAttribute('hidden', '');
+  }
   menu.setAttribute('role', 'menu');
   // Ueber dem Ausloeser und an seiner linken Kante - er steht am Fuss der
   // Leiste, nach unten ist kein Platz (popover-menu.js, `placement`).

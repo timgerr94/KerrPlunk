@@ -177,6 +177,63 @@ test('Subtask-Fortschritt nach Erledigung', () => {
 });
 
 // --------------------------------------------------------
+// Zuweisungen (task_assignments)
+// --------------------------------------------------------
+test('Zuweisung erstellen und abfragen', () => {
+  db.prepare(`INSERT INTO task_assignments (task_id, user_id) VALUES (?, ?)`).run(task3Id, uid1);
+  db.prepare(`INSERT INTO task_assignments (task_id, user_id) VALUES (?, ?)`).run(task3Id, uid2);
+
+  const rows = db.prepare(`SELECT user_id FROM task_assignments WHERE task_id = ? ORDER BY user_id`).all(task3Id);
+  assert(rows.length === 2, `Erwartet 2 Zuweisungen, erhalten ${rows.length}`);
+  assert(rows[0].user_id === uid1, 'Erster User zugewiesen');
+  assert(rows[1].user_id === uid2, 'Zweiter User zugewiesen');
+});
+
+test('Zuweisung ersetzen (alle entfernen, neu zuweisen)', () => {
+  db.prepare(`DELETE FROM task_assignments WHERE task_id = ?`).run(task3Id);
+  db.prepare(`INSERT INTO task_assignments (task_id, user_id) VALUES (?, ?)`).run(task3Id, uid1);
+
+  const rows = db.prepare(`SELECT user_id FROM task_assignments WHERE task_id = ?`).all(task3Id);
+  assert(rows.length === 1, `Erwartet 1 Zuweisung, erhalten ${rows.length}`);
+  assert(rows[0].user_id === uid1, 'Nur uid1 zugewiesen');
+});
+
+test('Zuweisung entfernen (unassign all)', () => {
+  db.prepare(`DELETE FROM task_assignments WHERE task_id = ?`).run(task3Id);
+  const rows = db.prepare(`SELECT * FROM task_assignments WHERE task_id = ?`).all(task3Id);
+  assert(rows.length === 0, 'Keine Zuweisungen mehr');
+});
+
+test('Aufgabe mit zugewiesenen Usern joinen', () => {
+  db.prepare(`DELETE FROM task_assignments WHERE task_id = ?`).run(task3Id);
+  db.prepare(`INSERT INTO task_assignments (task_id, user_id) VALUES (?, ?)`).run(task3Id, uid2);
+
+  const task = db.prepare(`
+    SELECT t.*, u.display_name AS assigned_name, u.avatar_color AS assigned_color
+    FROM tasks t
+    LEFT JOIN task_assignments ta ON ta.task_id = t.id
+    LEFT JOIN users u ON u.id = ta.user_id
+    WHERE t.id = ?
+  `).get(task3Id);
+  assert(task, 'Aufgabe gefunden');
+  assert(task.assigned_name === 'Max', 'assigned_name korrekt');
+  assert(task.assigned_color === '#34C759', 'assigned_color korrekt');
+});
+
+test('Aufgabe ohne Zuweisung hat NULL assigned_name', () => {
+  db.prepare(`DELETE FROM task_assignments WHERE task_id = ?`).run(task2Id);
+  const task = db.prepare(`
+    SELECT t.*, u.display_name AS assigned_name
+    FROM tasks t
+    LEFT JOIN task_assignments ta ON ta.task_id = t.id
+    LEFT JOIN users u ON u.id = ta.user_id
+    WHERE t.id = ?
+  `).get(task2Id);
+  assert(task, 'Aufgabe gefunden');
+  assert(!task.assigned_name, 'assigned_name sollte NULL sein');
+});
+
+// --------------------------------------------------------
 // Aktualisieren
 // --------------------------------------------------------
 test('Aufgabe aktualisieren', () => {
@@ -240,7 +297,7 @@ test('Teilaufgaben der Detailansicht sind abhakbar, nicht nur lesbar', () => {
 // liefe beim ersten .includes/.forEach in einen TypeError.
 test('Filter-Achsen halten Listen, nicht einzelne Werte', () => {
   const source = readFileSync(new URL('../public/pages/tasks.js', import.meta.url), 'utf8');
-  assert(/filters:\s*\{ status: \['open'\], priority: \[\], assigned_to: \[\], category: \[\], tags: \[\] \}/.test(source),
+  assert(/filters:\s*\{ status: \['open', 'in_progress'\], priority: \[\], assigned_to: \[\], category: \[\], tags: \[\] \}/.test(source),
     'der Anfangszustand muss je Achse eine Liste sein');
   for (const axis of ['status', 'priority', 'assigned_to', 'category']) {
     assert(new RegExp(`state\\.filters\\.${axis}\\.forEach\\(\\(v\\) => params\\.append\\('${axis}', v\\)\\)`).test(source),

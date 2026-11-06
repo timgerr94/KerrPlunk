@@ -23,7 +23,7 @@ import {
   renderPageActions, renderListSection,
 } from '/utils/page-layout.js';
 import { findPageFab, setPageFabAction } from '/utils/fab.js';
-import { popoverMenuHtml, installPopoverMenus } from '/utils/popover-menu.js';
+import { popoverMenuHtml, installPopoverMenus, SUPPORTS_POPOVER } from '/utils/popover-menu.js';
 import { isNavModuleReadOnly } from '/permissions.js';
 import { createPageController } from '/utils/page-lifecycle.js';
 import { USER_COLORS } from '/utils/color.js';
@@ -256,9 +256,10 @@ function occurrenceRowHtml(occurrence) {
   // Der Name des Menueknopfs nennt Art UND Tag: dieselbe Abfallart steht in
   // der aufgeklappten Liste mehrfach.
   const occurrenceName = `${occurrence.type_name ?? ''}, ${formatDate(occurrence.date_key)}`;
+  const popoverAttr = SUPPORTS_POPOVER ? ' popover' : ' hidden';
   const actions = (readOnly() || !menuItems) ? '' : `
       <div class="row-actions">
-        <button type="button" class="row-action" popovertarget="${menuId}" aria-haspopup="menu" aria-expanded="false" aria-label="${esc(t('common.moreActionsNamed', { name: occurrenceName }))}">
+        <button type="button" class="row-action popover-menu__trigger" popovertarget="${menuId}" aria-haspopup="menu" aria-expanded="false" aria-label="${esc(t('common.moreActionsNamed', { name: occurrenceName }))}">
           <i data-lucide="more-horizontal" aria-hidden="true"></i>
         </button>
         <!-- Das geteilte .popover-menu (utils/popover-menu.js + layout.css), nicht
@@ -266,7 +267,7 @@ function occurrenceRowHtml(occurrence) {
              werden, und eine eigene display-Regel ohne :popover-open schlaegt
              das UA-Blatt. Genau daran stand dieses Menue vorher bei (0,0) ueber
              der linken oberen Ecke und fing die Klicks fremder Zeilen ab. -->
-        <div class="popover-menu" id="${menuId}" popover role="menu">
+        <div class="popover-menu" id="${menuId}"${popoverAttr} role="menu">
             ${menuItems}
         </div>
       </div>`;
@@ -418,6 +419,7 @@ function scheduleRowHtml(schedule) {
   // Ein Menue mit einem Eintrag ist bewusst in Kauf genommen - die Alternative
   // waere, die Ausnahme zur Regel zu machen.
   const menuId = `waste-schedule-menu-${schedule.id}`;
+  const popoverAttr = SUPPORTS_POPOVER ? ' popover' : ' hidden';
   return `
     <div class="list-row waste-row waste-schedule-row${schedule.active ? '' : ' waste-schedule-row--paused'}" data-id="${schedule.id}">
       <div class="list-row__main${ro ? '' : ' list-row__main--interactive'}"${ro ? '' : ` data-action="edit-schedule" data-id="${schedule.id}" role="button" tabindex="0"`}>
@@ -432,10 +434,10 @@ function scheduleRowHtml(schedule) {
       </div>
       ${ro ? '' : `
         <div class="row-actions">
-          <button type="button" class="row-action" popovertarget="${menuId}" aria-haspopup="menu" aria-expanded="false" aria-label="${esc(t('common.moreActionsNamed', { name: scheduleRowName(schedule) }))}">
+          <button type="button" class="row-action popover-menu__trigger" popovertarget="${menuId}" aria-haspopup="menu" aria-expanded="false" aria-label="${esc(t('common.moreActionsNamed', { name: scheduleRowName(schedule) }))}">
             <i data-lucide="more-horizontal" aria-hidden="true"></i>
           </button>
-          <div class="popover-menu" id="${menuId}" popover role="menu">
+          <div class="popover-menu" id="${menuId}"${popoverAttr} role="menu">
             <button type="button" role="menuitem" class="popover-menu__item popover-menu__item--danger" data-action="delete-schedule" data-id="${schedule.id}"><i data-lucide="trash-2" aria-hidden="true"></i>${esc(t('common.delete'))}</button>
           </div>
         </div>`}
@@ -446,6 +448,7 @@ function typeCardHtml(type, index, total) {
   const schedules = schedulesForType(type.id);
   const ro = readOnly();
   const menuId = `waste-type-menu-${type.id}`;
+  const popoverAttr = SUPPORTS_POPOVER ? ' popover' : ' hidden';
   // Drei nackte Icon-Knoepfe (hoch, runter, plus) standen hier nebeneinander -
   // dieselbe Zeilenbreite, die sich die Abholzeile mit EINEM „..." nimmt. Bei
   // langen Abfallart-Namen („Gelber Sack / Leichtverpackungen") drueckten sie
@@ -473,10 +476,10 @@ function typeCardHtml(type, index, total) {
         </div>
         ${ro ? '' : `
           <div class="row-actions">
-            <button type="button" class="row-action" popovertarget="${menuId}" aria-haspopup="menu" aria-expanded="false" aria-label="${esc(t('common.moreActionsNamed', { name: type.name }))}">
+            <button type="button" class="row-action popover-menu__trigger" popovertarget="${menuId}" aria-haspopup="menu" aria-expanded="false" aria-label="${esc(t('common.moreActionsNamed', { name: type.name }))}">
               <i data-lucide="more-horizontal" aria-hidden="true"></i>
             </button>
-            <div class="popover-menu" id="${menuId}" popover role="menu">
+            <div class="popover-menu" id="${menuId}"${popoverAttr} role="menu">
             ${menuItems}
             </div>
           </div>`}
@@ -658,6 +661,7 @@ function sourceRowHtml(source) {
   // Unterscheidung stand ausschliesslich im aria-label und war damit fuer
   // sehende Nutzer unsichtbar. Im Menue traegt jeder Fall seinen Satz.
   const menuId = `waste-source-menu-${source.id}`;
+  const popoverAttr = SUPPORTS_POPOVER ? ' popover' : ' hidden';
   return `
     <div class="list-row waste-row waste-source-row" data-source-id="${source.id}">
       <div class="list-row__main list-row__main--interactive" data-action="open-source" data-id="${source.id}" role="button" tabindex="0">
@@ -669,10 +673,10 @@ function sourceRowHtml(source) {
       </div>
       ${readOnly() ? '' : `
         <div class="row-actions">
-          <button type="button" class="row-action" popovertarget="${menuId}" aria-haspopup="menu" aria-expanded="false" aria-label="${esc(t('common.moreActionsNamed', { name: source.name }))}">
+          <button type="button" class="row-action popover-menu__trigger" popovertarget="${menuId}" aria-haspopup="menu" aria-expanded="false" aria-label="${esc(t('common.moreActionsNamed', { name: source.name }))}">
             <i data-lucide="more-horizontal" aria-hidden="true"></i>
           </button>
-          <div class="popover-menu" id="${menuId}" popover role="menu">
+          <div class="popover-menu" id="${menuId}"${popoverAttr} role="menu">
             <button type="button" role="menuitem" class="popover-menu__item" data-action="${rowAction.action}" data-id="${source.id}"><i data-lucide="${rowAction.icon}" aria-hidden="true"></i>${esc(t(rowAction.labelKey))}</button>
           </div>
         </div>`}

@@ -9,7 +9,7 @@ import { renderDocumentAttachField, bindDocumentAttachField, attachmentLinksNode
 import { openDetailView } from '/components/detail-view.js';
 import { t, formatDate, getLocale, getNumberFormat, dateInputPlaceholder, parseDateInput, isDateInputValid } from '/i18n.js';
 import { esc } from '/utils/html.js';
-import { installPopoverMenus } from '/utils/popover-menu.js';
+import { installPopoverMenus, SUPPORTS_POPOVER } from '/utils/popover-menu.js';
 import { renderPageSearch, wirePageSearch } from '/utils/page-search.js';
 import { stagger } from '/utils/ux.js';
 import { renderSkeletonList } from '/utils/skeleton.js';
@@ -561,6 +561,7 @@ function renderGroups() {
 function groupToolsMenuHtml() {
   if (isSplitGuest()) return '';
   const label = t('common.moreActions');
+  const popoverAttr = SUPPORTS_POPOVER ? ' popover' : ' hidden';
   const item = (id, icon, text, danger = false) => `
       <button type="button" role="menuitem" class="popover-menu__item${danger ? ' popover-menu__item--danger' : ''}" id="${id}">
         <i data-lucide="${icon}" class="icon-md" aria-hidden="true"></i><span>${esc(text)}</span>
@@ -571,7 +572,7 @@ function groupToolsMenuHtml() {
             aria-label="${esc(label)}" title="${esc(label)}">
       <i data-lucide="ellipsis" class="icon-md" aria-hidden="true"></i>
     </button>
-    <div class="popover-menu split-group-tools-menu" id="split-group-tools-menu" popover role="menu" aria-label="${esc(label)}">
+    <div class="popover-menu split-group-tools-menu" id="split-group-tools-menu"${popoverAttr} role="menu" aria-label="${esc(label)}">
       ${item('split-invite', 'user-plus', t('splitExpenses.addMember'))}
       ${item('split-edit-group', 'pencil', t('splitExpenses.editGroup'))}
       ${item('split-archive-group', 'archive', t('splitExpenses.archiveGroup'))}

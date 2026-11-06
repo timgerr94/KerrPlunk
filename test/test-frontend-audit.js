@@ -2604,6 +2604,8 @@ test('Meals page adds a recipe sidebar and randomize planner controls', () => {
     'meals.randomizePlan',
     'meals.randomizeTitle',
     'meals.randomizeReplaceExisting',
+    'meals.randomizeMealTypesLabel',
+    'meals.randomizeNoTypeSelected',
     'meals.replaceExistingConfirm',
     'meals.randomizeSuccess',
     'meals.randomizeWeekFull',

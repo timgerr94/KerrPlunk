@@ -26,6 +26,7 @@ import { openDetailView } from '/components/detail-view.js';
 import { rowActionHtml } from '/utils/row-action.js';
 import { renderPageSearch, wirePageSearch } from '/utils/page-search.js';
 import { metricGlanceHtml, wireMetricGlance } from '/utils/metric-glance.js';
+import { SUPPORTS_POPOVER } from '/utils/popover-menu.js';
 
 // Auslastung, ab der ein Budget „knapp" ist - dieselbe Zahl wie im Plan
 // (budget-plans.js `toneForRatio`), damit beide Tabs dieselbe Grenze ziehen.
@@ -399,6 +400,7 @@ async function removeFilter(key) {
  */
 function toolsMenuHtml() {
   const label = t('common.moreActions');
+  const popoverAttr = SUPPORTS_POPOVER ? ' popover' : ' hidden';
   const check = (on) => `<i data-lucide="check" class="icon-md popover-menu__item-check${on ? '' : ' popover-menu__item-check--hidden'}" aria-hidden="true"></i>`;
   return `
     <button type="button" class="btn btn--secondary btn--icon subscriptions-tools popover-menu__trigger"
@@ -406,7 +408,7 @@ function toolsMenuHtml() {
             aria-label="${esc(label)}" title="${esc(label)}">
       <i data-lucide="ellipsis" class="icon-md" aria-hidden="true"></i>
     </button>
-    <div class="popover-menu subscriptions-tools-menu" id="subscriptions-tools-menu" popover role="menu" aria-label="${esc(label)}">
+    <div class="popover-menu subscriptions-tools-menu" id="subscriptions-tools-menu"${popoverAttr} role="menu" aria-label="${esc(label)}">
       <div class="popover-menu__group" role="group" aria-labelledby="subscriptions-tools-sort-label">
         <div class="popover-menu__label" id="subscriptions-tools-sort-label">${esc(t('subscriptions.filterLabelSort'))}</div>
         ${SORT_OPTIONS.map(([id, key]) => {

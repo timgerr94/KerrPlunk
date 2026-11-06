@@ -22,7 +22,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 // `panel instanceof HTMLElement` steht als Typwaechter in onToggle.
-global.HTMLElement = class HTMLElement {};
+global.HTMLElement = class HTMLElement {
+  showPopover() {}
+  hidePopover() {}
+};
 
 const { installPopoverMenus, pageToolsMenuHtml } = await import('../public/utils/popover-menu.js');
 

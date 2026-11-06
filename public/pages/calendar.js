@@ -40,7 +40,7 @@ import { renderUserMultiSelect, getSelectedUserIds, bindUserMultiSelect, renderA
 import { withChosenPeople } from '/utils/people-picker.js';
 import { othersCanRead } from '/utils/household.js';
 import { wireTablist } from '/utils/tablist.js';
-import { installPopoverMenus } from '/utils/popover-menu.js';
+import { installPopoverMenus, showPopover, hidePopover, SUPPORTS_POPOVER } from '/utils/popover-menu.js';
 import { filterButtonHtml } from '/utils/filter-sheet.js';
 import { attachSegmentIndicator } from '/utils/segment-indicator.js';
 import { wirePeriodSwipe } from '/utils/period-swipe.js';
@@ -2080,6 +2080,9 @@ export async function render(container, { user }) {
         <h1 class="page-toolbar__title">${t('calendar.title')}</h1>
         <div class="page-toolbar__actions"></div>
       </div>
+      <!-- Versteckter Datei-Eingang fuer Event-Foto-Import (ohne capture: System-Picker zeigt
+           auf iOS/Android "Foto aufnehmen", "Aus Galerie waehlen", "Aus Dateien waehlen") -->
+      <input type="file" id="cal-photo-input" accept="image/jpeg,image/png" hidden>
       <!-- Ansage der Tagesliste im Telefon-Monat (announceMonthDay). Ausserhalb
            von #cal-body, damit sie einen Neuaufbau der Ansicht ueberlebt: eine
            Live-Region, die mit ihrem Inhalt zusammen entsteht, sagt nichts an. -->
@@ -2167,6 +2170,16 @@ export async function render(container, { user }) {
   bodyEl.removeAttribute('aria-busy');
 
   findPageFab('fab-new-event')?.addEventListener('click', () => openEventModal({ mode: 'create', date: newEventDate() }));
+
+  // Event-Foto-Import: Button und Datei-Eingang
+  // Event-Foto-Import: Datei-Eingang (Button-Klick wird in renderToolbar() verdrahtet)
+  const photoInput = _container.querySelector('#cal-photo-input');
+  photoInput?.addEventListener('change', async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    photoInput.value = ''; // Reset fuer erneute Auswahl derselben Datei
+    await handleEventPhotoImport(file);
+  });
 
   // Wischen zwischen Zeitraeumen (utils/period-swipe.js). Monat, Woche und Tag
   // sind Zeitraeume mit Nachbarn; die Agenda ist eine fortlaufende Liste, die
@@ -2275,7 +2288,7 @@ function periodArrowKeys(rtl = typeof document !== 'undefined' && document.docum
  * ihrem Ende, auf jeder Breite an derselben Stelle. Die Ueberlappungswarnung
  * bleibt im Aktions-Slot: sie ist eine Meldung, kein Werkzeug.
  */
-function toolbarHtml({ filterCount = 0, scheduleWarningHtml = '' } = {}) {
+function toolbarHtml({ filterCount = 0, scheduleWarningHtml = '', importPhotoHtml = '' } = {}) {
   return `
     <h1 class="page-toolbar__title">${t('calendar.title')}</h1>
     <div class="page-toolbar__center cal-toolbar__month">${periodNavHtml()}</div>
@@ -2286,6 +2299,7 @@ function toolbarHtml({ filterCount = 0, scheduleWarningHtml = '' } = {}) {
           FAB beim Neubau des Kopfs wieder ein. */ ''}
     <div class="page-toolbar__actions">
       ${scheduleWarningHtml}
+      ${importPhotoHtml}
     </div>
     <!-- Bar-Zeile des Kopfs (Werkzeugzeilen-Regel, layout.css): das Ansichts-
          Segment hatte im Actions-Slot bei 1280px 212px fuer 245px Inhalt -
@@ -2357,13 +2371,14 @@ const VIEW_ICONS = { month: 'calendar-days', week: 'calendar-range', day: 'calen
 
 function viewMenuHtml(current = state.view) {
   const label = t('calendar.viewSwitcher');
+  const popoverAttr = SUPPORTS_POPOVER ? ' popover' : ' hidden';
   return `
         <button type="button" class="btn btn--secondary btn--icon cal-toolbar__tools-btn popover-menu__trigger" id="cal-views-menu"
                 popovertarget="cal-views-menu-panel" aria-haspopup="menu" aria-expanded="false"
                 aria-label="${esc(label)}" title="${esc(label)}">
           <i data-lucide="ellipsis" class="icon-md" aria-hidden="true"></i>
         </button>
-        <div class="popover-menu" id="cal-views-menu-panel" popover role="menu">
+        <div class="popover-menu" id="cal-views-menu-panel"${popoverAttr} role="menu">
           ${VIEWS.map((v) => `
           <button type="button" role="menuitemradio" aria-checked="${v === current}"
                   class="popover-menu__item" data-cal-view="${v}"
@@ -2410,6 +2425,13 @@ function renderToolbar() {
     </span>
   ` : '';
 
+  // Import-from-photo-Button (nur wenn nicht Nur-lesen)
+  const importPhotoHtml = readOnly() ? '' : `
+    <button type="button" class="btn btn--secondary btn--icon cal-toolbar__import-photo" id="cal-import-photo"
+            aria-label="${t('calendar.importFromPhotoButton')}" title="${t('calendar.importFromPhotoButton')}">
+      <i data-lucide="image" class="icon-md" aria-hidden="true"></i>
+    </button>`;
+
   // DER ANGEDOCKTE FAB UEBERLEBT DEN NEUBAU. Die Shell hat ihn nach dem
   // ersten Aufbau in `.page-toolbar__actions` gehaengt (dockFabIntoToolbar);
   // `replaceChildren()` nahm ihn bei jedem Filterwechsel mit, und der Kopf
@@ -2417,7 +2439,16 @@ function renderToolbar() {
   // seine Verdrahtung (findPageFab unten in render) haengt an ihm.
   const dockedFab = bar.querySelector('.page-fab');
   bar.replaceChildren();
-  bar.insertAdjacentHTML('beforeend', toolbarHtml({ filterCount, scheduleWarningHtml }));
+  bar.insertAdjacentHTML('beforeend', toolbarHtml({ filterCount, scheduleWarningHtml, importPhotoHtml }));
+
+  // Event-Foto-Import-Button verdrahten (nach jedem Toolbar-Neubau)
+  const importPhotoBtn = bar.querySelector('#cal-import-photo');
+  if (importPhotoBtn) {
+    importPhotoBtn.addEventListener('click', () => {
+      const photoInput = _container.querySelector('#cal-photo-input');
+      photoInput?.click();
+    });
+  }
   if (dockedFab) bar.querySelector('.page-toolbar__actions')?.appendChild(dockedFab);
 
   if (window.lucide) lucide.createIcons({ el: bar });
@@ -5622,7 +5653,7 @@ function openCalendarFilters() {
   let closeFilters;
   if (asPopover) {
     panel = openFiltersPopover(content);
-    closeFilters = () => panel.hidePopover?.();
+    closeFilters = () => hidePopover(panel);
   } else {
     openSharedModal({ title: t('calendar.filters'), content, size: 'sm', initialFocus: 'none', dirtyGuard: false });
     panel = document.querySelector('#shared-modal-overlay .modal-panel');
@@ -5761,7 +5792,11 @@ function openFiltersPopover(content) {
   const pop = document.createElement('div');
   pop.id = 'cal-filters-popover';
   pop.className = 'cal-filters-popover';
-  pop.setAttribute('popover', 'auto');
+  if (SUPPORTS_POPOVER) {
+    pop.setAttribute('popover', 'auto');
+  } else {
+    pop.setAttribute('hidden', '');
+  }
   pop.setAttribute('role', 'dialog');
   pop.setAttribute('aria-labelledby', 'cal-filters-popover-title');
   pop.insertAdjacentHTML('beforeend', `<h2 class="cal-filters-popover__title" id="cal-filters-popover-title">${esc(t('calendar.filters'))}</h2>${content}`);
@@ -5783,7 +5818,7 @@ function openFiltersPopover(content) {
     filtersPopoverClosedAt = Date.now();
     pop.remove();
   });
-  pop.showPopover();
+  showPopover(pop, trigger());
   positionFiltersPopover(pop, trigger());
   trigger()?.setAttribute('aria-expanded', 'true');
   pop.querySelector('input, button')?.focus();
@@ -7324,6 +7359,287 @@ function wireVisibilityWarning(panel, selectSel, msName, warnSel, privateWarnSel
   select.addEventListener('change', update);
   ms?.addEventListener('click', () => setTimeout(update, 0));
   update();
+}
+
+// --------------------------------------------------------
+// Import Event From Photo (OCR)
+// --------------------------------------------------------
+
+/**
+ * Verwaehlt ein ausgewertetes Foto fuer Event-Import: liest es als Base64,
+ * sendet es an den OCR-Endpunkt und zeigt das Ergebnis in einer Vorschau an.
+ *
+ * @param {File} file Die ausgewertete Bilddatei
+ */
+async function handleEventPhotoImport(file) {
+  if (readOnly()) return;
+
+  // Dateityp pruefen (clientseitig vorab, fuer sofortiges Feedback)
+  const mime = file.type.toLowerCase();
+  if (!['image/jpeg', 'image/jpg', 'image/png'].includes(mime)) {
+    window.yuvomi?.showToast(t('calendar.ocrUnsupportedFile'), 'danger');
+    return;
+  }
+
+  // Dateigroesse pruefen (gleiche Grenze wie Server)
+  const maxBytes = 5 * 1024 * 1024; // 5 MB
+  if (file.size > maxBytes) {
+    window.yuvomi?.showToast(
+      t('calendar.ocrFileTooLarge', { size: 5 }),
+      'danger'
+    );
+    return;
+  }
+
+  // Als Base64 Data-URL einlesen
+  const dataUrl = await readFileAsDataUrl(file);
+
+  try {
+    const res = await api.post('/ocr/import-event', {
+      file: dataUrl,
+      fileName: file.name,
+    });
+
+    logEventOcr('OCR import-event response received', res);
+
+    if (!res || !res.success) {
+      window.yuvomi?.showToast(
+        res?.error || t('calendar.ocrErrorMessage'),
+        'danger'
+      );
+      return;
+    }
+
+    const analysis = res.analysis || {};
+    const title = analysis.title || '';
+    const description = analysis.description || '';
+    const startDatetime = analysis.start_datetime || '';
+    const endDatetime = analysis.end_datetime || '';
+    const location = analysis.location || '';
+
+    if (!title.trim() && !startDatetime.trim()) {
+      window.yuvomi?.showToast(t('calendar.ocrErrorMessage'), 'danger');
+      return;
+    }
+
+    showEventOcrPreview(
+      {
+        title,
+        description,
+        startDatetime,
+        endDatetime,
+        location,
+        assignedTo: analysis.assigned_to || [],
+        ocrText: res.ocrText,
+      },
+      file.name
+    );
+  } catch (err) {
+    console.error('[Calendar] Event photo import failed:', err);
+    if (err.status === 502) {
+      window.yuvomi?.showToast(t('calendar.ocrServiceUnavailable'), 'danger');
+    } else if (err.status === 400) {
+      window.yuvomi?.showToast(err.data?.error ?? t('calendar.ocrErrorMessage'), 'danger');
+    } else {
+      window.yuvomi?.showToast(t('calendar.ocrError'), 'danger');
+    }
+  }
+}
+
+/**
+ * Liest eine File als Base64 Data-URL.
+ *
+ * @param {File} file
+ * @returns {Promise<string>}
+ */
+function readEventFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
+
+/**
+ * Protokolliert OCR-Ereignisse zur Debugging-Unterstuetzung.
+ *
+ * @param {string} label
+ * @param {object} data
+ */
+function logEventOcr(label, data) {
+  try {
+    console.log(`[Calendar OCR] ${label}:`, JSON.stringify(data));
+  } catch {
+    console.log(`[Calendar OCR] ${label}:`, data);
+  }
+}
+
+/**
+ * Zeigt die Event-OCR-Vorschau mit bearbeitbaren Feldern an.
+ * Der Nutzer kann Titel, Beschreibung, Datum/Uhrzeit, Ort bearbeiten
+ * bevor der Termin erstellt wird. Markdown-Checkboxen bleiben unveraendert.
+ *
+ * @param {object} ocrResult { title, description, startDatetime, endDatetime, location, assignedTo, ocrText }
+ * @param {string} fileName Der Originaldateiname
+ */
+function showEventOcrPreview(ocrResult, fileName) {
+  const {
+    title = '',
+    description = '',
+    startDatetime = '',
+    endDatetime = '',
+    location = '',
+    assignedTo = [],
+    ocrText = '',
+  } = ocrResult;
+
+  const content = `
+    <div class="ocr-event-preview" data-note-id="ocr-event-preview">
+      <div class="form-group">
+        <label class="form-label" id="ocr-event-title-label">${t('calendar.eventTitleLabel')}</label>
+        <input type="text" class="form-input" id="ocr-event-title" value="${esc(title)}" required>
+        <p class="form-label__hint">${t('calendar.eventTitleRequired')}</p>
+      </div>
+      <div class="form-group">
+        <label class="form-label" id="ocr-event-description-label">${t('calendar.eventDescriptionLabel')}</label>
+        <textarea class="form-input" id="ocr-event-description" rows="4" style="resize:vertical;font-family:monospace;">${esc(description)}</textarea>
+      </div>
+      <div class="form-group">
+        <label class="form-label" id="ocr-event-start-label">${t('calendar.eventStartLabel')}</label>
+        <input type="datetime-local" class="form-input" id="ocr-event-start" value="${esc(formatOcrDateTime(startDatetime))}" required>
+        <p class="form-label__hint">${t('calendar.eventStartRequired')}</p>
+      </div>
+      <div class="form-group">
+        <label class="form-label" id="ocr-event-end-label">${t('calendar.eventEndLabel')}</label>
+        <input type="datetime-local" class="form-input" id="ocr-event-end" value="${esc(formatOcrDateTime(endDatetime))}" required>
+        <p class="form-label__hint">${t('calendar.eventEndRequired')}</p>
+      </div>
+      <div class="form-group">
+        <label class="form-label" id="ocr-event-location-label">${t('calendar.eventLocationLabel')}</label>
+        <input type="text" class="form-input" id="ocr-event-location" value="${esc(location)}">
+      </div>
+      <div class="form-group" style="margin-top:var(--space-2);">
+        <label class="form-label" id="ocr-event-raw-label">${t('calendar.ocrRawText')}</label>
+        <textarea class="form-input" id="ocr-event-raw" rows="4" style="resize:vertical;font-family:monospace;font-size:0.875rem;opacity:0.7;">${esc(ocrText)}</textarea>
+        <p class="form-label__hint">${t('calendar.ocrRawHint')}</p>
+      </div>
+    </div>
+    <div class="modal-panel__footer modal-panel__footer--plain ocr-event-preview__footer">
+      <button type="button" class="btn btn--secondary" id="ocr-event-cancel">${t('common.cancel')}</button>
+      <button type="button" class="btn btn--primary" id="ocr-event-save">${t('common.save')}</button>
+    </div>
+  `;
+
+  openSharedModal({
+    title: t('calendar.importFromPhotoButton'),
+    size: 'lg',
+    content,
+    onSave(panel) {
+      const saveBtn = panel.querySelector('#ocr-event-save');
+      const cancelBtn = panel.querySelector('#ocr-event-cancel');
+
+      saveBtn?.addEventListener('click', () => {
+        const titleInput = panel.querySelector('#ocr-event-title');
+        const descriptionTextarea = panel.querySelector('#ocr-event-description');
+        const startInput = panel.querySelector('#ocr-event-start');
+        const endInput = panel.querySelector('#ocr-event-end');
+        const locationInput = panel.querySelector('#ocr-event-location');
+
+        const finalTitle = titleInput?.value?.trim() || '';
+        const finalDescription = descriptionTextarea?.value?.trim() || '';
+        const finalStart = startInput?.value?.trim() || '';
+        const finalEnd = endInput?.value?.trim() || '';
+        const finalLocation = locationInput?.value?.trim() || '';
+
+        // Validierung
+        if (!finalTitle) {
+          window.yuvomi?.showToast(t('calendar.eventTitleRequired'), 'danger');
+          titleInput?.focus();
+          return;
+        }
+        if (!finalStart) {
+          window.yuvomi?.showToast(t('calendar.eventStartRequired'), 'danger');
+          startInput?.focus();
+          return;
+        }
+        if (!finalEnd) {
+          window.yuvomi?.showToast(t('calendar.eventEndRequired'), 'danger');
+          endInput?.focus();
+          return;
+        }
+
+        closeModal({ force: true });
+        createEventFromOcr(
+          finalTitle,
+          finalDescription,
+          finalStart,
+          finalEnd,
+          finalLocation,
+          assignedTo,
+          fileName
+        );
+      });
+
+      cancelBtn?.addEventListener('click', () => {
+        closeModal();
+      });
+    },
+    onClose() {
+      // Nichts tun - nur schliessen
+    },
+  });
+}
+
+/**
+ * Formatiert einen OCR-Datetime-String (z.B. "2026-11-14T09:00") fuer
+ * das HTML datetime-local Input-Feld (erfordert "YYYY-MM-DDTHH:MM").
+ *
+ * @param {string} dt
+ * @returns {string}
+ */
+function formatOcrDateTime(dt) {
+  if (!dt) return '';
+  // OCR liefert bereits ISO-Format "YYYY-MM-DDTHH:MM" - direkt verwenden
+  return dt;
+}
+
+/**
+ * Erstellt einen Kalender-Termin aus den OCR-Daten.
+ *
+ * @param {string} title
+ * @param {string} description
+ * @param {string} startDatetime
+ * @param {string} endDatetime
+ * @param {string} location
+ * @param {number[]} assignedTo
+ * @param {string} fileName
+ */
+async function createEventFromOcr(title, description, startDatetime, endDatetime, location, assignedTo, fileName) {
+  logEventOcr('Event payload submitted', { title, description, startDatetime, endDatetime, location, assignedTo });
+
+  try {
+    const res = await api.post('/calendar', {
+      title,
+      description,
+      start_datetime: startDatetime,
+      end_datetime: endDatetime,
+      location,
+      assigned_to: assignedTo,
+      all_day: 0,
+    });
+
+    logEventOcr('Event creation result', res);
+
+    // Kalender neu laden
+    renderToolbar();
+    renderView();
+
+    window.yuvomi?.showToast(t('calendar.eventCreatedToast'), 'success');
+  } catch (err) {
+    console.error('[Calendar] Failed to create event from OCR:', err);
+    window.yuvomi?.showToast(err.data?.error ?? t('calendar.eventCreateError'), 'danger');
+  }
 }
 
 function openEventModal({ mode, event = null, date = null, reminder = null, time = null }) {

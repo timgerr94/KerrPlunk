@@ -8,6 +8,7 @@
  */
 import { t } from '/i18n.js';
 import { esc } from '/utils/html.js';
+import { SUPPORTS_POPOVER } from '/utils/popover-menu.js';
 
 // Geteilter Personen-Umschalter: EIN Knopf mit der aktiven Person statt einer
 // Dauer-Pillenzeile (Critique 2026-08-31: 6 Ansichts-Tabs + 4 Personen-Pillen
@@ -26,6 +27,7 @@ export function personSwitcherMarkup(members, activeId, meId, { menuId, label })
   const dotOf = (m) => `<span class="health-person-chip__dot" aria-hidden="true"
           style="background:${esc(m.avatar_color) || 'var(--module-health)'}"></span>`;
   const active = list.find((m) => m.id === activeId) ?? list[0];
+  const popoverAttr = SUPPORTS_POPOVER ? ' popover' : ' hidden';
   return `
     <div class="health-person-switcher">
       <button type="button" class="health-person-switcher__trigger popover-menu__trigger"
@@ -35,7 +37,7 @@ export function personSwitcherMarkup(members, activeId, meId, { menuId, label })
         <span class="health-person-switcher__name">${esc(nameOf(active))}</span>
         <i data-lucide="chevron-down" class="icon-sm health-person-switcher__chevron" aria-hidden="true"></i>
       </button>
-      <div class="popover-menu" id="${esc(menuId)}" popover role="menu" aria-label="${esc(label)}">
+      <div class="popover-menu" id="${esc(menuId)}"${popoverAttr} role="menu" aria-label="${esc(label)}">
         ${list.map((m) => `
           <button type="button" role="menuitemradio" aria-checked="${m.id === activeId}"
                   class="popover-menu__item" data-person-id="${esc(m.id)}">

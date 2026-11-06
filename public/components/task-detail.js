@@ -43,7 +43,7 @@ import { refresh as refreshReminders } from '/reminders.js';
 import { parseRemindAtAsUtc } from '/utils/reminder-offset.js';
 import { isNavModuleReadOnly } from '/permissions.js';
 import { pathAccess } from '/utils/module-access.js';
-import { installPopoverMenus } from '/utils/popover-menu.js';
+import { installPopoverMenus, hidePopover, SUPPORTS_POPOVER } from '/utils/popover-menu.js';
 import { zonedDateKey } from '/utils/timezone.js';
 import { historyDayLabel } from '/utils/day-label.js';
 import {
@@ -1203,7 +1203,11 @@ function wireDetailMoreMenu(task, overflowIds, pane = null) {
   const panel = document.createElement('div');
   panel.className = 'popover-menu';
   panel.id = panelId;
-  panel.setAttribute('popover', '');
+  if (SUPPORTS_POPOVER) {
+    panel.setAttribute('popover', '');
+  } else {
+    panel.setAttribute('hidden', '');
+  }
   panel.setAttribute('role', 'menu');
   for (const target of targets) {
     target.classList.add('task-detail__overflow');
@@ -1220,7 +1224,7 @@ function wireDetailMoreMenu(task, overflowIds, pane = null) {
     name.textContent = target.querySelector('.btn__label')?.textContent ?? target.textContent.trim();
     item.append(icon, name);
     item.addEventListener('click', () => {
-      panel.hidePopover?.();
+      hidePopover(panel);
       if (!target.disabled) target.click();
     });
     panel.appendChild(item);
@@ -1267,7 +1271,11 @@ function wireDetailDoerMenu(task, doers, ctx, close, pane = null) {
   const panel = document.createElement('div');
   panel.className = 'popover-menu';
   panel.id = panelId;
-  panel.setAttribute('popover', '');
+  if (SUPPORTS_POPOVER) {
+    panel.setAttribute('popover', '');
+  } else {
+    panel.setAttribute('hidden', '');
+  }
   panel.setAttribute('role', 'menu');
   for (const person of doers) {
     const item = document.createElement('button');

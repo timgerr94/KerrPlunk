@@ -387,17 +387,20 @@ function recipeMealTypeOptions() {
   return mealTypeList().map(({ key, label }) => ({ key, label }));
 }
 
-function buildRandomMealAssignments({ weekStart, visibleMealTypes, meals, recipes, replaceExisting = false, pick = Math.random }) {
+function buildRandomMealAssignments({ weekStart, visibleMealTypes, meals, recipes, replaceExisting = false, pick = Math.random, mealTypesToRandomize } = {}) {
   const assignments = [];
   const deleteMealIds = [];
   const previousDayByMealType = new Map();
   let hasOpenSlot = false;
   let hasCompatibleSlot = false;
 
+  // Determine which meal types to randomize: use provided subset or all visible types
+  const typesToRandomize = mealTypesToRandomize || visibleMealTypes;
+
   for (let dayOffset = 0; dayOffset < 7; dayOffset++) {
     const date = addDays(weekStart, dayOffset);
     let previousRecipeIdSameDay = null;
-    for (const mealType of visibleMealTypes) {
+    for (const mealType of typesToRandomize) {
       const slotMeals = meals.filter((meal) => meal.date === date && meal.meal_type === mealType);
       if (!replaceExisting && slotMeals.length) continue;
       hasOpenSlot = true;
@@ -1416,7 +1419,25 @@ async function addRecipeToSlot(recipe, date, mealType, { replaceMeals = [] } = {
   }
 }
 
+/**
+ * Die im Zufalls-Dialog per Umschalt-Chip gewählten Mahlzeit-Typen. Ohne
+ * Chips (Haushalt mit nur EINEM sichtbaren Typ - der Chip wäre erzwungen und
+ * damit reine Ornamentik) gilt die bisherige Regel: alle sichtbaren Typen.
+ */
+function selectedRandomizeMealTypes(panel) {
+  const chips = panel.querySelectorAll('#meal-randomize-types [data-meal-type]');
+  if (!chips.length) return state.visibleMealTypes;
+  return [...chips]
+    .filter((chip) => chip.getAttribute('aria-pressed') === 'true')
+    .map((chip) => chip.dataset.mealType);
+}
+
 function openRandomizeModal() {
+  // Nur SICHTBARE Typen kommen in die Auswahl: unsichtbare Zeilen hat das
+  // Board nicht, also hätte der Lauf dort auch keinen Slot zu füllen.
+  const selectableTypes = MEAL_TYPES().filter((option) => state.visibleMealTypes.includes(option.key));
+  const showTypeChips = selectableTypes.length > 1;
+
   openSharedModal({
     title: t('meals.randomizeTitle'),
     size: 'sm',
@@ -1427,6 +1448,21 @@ function openRandomizeModal() {
           <span class="toggle__track"></span>
           <span>${t('meals.randomizeReplaceExisting')}</span>
         </label>
+        ${showTypeChips ? `
+        <div class="form-group">
+          <span class="form-label" id="meal-randomize-types-label">${t('meals.randomizeMealTypesLabel')}</span>
+          <!-- Umschalt-Chips wie im Rezept-Editor (Re-Critique 2026-09-28,
+               A4 P2-7): .filter-chip + aria-pressed, Form und Aktivton aus
+               filter-chip.css. „Welche Mahlzeit-Typen?" ist dort dieselbe
+               Frage mit derselben Antwort - zwei Formen derselben Wahl wären
+               eine zweite Sprache. Voreinstellung: ALLE sichtbaren Typen,
+               damit der Lauf ohne Antippen das gleiche tut wie bisher. -->
+          <div class="meal-randomize-modal__meal-types" id="meal-randomize-types" role="group" aria-labelledby="meal-randomize-types-label">
+            ${selectableTypes.map((option) => `
+              <button type="button" class="filter-chip filter-chip--active" data-meal-type="${option.key}" aria-pressed="true">${esc(option.label)}</button>
+            `).join('')}
+          </div>
+        </div>` : ''}
         <!-- Vorschau statt Blindflug: der Lauf füllt bis zu 28 Slots und kann
              eine ganze geplante Woche überschreiben. Vorher nannte der Dialog
              weder das eine noch das andere (Critique 2026-07-29). -->
@@ -1444,9 +1480,16 @@ function openRandomizeModal() {
       // Rein clientseitig: buildRandomMealAssignments rechnet auf dem bereits
       // geladenen Wochen- und Rezeptbestand, kostet also keinen Roundtrip.
       const updatePreview = () => {
+        const mealTypesToRandomize = selectedRandomizeMealTypes(panel);
+        if (!mealTypesToRandomize.length) {
+          preview.textContent = t('meals.randomizeNoTypeSelected');
+          runBtn.disabled = true;
+          return;
+        }
         const plan = buildRandomMealAssignments({
           weekStart: state.currentWeek,
           visibleMealTypes: state.visibleMealTypes,
+          mealTypesToRandomize,
           meals: state.meals,
           recipes: state.recipes,
           replaceExisting: Boolean(replaceBox?.checked),
@@ -1468,6 +1511,16 @@ function openRandomizeModal() {
       };
 
       replaceBox?.addEventListener('change', updatePreview);
+      panel.querySelectorAll('#meal-randomize-types [data-meal-type]').forEach((chip) => {
+        chip.addEventListener('click', () => {
+          const on = chip.getAttribute('aria-pressed') !== 'true';
+          chip.setAttribute('aria-pressed', String(on));
+          // Aktivton wie im Rezept-Editor: der Kanon trägt ihn an
+          // .filter-chip--active (filter-chip.css), nicht am Attribut allein.
+          chip.classList.toggle('filter-chip--active', on);
+          updatePreview();
+        });
+      });
       updatePreview();
 
       panel.querySelector('#meal-randomize-cancel')?.addEventListener('click', closeModal);
@@ -1478,14 +1531,24 @@ function openRandomizeModal() {
 
 async function runRandomize(panel) {
   const replaceExisting = Boolean(panel.querySelector('#meal-randomize-replace')?.checked);
+  const mealTypesToRandomize = selectedRandomizeMealTypes(panel);
   const runBtn = panel.querySelector('#meal-randomize-run');
   const plan = buildRandomMealAssignments({
     weekStart: state.currentWeek,
     visibleMealTypes: state.visibleMealTypes,
+    mealTypesToRandomize,
     meals: state.meals,
     recipes: state.recipes,
     replaceExisting,
   });
+
+  // Eine leere Auswahl ist eine Entscheidung, kein Vergessen: der Lauf darf
+  // nicht still auf ALLE sichtbaren Typen fallen (Guard deckt den Knopf-
+  // Parallelweg zur Vorschau ab).
+  if (!mealTypesToRandomize.length) {
+    window.yuvomi?.showToast(t('meals.randomizeNoTypeSelected'), 'info');
+    return;
+  }
 
   if (!plan.assignments.length) {
     window.yuvomi?.showToast(

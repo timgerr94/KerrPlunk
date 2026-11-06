@@ -257,6 +257,19 @@ export const SETTINGS_SECTIONS = freezeEntries([
     adminOnly: true,
     loader: () => import('/settings/pages/admin-weather.js'),
   },
+  {
+    // Konfiguration des Rezept-Import-Engines (Local / NVIDIA Vision).
+    id: 'admin-recipe-import',
+    sheetId: 'admin-integrations',
+    scope: 'household',
+    labelKey: 'settings.pageRecipeImport',
+    descriptionKey: 'settings.pageRecipeImportDescription',
+    options: [
+      'settings.recipeImportEngineLabel',
+    ],
+    adminOnly: true,
+    loader: () => import('/settings/pages/admin-recipe-import.js'),
+  },
 
   // ── Module: Querschnitt ────────────────────────────────────────────────────
   {

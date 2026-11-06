@@ -677,6 +677,11 @@ router.get('/', (req, res) => {
         holiday_public_color:  cfgGet('holiday_public_color')  ?? '#FF3B30',
         holiday_school_color:  cfgGet('holiday_school_color')  ?? '#34C759',
         holiday_last_sync:     cfgGet('holiday_last_sync')     ?? null,
+        // Recipe Import Engine — haushaltweit, nur Admin liest zurück.
+        recipe_import_engine:       cfgGet('recipe_import_engine')       || 'Local',
+        recipe_import_nvidia_api_key: cfgGet('recipe_import_nvidia_api_key') || '',
+        recipe_import_nvidia_model:   cfgGet('recipe_import_nvidia_model')   || 'meta/llama-3.2-90b-vision-instruct',
+        recipe_import_text_model:     cfgGet('recipe_import_text_model')     || 'meta/llama-3.1-70b-instruct',
     };
     // EIN WANDTABLETT BEKOMMT NUR DEN DARSTELLUNGSTEIL (#1208). Diese Antwort
     // ist die Sammelstelle des ganzen Haushalts - Wohnkoordinaten,
@@ -719,7 +724,7 @@ router.put('/', (req, res) => {
   try {
     database = db.get();
     database.exec('BEGIN');
-    const { visible_meal_types, meal_type_names, currency, date_format, time_format, week_start, region, timezone, timezone_hint_dismissed, language, app_name, dashboard_widgets, dashboard_today_glance, dashboard_widgets_default, dashboard_today_glance_default, disabled_modules, hidden_modules, module_order, mobile_nav_order, housekeeping_payment_tasks, budget_mode, calendar_default_duration, calendar_default_reminders, calendar_default_assign_me, calendar_default_target, health_cycle_enabled, health_cycle_enabled_user, health_prevention_notify_caregivers, rewards_require_approval, rewards_celebration, rewards_lottie, tasks_subtasks_expanded, tasks_default_points, tasks_default_target, tasks_split_view, schedule_hidden_templates, countdown_grace_days, weather_provider, weather_lat, weather_lon, weather_city, weather_units, weather_auto_locate, weather_user, holiday_country, holiday_subdivision, holiday_group, holiday_show_public, holiday_show_school, holiday_public_color, holiday_school_color } = req.body;
+    const { visible_meal_types, meal_type_names, currency, date_format, time_format, week_start, region, timezone, timezone_hint_dismissed, language, app_name, dashboard_widgets, dashboard_today_glance, dashboard_widgets_default, dashboard_today_glance_default, disabled_modules, hidden_modules, module_order, mobile_nav_order, housekeeping_payment_tasks, budget_mode, calendar_default_duration, calendar_default_reminders, calendar_default_assign_me, calendar_default_target, health_cycle_enabled, health_cycle_enabled_user, health_prevention_notify_caregivers, rewards_require_approval, rewards_celebration, rewards_lottie, tasks_subtasks_expanded, tasks_default_points, tasks_default_target, tasks_split_view, schedule_hidden_templates, countdown_grace_days, weather_provider, weather_lat, weather_lon, weather_city, weather_units, weather_auto_locate, weather_user, holiday_country, holiday_subdivision, holiday_group, holiday_show_public, holiday_show_school, holiday_public_color, holiday_school_color, recipe_import_engine, recipe_import_nvidia_api_key, recipe_import_nvidia_model, recipe_import_text_model } = req.body;
 
     // Welche Quickstart-Vorlagen der Schichtplan-Schnellstart zeigt - wie
     // disabled_modules haushaltweit und admin-only, nicht wie hidden_modules
@@ -1432,6 +1437,57 @@ router.put('/', (req, res) => {
       }
     }
 
+    // Recipe Import Engine — haushaltweit, nur Admin (#1622).
+    if (recipe_import_engine !== undefined) {
+      if (!isAdminRequest(req)) {
+        return res.status(403).json({ error: 'Admin access required.', code: 403 });
+      }
+      if (recipe_import_engine !== 'Local' && recipe_import_engine !== 'Nvidia') {
+        return res.status(400).json({ error: 'recipe_import_engine muss "Local" oder "Nvidia" sein.', code: 400 });
+      }
+      cfgSet('recipe_import_engine', recipe_import_engine);
+    }
+
+    // NVIDIA API Key — haushaltweit, nur Admin. Wird als Klartext gespeichert
+    // (ähnlich Immich API Key), da der Backend-Service ihn für die API-Anfrage
+    // benötigt. Ein leerer Wert löscht den Schlüssel.
+    if (recipe_import_nvidia_api_key !== undefined) {
+      if (!isAdminRequest(req)) {
+        return res.status(403).json({ error: 'Admin access required.', code: 403 });
+      }
+      if (recipe_import_nvidia_api_key === null || recipe_import_nvidia_api_key === '') {
+        cfgDelete('recipe_import_nvidia_api_key');
+      } else {
+        cfgSet('recipe_import_nvidia_api_key', recipe_import_nvidia_api_key);
+      }
+    }
+
+    // NVIDIA Modell — haushaltweit, nur Admin.
+    if (recipe_import_nvidia_model !== undefined) {
+      if (!isAdminRequest(req)) {
+        return res.status(403).json({ error: 'Admin access required.', code: 403 });
+      }
+      if (recipe_import_nvidia_model === null || recipe_import_nvidia_model === '') {
+        cfgDelete('recipe_import_nvidia_model');
+      } else {
+        cfgSet('recipe_import_nvidia_model', recipe_import_nvidia_model);
+      }
+    }
+
+    // NVIDIA Text/Parse-Modell — haushaltweit, nur Admin. Wird im zweiten Schritt
+    // des Zwei-Modell-Imports verwendet, um den transkribierten Rezepttext in
+    // strukturiertes JSON zu uersetzen.
+    if (recipe_import_text_model !== undefined) {
+      if (!isAdminRequest(req)) {
+        return res.status(403).json({ error: 'Admin access required.', code: 403 });
+      }
+      if (recipe_import_text_model === null || recipe_import_text_model === '') {
+        cfgDelete('recipe_import_text_model');
+      } else {
+        cfgSet('recipe_import_text_model', recipe_import_text_model);
+      }
+    }
+
     // DIE ANTWORT WIRD NOCH IN DER TRANSAKTION GEBAUT (#1622, Review zu #1627).
     // Sie liest aus der Datenbank zurueck, und manche dieser Lesewege fragen
     // weitere Tabellen ab (dashboardPersonalViews den Kategorien-Katalog). Wirft
@@ -1516,6 +1572,11 @@ router.put('/', (req, res) => {
         holiday_public_color:  cfgGet('holiday_public_color')  ?? '#FF3B30',
         holiday_school_color:  cfgGet('holiday_school_color')  ?? '#34C759',
         holiday_last_sync:     cfgGet('holiday_last_sync')     ?? null,
+        // Recipe Import Engine — haushaltweit, nur Admin liest zurück.
+        recipe_import_engine:       cfgGet('recipe_import_engine')       || 'Local',
+        recipe_import_nvidia_api_key: cfgGet('recipe_import_nvidia_api_key') || '',
+        recipe_import_nvidia_model:   cfgGet('recipe_import_nvidia_model')   || 'meta/llama-3.2-90b-vision-instruct',
+        recipe_import_text_model:     cfgGet('recipe_import_text_model')     || 'meta/llama-3.1-70b-instruct',
       },
     };
 

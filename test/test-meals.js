@@ -542,6 +542,38 @@ test('Randomize-Helfer vermeidet gleiche Rezepte in benachbarten Mahlzeiten dess
   assert(breakfast.recipe.id !== lunch.recipe.id, 'benachbarte Mahlzeiten desselben Tages sollen unterschiedliche Rezepte nutzen');
 });
 
+test('Randomize-Helfer füllt nur die gewählten Mahlzeit-Typen', () => {
+  const plan = mealsUi.buildRandomMealAssignments({
+    weekStart: '2026-03-23',
+    visibleMealTypes: ['breakfast', 'lunch', 'dinner'],
+    mealTypesToRandomize: ['dinner'],
+    meals: [],
+    recipes: [
+      { id: 1, title: 'Porridge', meal_types: ['breakfast'], ingredients: [] },
+      { id: 2, title: 'Pasta', meal_types: ['dinner'], ingredients: [] },
+    ],
+    replaceExisting: false,
+    pick: () => 0,
+  });
+
+  assert(plan.assignments.length === 7, 'nur die sieben Dinner-Slots werden geplant');
+  assert(plan.assignments.every((item) => item.mealType === 'dinner'), 'kein anderer Mahlzeit-Typ wird beplant');
+});
+
+test('Randomize-Helfer plant nichts bei leerer Typ-Auswahl', () => {
+  const plan = mealsUi.buildRandomMealAssignments({
+    weekStart: '2026-03-23',
+    visibleMealTypes: ['breakfast', 'dinner'],
+    mealTypesToRandomize: [],
+    meals: [],
+    recipes: [{ id: 1, title: 'Porridge', meal_types: ['breakfast'], ingredients: [] }],
+    replaceExisting: false,
+    pick: () => 0,
+  });
+
+  assert(plan.assignments.length === 0, 'ohne gewählte Typen wird nichts geplant');
+});
+
 test('Meals-Route bietet einen atomaren apply-plan Endpunkt für Replace-Flows', () => {
   const source = readFileSync(new URL('../server/routes/meals.js', import.meta.url), 'utf8');
   assert(/router\.post\('\/apply-plan'/.test(source), 'apply-plan Route muss existieren');

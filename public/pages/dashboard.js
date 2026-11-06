@@ -61,7 +61,7 @@ import { attachOverlay, pushOverlay, dropOverlay, isOverlayOpen } from '/utils/o
 import { mealTypeList, primeMealTypeNames } from '/utils/meal-types.js';
 import { recipeThumbHtml, wireRecipeThumbs } from '/utils/recipe-thumb.js';
 import { wireNoteCategoryOverflow } from '/utils/note-category-overflow.js';
-import { installPopoverMenus } from '/utils/popover-menu.js';
+import { installPopoverMenus, hidePopover, SUPPORTS_POPOVER } from '/utils/popover-menu.js';
 import { nextRewardGoal } from '/utils/reward-goal.js';
 
 // Hält den AbortController des aktuellen FAB-Listeners - wird bei jedem render() erneuert.
@@ -4464,6 +4464,7 @@ function renderWidgetSizeMenu(id, activeSize) {
   const width = activeSize.split('x')[0] === '2' ? '2' : '1';
   const panelId = `widget-size-menu-${id}`;
   const label = t('dashboard.customizeSizeFor', { widget: widgetLabel(id) });
+  const popoverAttr = SUPPORTS_POPOVER ? ' popover' : ' hidden';
   const items = WIDGET_SIZE_PRESETS.filter((p) => p.value.startsWith(`${width}x`)).map((p) => {
     const checked = p.value === activeSize;
     return `
@@ -4481,7 +4482,7 @@ function renderWidgetSizeMenu(id, activeSize) {
                 aria-label="${esc(label)}" title="${esc(label)}">
           ${renderSizeMiniGrid(activeSize)}
         </button>
-        <div class="popover-menu" id="${esc(panelId)}" popover role="menu">${items}
+        <div class="popover-menu" id="${esc(panelId)}"${popoverAttr} role="menu">${items}
         </div>
       </div>`;
 }
@@ -5568,6 +5569,7 @@ function renderNewPill() {
             <span>${esc(a.label)}</span>
           </button>`).join('');
   const label = t('dashboard.fabNew');
+  const popoverAttr = SUPPORTS_POPOVER ? ' popover' : ' hidden';
   return `
         <div class="page-toolbar__actions dashboard-overview__new">
           <button type="button" class="page-fab btn btn--primary page-fab--docked popover-menu__trigger" id="fab-main"
@@ -5575,7 +5577,7 @@ function renderNewPill() {
                   aria-keyshortcuts="n" aria-haspopup="menu" aria-expanded="false" popovertarget="dashboard-new-menu">
             <i data-lucide="plus" aria-hidden="true"></i><span class="toolbar-new-btn__label">${esc(label)}</span>
           </button>
-          <div class="popover-menu" id="dashboard-new-menu" popover role="menu">${items}
+          <div class="popover-menu" id="dashboard-new-menu"${popoverAttr} role="menu">${items}
           </div>
         </div>`;
 }
@@ -5586,7 +5588,7 @@ function wireNewMenu(container, signal) {
   container.addEventListener('click', async (event) => {
     const item = event.target.closest?.('[data-new-route]');
     if (!item) return;
-    item.closest('[popover]')?.hidePopover?.();
+    hidePopover(item.closest('[popover]'));
     const route = item.dataset.newRoute;
     await window.yuvomi.navigate(route);
     const btnSelector = FAB_NEW_BTN[route];
@@ -6611,7 +6613,7 @@ export async function render(container, { user, signal: routeSignal = null } = {
         // einem geschlossenen Panel und naehme ihn nicht an.
         const menu = btn.closest('.popover-menu');
         if (menu) {
-          menu.hidePopover?.();
+          hidePopover(menu);
           grid.querySelector(`[popovertarget="${CSS.escape(menu.id)}"]`)?.focus();
         }
         widgetConfig = updateWidgetConfig(widgetConfig, btn.dataset.widgetId, { size });

@@ -109,6 +109,12 @@
   font-family: var(--font-heading-medium);
 }
 
+/* Die Begrüßung im Übersichts-Tab trägt die PartyBusiness-Schrift
+   (--font-heading-major), nicht Ringbearer. */
+:root[data-skin="middle-earth"] .dashboard-overview__title {
+  font-family: var(--font-heading-major);
+}
+
 @media screen and (prefers-color-scheme: dark) {
   :root[data-skin="middle-earth"]:not([data-theme="light"]) {
     --_neutral-50: #17140F;

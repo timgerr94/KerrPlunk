@@ -4113,6 +4113,20 @@ html.fab-anim-done .page-fab {
   display: flex;
 }
 
+/* Fallback für Browser ohne Popover-API (iPadOS 16 Safari etc.):
+ * Das Panel ist per `hidden`-Attribut ausgeblendet, `.popover-menu--open`
+ * schaltet es ein. `display: flex` überschreibt das UA-`display: none` von
+ * `hidden`, da Klassen höhere Spezifizität haben als Attribute.
+ *
+ * OHNE TOP-LAYER: Die native Popover-API fördert das Panel in die Top-Layer,
+ * wo es über allem rendert. Im Fallback ist es ein normales
+ * position:fixed-Element – deshalb braucht es ein höheres z-index, damit es
+ * nicht hinter Widgets oder anderem Inhalt verschwindet. */
+.popover-menu--open {
+  display: flex;
+  z-index: var(--z-toast);
+}
+
 /* Icon UND Textlabel, immer. Das ist der ganze Zweck des Menüs: die drei
  * Kopf-Aktionen des Einkaufs waren mobil nackte Glyphen. */
 .popover-menu__item {
@@ -6550,22 +6564,22 @@ textarea::placeholder {
 }
 
 /* Rezept-Modal: Menge und Einheit stehen als ZWEI Felder nebeneinander, die
- * Kategorie rutscht dahinter. Ohne diese Variante bliebe die Zeile exakt die
- * Mahlzeiten-Zeile (ein Mengenfeld, das die Einheit schon im Text traegt) -
- * siehe ingredient-row.js#withUnit. */
+ * Kategorie rutscht dahinter. Menge und Einheit haben gleiche Breite.
+ * "..."-Button steht auf der Menge/Einheit-Zeile neben der Kategorie. */
 .ingredient-row--with-unit {
-  grid-template-columns: minmax(0, 2fr) minmax(0, 2fr) minmax(0, 2fr) auto;
-  grid-template-areas: "name name name remove" "qty unit cat .";
+  grid-template-columns: minmax(0, 2fr) minmax(0, 2fr) minmax(0, 1.4fr) auto;
+  grid-template-areas: "name name remove" "qty unit cat more";
 }
 
 /* Rezept-Modal MIT Notiz (v241): die Notiz steht in der NAMENS-Zeile, schmaler
  * als der Name - sie ist Kontext des Namens ("large onion, thinly — sliced"),
  * nicht vier vollgrosse Felder in einer Reihe. Zweite Zeile: Menge, Einheit
  * (eine Spalte), Kategorie ueber die letzten zwei - ihr Langtext ("Fleisch
- * & Eier") braucht die Breite staerker als das kurze "tbsp". */
+ * & Eier") braucht die Breite staerker als das kurze "tbsp". "..."-Button steht
+ * auf der Menge/Einheit-Zeile neben der Kategorie. */
 .ingredient-row--with-unit.ingredient-row--with-note {
-  grid-template-columns: minmax(0, 3fr) minmax(0, 1.4fr) minmax(0, 1.4fr) minmax(0, 1.4fr) auto;
-  grid-template-areas: "name name note note remove" "qty unit cat cat .";
+  grid-template-columns: minmax(0, 2fr) minmax(0, 2fr) minmax(0, 1.4fr) minmax(0, 1.4fr) auto;
+  grid-template-areas: "name name note note remove" "qty unit cat cat more";
 }
 
 .ingredient-row__name {
@@ -6598,6 +6612,110 @@ textarea::placeholder {
 
 .ingredient-row > .row-action {
   grid-area: remove;
+}
+
+/* "..."-Button: kleines Quadrat rechts neben der Kategorie, oeffnet die
+ * Sekundaerfelder (secondary quantity, secondary unit, section). */
+.ingredient-row__more {
+  grid-area: more;
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  min-height: 32px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--type-body);
+  line-height: 1;
+  cursor: pointer;
+}
+
+.ingredient-row__more:hover {
+  background: var(--color-surface-hover);
+}
+
+/* Sekundaerfelder: eingeblendet unter der Zutat, teilen sich den Hintergrund
+ * mit der Zeile (siehe --odd/--even). Drei Felder nebeneinander. */
+.ingredient-row__more-fields {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 2fr) minmax(0, 1.4fr);
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  background: inherit;
+  border-top: 1px solid var(--color-border);
+}
+
+.ingredient-row__more-fields[hidden] {
+  display: none !important;
+}
+
+.ingredient-row__sec-qty,
+.ingredient-row__sec-unit,
+.ingredient-row__section {
+  min-width: 0;
+  font-size: var(--type-body);
+}
+
+/* Drag-Handle: Grab-Icon links am Rand der Zutat, nur im Rezept-Modal. */
+.ingredient-row {
+  position: relative;
+  padding-inline-start: 36px;
+}
+
+.ingredient-row__drag {
+  position: absolute;
+  left: var(--space-2);
+  top: 50%;
+  transform: translateY(-50%);
+  width: 24px;
+  height: 24px;
+  min-width: 24px;
+  min-height: 24px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--type-body);
+  line-height: 1;
+  cursor: grab;
+  background: none;
+  border: none;
+  color: var(--color-text-tertiary);
+  z-index: 2;
+}
+
+.ingredient-row__drag:active {
+  cursor: grabbing;
+}
+
+.ingredient-row__drag:hover {
+  color: var(--color-text-secondary);
+}
+
+/* Platzhaelter waehrend des Drags. */
+.ingredient-row__placeholder {
+  background: var(--color-surface);
+  border: 2px dashed var(--color-border-control);
+  border-radius: var(--radius-sm);
+}
+
+/* Geist-Element das dem Cursor folgt. */
+.ingredient-row--drag-ghost {
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border-control);
+  background: var(--color-surface);
+}
+
+/* Alternierende Hintergruende: ingredient 1 + Details hell, ingredient 2 +
+ * Details dunkel, usw. Erleichtert das Zuordnen von Zutat zu Details. */
+.ingredient-row--odd {
+  background: var(--color-surface);
+}
+
+.ingredient-row--even {
+  background: color-mix(in srgb, var(--color-surface) 50%, var(--color-surface-hover));
 }
 
 .meal-type-badge {

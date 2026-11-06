@@ -347,7 +347,7 @@
    * Ueberlappungswarnung steht nichts mehr darin - der Slot brach trotzdem als
    * hoehenlose Flex-Zeile um und kostete ihren Zeilenabstand (gemessen 8px in
    * der Woche) oder verengte die Zeitraum-Zeile um seinen Gap. */
-  .cal-toolbar > .page-toolbar__actions:not(:has(.cal-toolbar__schedule-warning)) {
+  .cal-toolbar > .page-toolbar__actions:not(:has(.cal-toolbar__schedule-warning, .cal-toolbar__import-photo)) {
     display: none;
   }
 }
