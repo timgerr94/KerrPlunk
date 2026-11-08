@@ -267,14 +267,13 @@ class YuvomiDatepicker extends HTMLElement {
     });
 
     // Trigger: das DOM-Popover ist auf jedem Pointer-Typ der Primärpfad - es ist
-    // vollständig DOM-getrieben und öffnet auf Desktop wie Touch zuverlässig.
-    // Das native OS-Sheet (showPicker) bleibt nur Fallback für Touch-Browser
-    // mit Popover-API (iOS 17+): auf iOS 16 ist showPicker() ein stilles No-op
-    // ohne Exception, weshalb es dort nicht als Primärpfad taugt.
+    // Trigger: das JS-Popover ist auf jedem Pointer-Typ der Primärpfad.
+    // showPicker() wird nicht verwendet: auf iOS 16 ist es ein stilles No-op
+    // bei verstecktem Proxy-Input, auf iOS 17+ öffnet es das native Sheet
+    // statt des Kalender-Grids. Das JS-Popover funktioniert auf allen iOS-
+    // Versionen gleich und zeigt das gleiche Kalender-Grid wie auf Desktop.
     sub.trigger.addEventListener('click', () => {
       if (this.hasAttribute('disabled')) return;
-      const coarse = window.matchMedia?.('(pointer: coarse)').matches;
-      if (coarse && this._supportsPopover() && this._openNative(sub)) return;
       this._openPopover(sub);
     });
 
@@ -396,10 +395,16 @@ class YuvomiDatepicker extends HTMLElement {
     el.dir = this._dir();
     const open = (weekStart = 1) => {
       if (this._activeSub !== sub) return;
-      if (sub.kind === 'date') this._renderCalendar(el, sub, weekStart);
-      else this._renderTimeList(el, sub);
-
       sub.trigger.setAttribute('aria-expanded', 'true');
+      // Inhalt ZUERST rendern, damit offsetWidth/offsetHeight korrekte Werte
+      // liefern, bevor positioniert wird. Ohne das ist das Popover beim
+      // ersten Oeffnen zu schmal und läuft rechts aus dem Bild (gemessen iOS).
+      try {
+        if (sub.kind === 'date') this._renderCalendar(el, sub, weekStart);
+        else this._renderTimeList(el, sub);
+      } catch {
+        // Rendering fehlgeschlagen, Popover bleibt dennoch offen.
+      }
       showPopover(el);
       this._position(sub.trigger, el);
       document.addEventListener('pointerdown', this._onDocPointer, true);

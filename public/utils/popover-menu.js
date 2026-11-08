@@ -63,6 +63,11 @@ export function showPopover(panel, trigger = null) {
     document.body.appendChild(panel);
   }
   panel.classList.add('popover-menu--open');
+  // Datepicker nutzt ydp-popover statt popover-menu - dessen --open-Klasse
+  // ebenfalls setzen, damit das passende CSS greift.
+  if (panel.classList.contains('ydp-popover')) {
+    panel.classList.add('ydp-popover--open');
+  }
   panel.removeAttribute('hidden');
   if (trigger) trigger.setAttribute('aria-expanded', 'true');
   positionPopover(panel, trigger);
@@ -82,6 +87,9 @@ export function hidePopover(panel) {
   }
   openFallbackPanels.delete(panel);
   panel.classList.remove('popover-menu--open');
+  if (panel.classList.contains('ydp-popover')) {
+    panel.classList.remove('ydp-popover--open');
+  }
   panel.setAttribute('hidden', '');
   panel.style.opacity = '';
   panel.style.transform = '';

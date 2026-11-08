@@ -9,8 +9,9 @@ import express from 'express';
 import * as db from '../db.js';
 import { str, color, collectErrors, MAX_TEXT, MAX_TITLE } from '../middleware/validate.js';
 import { isAdminRequest } from '../middleware/require-admin.js';
-import { toggleChecklistLine, uncheckAllChecklistLines } from '../../public/utils/markdown-checklist.js';
-import { resolvePermissions } from '../permissions.js';
+import { toggleChecklistLine, uncheckAllChecklistLines, matchChecklistLine } from '../../public/utils/markdown-checklist.js';
+import { resolvePermissions, mayWriteModule } from '../permissions.js';
+import { categorizeIngredient } from '../services/recipe-providers/categorize.js';
 import {
   categoryNameKey,
   hydrateNotesWithCategories,
@@ -456,6 +457,81 @@ router.patch('/:id/uncheck-all', (req, res) => {
     `).get(id);
 
     res.json({ data: oneWithCategories(updated, req) });
+  } catch (err) {
+    log.error('', err);
+    res.status(500).json({ error: 'Interner Fehler', code: 500 });
+  }
+});
+
+/**
+ * POST /api/v1/notes/:id/to-shopping
+ * Gesetzte Checklisten-Eintraege einer Notiz als neue Einkaufsartikel in eine
+ * gewaehlte (oder neu angelegte) Einkaufsliste uebertragen.
+ *
+ * Body: { listId?: number, listName?: string } - genau eines davon erforderlich
+ * Response: { data: { list, items, count } } | 422 { reason: 'nothing_to_send' }
+ */
+router.post('/:id/to-shopping', (req, res) => {
+  try {
+    const id   = parseInt(req.params.id, 10);
+    const note = db.get().prepare('SELECT * FROM notes WHERE id = ?').get(id);
+    if (!note) return res.status(404).json({ error: 'Notiz nicht gefunden', code: 404 });
+
+    // Der Schreibweg geht in den Einkauf - das Recht dazu muss der Aufrufer haben.
+    if (!mayWriteModule(req, 'shopping'))
+      return res.status(403).json({ error: 'Schreibzugriff auf den Einkauf ist erforderlich.', code: 403 });
+
+    const { listId, listName } = req.body;
+    if (listId === undefined && listName === undefined)
+      return res.status(400).json({ error: 'listId oder listName ist erforderlich.', code: 400 });
+    if (listId !== undefined && listName !== undefined)
+      return res.status(400).json({ error: 'Nur einer von listId oder listName darf angegeben sein.', code: 400 });
+
+    // Ungesetzte Checklisten-Eintraege finden.
+    const parts = note.content.split(/\r\n|\n|\r/);
+    const uncheckedItems = [];
+    for (const line of parts) {
+      const item = matchChecklistLine(line);
+      if (item && !item.checked) uncheckedItems.push(item.text);
+    }
+    if (uncheckedItems.length === 0)
+      return res.status(422).json({ error: 'Keine unabgehakten Checklisten-Eintraege zum Uebertragen.', code: 402, reason: 'nothing_to_send' });
+
+    // Ziel-Liste aufloesen.
+    let targetListId;
+    if (listId !== undefined) {
+      const target = db.get().prepare('SELECT * FROM shopping_lists WHERE id = ?').get(Number(listId));
+      if (!target) return res.status(404).json({ error: 'Einkaufsliste nicht gefunden.', code: 404 });
+      targetListId = target.id;
+    } else {
+      const vName = str(listName, 'Name', { max: MAX_TITLE });
+      if (vName.error) return res.status(400).json({ error: vName.error, code: 400 });
+      const result = db.get().prepare(
+        'INSERT INTO shopping_lists (name, created_by) VALUES (?, ?)'
+      ).run(vName.value, actorId(req));
+      targetListId = result.lastInsertRowid;
+    }
+
+    const validNames = db.get().prepare('SELECT name FROM shopping_categories').all().map((r) => r.name);
+    const insertItem = db.get().prepare(`
+      INSERT INTO shopping_items (list_id, name, category, is_checked)
+      VALUES (?, ?, ?, 0)
+    `);
+
+    const createdItems = [];
+    const transaction = db.get().transaction(() => {
+      for (const itemText of uncheckedItems) {
+        const category = categorizeIngredient({ foodName: itemText });
+        const finalCategory = validNames.includes(category) ? category : 'Sonstiges';
+        const insert = insertItem.run(targetListId, itemText.trim(), finalCategory);
+        const created = db.get().prepare('SELECT * FROM shopping_items WHERE id = ?').get(insert.lastInsertRowid);
+        createdItems.push(created);
+      }
+    });
+    transaction();
+
+    const list = db.get().prepare('SELECT * FROM shopping_lists WHERE id = ?').get(targetListId);
+    res.json({ data: { list, items: createdItems, count: createdItems.length } });
   } catch (err) {
     log.error('', err);
     res.status(500).json({ error: 'Interner Fehler', code: 500 });

@@ -154,6 +154,17 @@ yuvomi-datepicker[disabled] .ydp__trigger {
   transform: none;
 }
 
+/* Fallback für Browser ohne Popover-API (iPadOS 16 Safari etc.):
+ * Das Panel ist per `hidden`-Attribut ausgeblendet, `.ydp-popover--open`
+ * schaltet es ein. Ohne Top-Layer braucht es ein hohes z-index, damit es
+ * nicht hinter anderem Inhalt verschwindet. */
+.ydp-popover--open {
+  display: flex;
+  opacity: 1;
+  transform: none;
+  z-index: var(--z-toast);
+}
+
 @starting-style {
   .ydp-popover:popover-open {
     opacity: 0;

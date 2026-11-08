@@ -445,4 +445,103 @@ test('die neuen Keys stehen in allen Locales und sind uebersetzt', async () => {
   }
 });
 
+// --------------------------------------------------------------------------
+// POST /:id/to-shopping (der Ein-Knopf auf der Karte)
+// --------------------------------------------------------------------------
+
+test('POST /:id/to-shopping uebertraegt ungesetzte Eintraege in bestehende Liste', async () => {
+  const note = await newNote('- [ ] Milch\n- [x] Brot\n- [ ] Butter');
+  const list = (await call('POST', '/', { name: 'Einkauf' })).body.data;
+  const r = await call('POST', `/${note.id}/to-shopping`, { listId: list.id });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.data.count, 2);
+  assert.equal(r.body.data.list.id, list.id);
+  const names = r.body.data.items.map((i) => i.name).sort();
+  assert.deepEqual(names, ['Butter', 'Milch']);
+  // Die Notiz selbst veraendert sich nicht.
+  const after = (await call('GET', '/')).body.data.find((n) => n.id === note.id);
+  assert.equal(after.content, '- [ ] Milch\n- [x] Brot\n- [ ] Butter');
+});
+
+test('POST /:id/to-shopping erstellt neue Liste wenn listName gegeben', async () => {
+  const note = await newNote('- [ ] Milch');
+  const r = await call('POST', `/${note.id}/to-shopping`, { listName: 'Neue Liste' });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.data.count, 1);
+  assert.equal(r.body.data.list.name, 'Neue Liste');
+  assert.equal(r.body.data.items[0].name, 'Milch');
+  assert.equal(r.body.data.items[0].is_checked, 0);
+  // Die neue Liste ist in der Listenansicht sichtbar.
+  const lists = (await call('GET', '/')).body.data;
+  assert.ok(lists.some((l) => l.id === r.body.data.list.id));
+});
+
+test('POST /:id/to-shopping ohne ungesetzte Eintraege → 422', async () => {
+  const note = await newNote('- [x] Milch\n- [x] Brot');
+  const r = await call('POST', `/${note.id}/to-shopping`, { listId: 1 });
+  assert.equal(r.status, 422);
+  assert.equal(r.body.reason, 'nothing_to_send');
+});
+
+test('POST /:id/to-shopping auf unbekannte Notiz → 404', async () => {
+  const r = await call('POST', '/999999/to-shopping', { listId: 1 });
+  assert.equal(r.status, 404);
+});
+
+test('POST /:id/to-shopping ohne listId und listName → 400', async () => {
+  const note = await newNote('- [ ] Milch');
+  const r = await call('POST', `/${note.id}/to-shopping`, {});
+  assert.equal(r.status, 400);
+});
+
+test('POST /:id/to-shopping mit beiden listId und listName → 400', async () => {
+  const note = await newNote('- [ ] Milch');
+  const r = await call('POST', `/${note.id}/to-shopping`, { listId: 1, listName: 'X' });
+  assert.equal(r.status, 400);
+});
+
+test('POST /:id/to-shopping auf unbekannte Liste → 404', async () => {
+  const note = await newNote('- [ ] Milch');
+  const r = await call('POST', `/${note.id}/to-shopping`, { listId: 999999 });
+  assert.equal(r.status, 404);
+});
+
+// --------------------------------------------------------------------------
+// i18n
+// --------------------------------------------------------------------------
+
+test('die neuen Keys stehen in allen Locales und sind uebersetzt', async () => {
+  const dir   = new URL('../public/locales/', import.meta.url);
+  const files = (await readdir(dir)).filter((f) => f.endsWith('.json'));
+  assert.ok(files.length >= 20, 'alle Locales werden geprueft');
+
+  const de = JSON.parse(await readFile(new URL('de.json', dir), 'utf8'));
+  for (const key of [
+    'checklistToggle',
+    'checkConflict',
+    'uncheckAllNamed',
+    'sendToShoppingTitle',
+    'sendToShoppingHint',
+    'sendToShoppingList',
+    'sendToShoppingNewList',
+    'sendToShoppingNewListName',
+    'sendToShoppingNewListPlaceholder',
+    'sendToShoppingSubmit',
+    'sendToShoppingSent',
+    'sendToShoppingAction',
+    'sendToShoppingNamed',
+  ]) {
+    for (const f of files) {
+      const d = JSON.parse(await readFile(new URL(f, dir), 'utf8'));
+      const value = d.notes?.[key];
+      assert.equal(typeof value, 'string', `${f}: notes.${key} fehlt`);
+      assert.ok(value.trim().length > 0, `${f}: notes.${key} ist leer`);
+      assert.doesNotMatch(value, /\[de:/, `${f}: notes.${key} traegt einen Platzhalter`);
+      if (f !== 'de.json') {
+        assert.notEqual(value, de.notes[key], `${f}: notes.${key} ist unuebersetztes Deutsch`);
+      }
+    }
+  }
+});
+
 test.after(() => server.close());

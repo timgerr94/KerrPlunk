@@ -146,6 +146,18 @@ function noteHasCheckedItem(note) {
 }
 
 /**
+ * Traegt die Notiz mindestens einen UNGESETZTEN Checklisten-Eintrag?
+ * Entscheidet, ob der Ein-Knopf „Nach Einkauf senden" ueberhaupt etwas zu tun haette.
+ */
+function noteHasUncheckedItem(note) {
+  const parts = splitKeepingLineEndings(note?.content);
+  for (let at = 0; at < parts.length; at += 2) {
+    if (matchChecklistLine(parts[at])?.checked === false) return true;
+  }
+  return false;
+}
+
+/**
  * Der Ein-Knopf „alle Haken loesen" - links neben der Nadel.
  *
  * Nur da, wo er etwas tun kann: auf einer Karte mit mindestens einem
@@ -160,6 +172,22 @@ function uncheckMarkup(note) {
   return `<button type="button" class="note-card__uncheck" data-action="uncheck-all" data-id="${note.id}"
             aria-label="${esc(t('notes.uncheckAllNamed', { name: noteName(note) }))}">
         <i data-lucide="eraser" class="icon-sm" aria-hidden="true"></i>
+      </button>`;
+}
+
+/**
+ * Der Ein-Knopf „Nach Einkauf senden" - links neben der Nadel.
+ *
+ * Nur da, wo er etwas tun kann: auf einer Karte mit mindestens einem
+ * unabgehakten Checklisten-Eintrag. Oeffnet einen Dialog, in dem der Nutzer eine
+ * bestehende Einkaufsliste waehlt oder eine neue anlegt, und uebertraegt dann
+ * alle gesetzten Eintraege dorthin. Die Notiz selbst veraendert sich nicht.
+ */
+function sendToShoppingMarkup(note) {
+  if (readOnly() || !noteHasUncheckedItem(note)) return '';
+  return `<button type="button" class="note-card__send-shopping" data-action="send-to-shopping" data-id="${note.id}"
+            aria-label="${esc(t('notes.sendToShoppingNamed', { name: noteName(note) }))}">
+        <i data-lucide="shopping-cart" class="icon-sm" aria-hidden="true"></i>
       </button>`;
 }
 
@@ -238,6 +266,8 @@ async function toggleCheck(noteId, box) {
     const res = await api.patch(`/notes/${noteId}/check`, { line, checked, expect });
     note.content = res.data.content;
     note.updated_at = res.data.updated_at;
+    syncUncheckButton(note);
+    syncSendToShoppingButton(note);
   } catch (err) {
     paintCheck(noteId, line, !checked);
     if (err.status === 409) {
@@ -245,6 +275,48 @@ async function toggleCheck(noteId, box) {
     } else {
       window.yuvomi?.showToast(err.data?.error ?? t('common.unknownError'), 'danger');
     }
+  }
+}
+
+/**
+ * Passt den Ein-Knopf „alle Haken loesen" an den aktuellen Inhalt an:
+ * erscheint, sobald ein Haken gesetzt ist; verschwindet, wenn alle
+ * Haken geloest sind. Wird nach jedem einzelnen Haken umgeschaltet,
+ * damit der Knopf nicht erst beim naechsten vollen Renderlauf da ist
+ * (oder noch da, obwohl er nichts mehr zu tun hat).
+ */
+function syncUncheckButton(note) {
+  const card = _container?.querySelector(`.note-card[data-id="${note.id}"]`);
+  if (!card) return;
+  const existing = card.querySelector('.note-card__uncheck');
+  const shouldShow = !readOnly() && noteHasCheckedItem(note);
+  if (shouldShow && !existing) {
+    const pin = card.querySelector('.note-card__pin');
+    pin?.insertAdjacentHTML('beforebegin', uncheckMarkup(note));
+    const btn = card.querySelector('.note-card__uncheck');
+    if (window.lucide && btn) lucide.createIcons({ el: btn });
+  } else if (!shouldShow && existing) {
+    existing.remove();
+  }
+}
+
+/**
+ * Passt den Ein-Knopf „Nach Einkauf senden" an den aktuellen Inhalt an:
+ * erscheint, sobald ein Haken gesetzt ist; verschwindet, wenn alle
+ * Haken geloest sind. Wird nach jedem einzelnen Haken umgeschaltet.
+ */
+function syncSendToShoppingButton(note) {
+  const card = _container?.querySelector(`.note-card[data-id="${note.id}"]`);
+  if (!card) return;
+  const existing = card.querySelector('.note-card__send-shopping');
+  const shouldShow = !readOnly() && noteHasUncheckedItem(note);
+  if (shouldShow && !existing) {
+    const pin = card.querySelector('.note-card__pin');
+    pin?.insertAdjacentHTML('beforebegin', sendToShoppingMarkup(note));
+    const btn = card.querySelector('.note-card__send-shopping');
+    if (window.lucide && btn) lucide.createIcons({ el: btn });
+  } else if (!shouldShow && existing) {
+    existing.remove();
   }
 }
 
@@ -304,6 +376,7 @@ async function uncheckAll(id) {
     // Nichts mehr zu loesen - der Knopf verschwindet mit diesem Zug statt bis
     // zum naechsten Renderrlauf zu versprechen, was er nicht mehr tun kann.
     _container?.querySelector(`.note-card[data-id="${id}"] .note-card__uncheck`)?.remove();
+    syncSendToShoppingButton(note);
   } catch (err) {
     paintChecklistFromContent(id, note.content);
     if (err.status === 409) {
@@ -312,6 +385,123 @@ async function uncheckAll(id) {
       window.yuvomi?.showToast(err.data?.error ?? t('common.unknownError'), 'danger');
     }
   }
+}
+
+/**
+ * Oeffnet den Dialog „Nach Einkauf senden" fuer eine Notiz.
+ *
+ * Der Nutzer waehlt eine bestehende Einkaufsliste aus oder legt eine neue an.
+ * Beim Bestätigen werden alle gesetzten Checklisten-Eintraege der Notiz als
+ * neue Einkaufsartikel in die gewaehlte Liste uebertragen. Die Notiz selbst
+ * veraendert sich nicht (kein „gesendet"-Marker).
+ */
+async function openSendToShoppingDialog(note) {
+  if (readOnly() || !note || !noteHasUncheckedItem(note)) return;
+
+  let lists = [];
+  try {
+    const res = await api.get('/shopping');
+    lists = res.data || [];
+  } catch {
+    window.yuvomi?.showToast(t('common.errorGeneric'), 'danger');
+    return;
+  }
+
+  let createNew = false;
+  let newListName = '';
+
+  openSharedModal({
+    title: t('notes.sendToShoppingTitle', { name: noteName(note) }),
+    size: 'md',
+    content: `
+      <p class="form-hint">${esc(t('notes.sendToShoppingHint'))}</p>
+      <div class="form-group">
+        <label class="form-label" for="send-to-shopping-list">${esc(t('notes.sendToShoppingList'))}</label>
+        <select id="send-to-shopping-list" class="form-input">
+          ${lists.map((l) => `<option value="${l.id}">${esc(l.name)}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="toggle">
+          <input type="checkbox" id="send-to-shopping-new-toggle">
+          <span class="toggle__track"></span>
+          <span>${esc(t('notes.sendToShoppingNewList'))}</span>
+        </label>
+      </div>
+      <div class="form-group" id="send-to-shopping-new-row" hidden>
+        <label class="form-label" for="send-to-shopping-new-name">${esc(t('notes.sendToShoppingNewListName'))}</label>
+        <input class="form-input" type="text" id="send-to-shopping-new-name" placeholder="${esc(t('notes.sendToShoppingNewListPlaceholder'))}" autocomplete="off">
+      </div>
+      <div class="modal-panel__footer modal-panel__footer--plain">
+        <button type="button" class="btn btn--secondary" data-action="close-modal">${esc(t('common.cancel'))}</button>
+        <button type="button" class="btn btn--primary" id="send-to-shopping-confirm">${esc(t('notes.sendToShoppingSubmit'))}</button>
+      </div>`,
+    onSave(panel) {
+      const select = panel.querySelector('#send-to-shopping-list');
+      const newToggle = panel.querySelector('#send-to-shopping-new-toggle');
+      const newRow = panel.querySelector('#send-to-shopping-new-row');
+      const newNameInput = panel.querySelector('#send-to-shopping-new-name');
+      const confirmBtn = panel.querySelector('#send-to-shopping-confirm');
+
+      newToggle.addEventListener('change', () => {
+        newRow.hidden = !newToggle.checked;
+      });
+
+      confirmBtn.addEventListener('click', async () => {
+        let targetListId = null;
+        let targetListName = null;
+
+        if (newToggle.checked) {
+          const name = newNameInput.value.trim();
+          if (!name) {
+            reportFieldError(newNameInput, t('common.required'));
+            return;
+          }
+          targetListName = name;
+        } else {
+          targetListId = Number(select.value);
+        }
+
+        confirmBtn.disabled = true;
+        try {
+          const res = await api.post(`/notes/${note.id}/to-shopping`, {
+            ...(targetListId !== null ? { listId: targetListId } : { listName: targetListName }),
+          });
+          closeModal({ force: true });
+          window.yuvomi?.showToast(
+            t('notes.sendToShoppingSent', { count: res.data.count, list: res.data.list.name }),
+            'success',
+          );
+        } catch (err) {
+          confirmBtn.disabled = false;
+          const reason = err.data?.reason;
+          let message;
+          if (reason === 'nothing_to_send') {
+            message = t('notes.sendToShoppingNothingToSend');
+          } else if (err.status === 403) {
+            message = t('notes.sendToShoppingNoWriteAccess');
+          } else if (err.status === 404) {
+            message = t('notes.sendToShoppingNotFound');
+          } else {
+            message = t('notes.sendToShoppingErrorGeneric');
+          }
+          window.yuvomi?.showToast(message, 'danger');
+        }
+      });
+    },
+  });
+}
+
+/**
+ * Kopf-Aktion für den Lese-Modal: öffnet denselben Dialog wie der Kartenknopf.
+ */
+function sendToShoppingHeaderAction(note) {
+  if (readOnly() || !noteHasUncheckedItem(note)) return null;
+  return {
+    label: t('notes.sendToShoppingAction'),
+    id: 'note-header-send-to-shopping',
+    onClick: () => openSendToShoppingDialog(note),
+  };
 }
 
 // --------------------------------------------------------
@@ -393,7 +583,7 @@ export async function render(container, { user, signal }) {
     // uebrig gebliebenen Knoten die Wirkung. Eine Positivliste braucht dieser
     // Handler nicht: sein einziger lesender Zweig ist die Karte selbst, und die
     // steht unter dem Riegel.
-    const schreibweg = e.target.closest('[data-action="pin"], [data-action="delete"], [data-action="uncheck-all"], .note-md-box[data-md-line]');
+    const schreibweg = e.target.closest('[data-action="pin"], [data-action="delete"], [data-action="uncheck-all"], [data-action="send-to-shopping"], .note-md-box[data-md-line]');
     if (schreibweg && readOnly()) { e.stopPropagation(); return; }
 
     const pinBtn = e.target.closest('[data-action="pin"]');
@@ -403,6 +593,11 @@ export async function render(container, { user, signal }) {
     // beim einzelnen Kaestchen, nur fuer alle auf einmal.
     const uncheckBtn = e.target.closest('[data-action="uncheck-all"]');
     if (uncheckBtn) { e.stopPropagation(); await uncheckAll(parseInt(uncheckBtn.dataset.id, 10)); return; }
+
+    // „Nach Einkauf senden" oeffnet den Dialog zum Uebertragen gesetzter
+    // Checklisten-Eintraege in eine Einkaufsliste.
+    const sendBtn = e.target.closest('[data-action="send-to-shopping"]');
+    if (sendBtn) { e.stopPropagation(); await openSendToShoppingDialog(state.notes.find((n) => n.id === parseInt(sendBtn.dataset.id, 10))); return; }
 
     const delBtn = e.target.closest('[data-action="delete"]');
     if (delBtn) { e.stopPropagation(); await deleteNote(parseInt(delBtn.dataset.id, 10)); return; }
@@ -914,6 +1109,7 @@ function renderNoteCard(note, { headingLevel = 2 } = {}) {
       <button type="button" class="note-card__open" data-action="open" data-id="${note.id}"
               aria-label="${esc(t('notes.openNamed', { name: noteName(note) }))}"></button>
       ${uncheckMarkup(note)}
+      ${sendToShoppingMarkup(note)}
       ${pinMarkup(note)}
       ${/* ECHTE UEBERSCHRIFT STATT `div` (R8 H15): die Ueberschriften-
           * Navigation eines Screenreaders fand bis dahin keine einzige Notiz.
@@ -1061,6 +1257,7 @@ function openNoteReadModal(note) {
   openSharedModal({
     title: note.title && note.title.trim() ? note.title : t('notes.viewNote'),
     size: 'lg',
+    headerAction: sendToShoppingHeaderAction(note),
     content: `
     <div class="note-modal" data-view="read" data-note-id="${note.id}" style="--note-color:${esc(note.color)};">
       <div class="note-read-view" data-pane="read" tabindex="-1">
@@ -1759,7 +1956,7 @@ async function deleteNote(id) {
  * Speicher sich nicht stellen liesse.
  */
 export const __test = {
-  renderNoteCard, notesEmptyStateHtml, renderNoteReadHtml, pinMarkup, uncheckMarkup,
+  renderNoteCard, notesEmptyStateHtml, renderNoteReadHtml, pinMarkup, uncheckMarkup, sendToShoppingMarkup,
   CHECKLIST_OPTS, readOnly, state,
   // Der Dialog kommt mit, weil seine Aussage KEIN Markup dieser Seite ist:
   // welchen Inhalt der Zettel bekommt, sieht nur der, der `openModal` die

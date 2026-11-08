@@ -209,6 +209,13 @@ const READ_LEVEL_WRITES = Object.freeze([
     methods: Object.freeze(['POST']),
     axes: Object.freeze(['session', 'token']),
   }),
+  Object.freeze({
+    id: 'note-to-shopping',
+    pattern: '^\\/notes\\/\\d+\\/to-shopping\\/?$',
+    flags: 'i',
+    methods: Object.freeze(['POST']),
+    axes: Object.freeze(['session', 'token']),
+  }),
 ]);
 
 const READ_LEVEL_MATCHERS = READ_LEVEL_WRITES.map((entry) => ({

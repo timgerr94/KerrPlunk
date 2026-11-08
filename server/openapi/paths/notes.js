@@ -57,6 +57,15 @@ export function notesPaths() {
         requestBody: jsonBody(null),
       }),
     },
+    '/api/v1/notes/{id}/to-shopping': {
+      post: op({
+        summary: 'Transfer checked checklist items to a shopping list',
+        tag: 'Notes',
+        params: [idParam()],
+        stateChanging: true,
+        requestBody: jsonBody(null),
+      }),
+    },
     '/api/v1/notes/categories': {
       get: op({ summary: 'List visible note categories', tag: 'Notes', responses: schemaResponse('NoteCategoryListResponse') }),
       post: op({ summary: 'Create a personal or household note category', tag: 'Notes', stateChanging: true, requestBody: jsonBody('#/components/schemas/NoteCategoryInput'), responses: schemaResponse('NoteCategoryResponse', 'Category created', 201, { 409: apiError('A category with this name already exists') }) }),
