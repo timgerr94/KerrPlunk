@@ -3718,6 +3718,28 @@ test('die Küchen-Listen teilen eine Zeilen-Grammatik', () => {
     }
   }
 
+  const recipesCss = read('../public/styles/recipes.css');
+  const recipesRules = [...eachRule(recipesCss)];
+  const recipesPage = recipesRules.find((rule) => rule.selector.trim() === '.recipes-page')?.body ?? '';
+  const recipesList = recipesRules.find((rule) => rule.selector.trim() === '.recipes-list')?.body ?? '';
+  const recipesTail = recipesRules.find((rule) =>
+    rule.selector.trim() === '.recipes-list:has(> .row-carrier)::after')?.body ?? '';
+  assert.match(recipesPage, /--recipes-scroll-tail:\s*var\(--shell-tail\)/,
+    'recipes must capture the shared shell reserve before changing it on the scrollport');
+  assert.match(recipesList, /--shell-tail:\s*0px/,
+    'recipes must not apply the reserve both as scrollport padding and as trailing content');
+  assert.match(recipesList, /display:\s*flex/);
+  assert.match(recipesList, /flex-direction:\s*column/);
+  assert.match(recipesList, /gap:\s*0/);
+  assert.match(recipesRules.find((rule) =>
+    rule.selector.trim() === '.recipes-list > .row-carrier')?.body ?? '',
+  /flex:\s*0\s+0\s+auto/,
+  'the row carrier must retain its full content height in the flex scrollport');
+  assert.match(recipesTail, /block-size:\s*var\(--recipes-scroll-tail\)/,
+    'the recipe list needs a trailing in-flow track for the shared shell reserve');
+  assert.match(recipesTail, /flex:\s*0\s+0\s+var\(--recipes-scroll-tail\)/,
+    'the trailing flex item must retain its full reserve in the scroll range');
+
   // Zeilenaktionen sind dauerhaft sichtbar, nicht hover-enthüllt. Die Enthüllung
   // per opacity hat in diesem Repo zweimal dieselbe Defektklasse produziert.
   for (const path of ['../public/styles/shopping.css', '../public/styles/pantry.css', '../public/styles/recipes.css']) {

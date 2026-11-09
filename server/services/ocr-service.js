@@ -238,7 +238,7 @@ export class NvidiaRecipeImportProvider extends RecipeImportProvider {
   }
 
   /**
-   * Zwei-Schritt-Rezept-Import:
+   * Zwei-Schritt-Rezept-Import mit automatischem Retry bei transienten Fehlern:
    * 1. Vision-Modell transkribiert das Rezept aus dem Bild als reinen Text.
    * 2. Text-Modell parst den transkribierten Text in strukturiertes JSON.
    *
@@ -266,15 +266,73 @@ export class NvidiaRecipeImportProvider extends RecipeImportProvider {
     const imageUrl = `data:${normalizedMime};base64,${base64}`;
 
     const timeoutMs = Number(process.env.NVIDIA_RECIPE_TIMEOUT_MS) || 600000;
+    const maxAttempts = 3;
+    const retryDelaysMs = [15000, 30000]; // nach Versuch 1 und 2
+
+    /**
+     * Prueft, ob ein Fehler transient ist und einen Retry lohnt.
+     * 502, 503, 504, Timeouts, Verbindungsfehler -> retry.
+     * 400, 401, 403, 404, 422 -> kein Retry (Konfigurations-/Anfrageproblem).
+     */
+    function isTransientError(err) {
+      if (err instanceof OcrServiceError) {
+        // 502, 503, 504 sind transient
+        return err.statusCode === 502 || err.statusCode === 503 || err.statusCode === 504;
+      }
+      // AbortError (Timeout), ECONNREFUSED, ECONNRESET, ETIMEDOUT -> transient
+      if (err.name === 'AbortError' || err.message?.includes('abort')) return true;
+      if (err.code === 'ECONNREFUSED' || err.code === 'ECONNRESET' || err.code === 'ETIMEDOUT') return true;
+      if (err.message?.includes('connect') || err.message?.includes('ECONN')) return true;
+      return false;
+    }
+
+    /**
+     * Wartet die angegebene Zeit in Millisekunden.
+     */
+    function sleep(ms) {
+      return new Promise((resolve) => setTimeout(resolve, ms));
+    }
+
+    /**
+     * Fuehrt eine NVIDIA-Request mit Retry-Logik aus.
+     * @param {string} stepName 'vision' oder 'parse'
+     * @param {Function} requestFn Funktion, die den Request ausfuehrt und das Ergebnis zurueckgibt
+     */
+    async function requestWithRetry(stepName, requestFn) {
+      let lastErr;
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        log.info(`NVIDIA ${stepName} request attempt ${attempt}/${maxAttempts}`);
+        try {
+          const result = await requestFn();
+          log.info(`NVIDIA ${stepName} request succeeded: attempt=${attempt}`);
+          return result;
+        } catch (err) {
+          lastErr = err;
+          const status = err instanceof OcrServiceError ? err.statusCode : null;
+          log.error(`NVIDIA ${stepName} request failed: attempt=${attempt} status=${status} message=${err.message}`);
+
+          // Permanenter Fehler -> sofort abbrechen, kein Retry
+          if (err instanceof OcrServiceError && !isTransientError(err)) {
+            throw err;
+          }
+
+          // Letzter Versuch war fehlerhaft -> Fehler werfen
+          if (attempt === maxAttempts) {
+            log.error(`NVIDIA ${stepName} request failed: no retries remaining. Last error: ${err.message}`);
+            throw err;
+          }
+
+          const delayMs = retryDelaysMs[attempt - 1];
+          log.error(`NVIDIA ${stepName} request failed: Possible cold start detected. Retrying in ${Math.round(delayMs / 1000)} seconds...`);
+          await sleep(delayMs);
+        }
+      }
+      throw lastErr;
+    }
 
     // --------------------------------------------------------
     // Schritt 1: Vision-Modell transkribiert das Rezept aus dem Bild
     // --------------------------------------------------------
-    const visionStart = Date.now();
-    const visionController = new AbortController();
-    const visionTimeoutId = setTimeout(() => visionController.abort(), timeoutMs);
-    log.info(`NVIDIA vision step starting: model=${this.model} timeout=${timeoutMs}ms imageSize=${buffer.length}bytes`);
-
     const visionPrompt = `You are a recipe transcription assistant. Transcribe the recipe exactly as written.
 
 Rules:
@@ -320,60 +378,64 @@ Do not add anything that is not visible in the image.`;
 
     let transcribedText;
     try {
-      log.info(`NVIDIA vision request sent: model=${this.model} imageSize=${buffer.length}bytes`);
-      const visionRequestStart = Date.now();
-      const visionResponse = await safeRequest(this.endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${this.apiKey}`,
-          'Content-Length': String(Buffer.byteLength(visionBody)),
-        },
-        body: visionBody,
-        signal: visionController.signal,
+      transcribedText = await requestWithRetry('vision', async () => {
+        const visionController = new AbortController();
+        const visionTimeoutId = setTimeout(() => visionController.abort(), timeoutMs);
+        log.info(`NVIDIA vision request sent: model=${this.model} imageSize=${buffer.length}bytes`);
+        const visionRequestStart = Date.now();
+        const visionResponse = await safeRequest(this.endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${this.apiKey}`,
+            'Content-Length': String(Buffer.byteLength(visionBody)),
+          },
+          body: visionBody,
+          signal: visionController.signal,
+        });
+
+        clearTimeout(visionTimeoutId);
+        const visionRequestEnd = Date.now();
+        log.info(`NVIDIA vision response received: status=${visionResponse.status} requestTimeMs=${visionRequestEnd - visionRequestStart}ms`);
+
+        if (!visionResponse.ok) {
+          const errorText = await readBodyAsText(visionResponse.body);
+          log.error(`NVIDIA Vision API returned ${visionResponse.status}: ${errorText}`);
+          throw new OcrServiceError(
+            `NVIDIA Vision API returned status ${visionResponse.status}.`,
+            visionResponse.status >= 500 ? 502 : 400,
+            'NVIDIA_API_ERROR'
+          );
+        }
+
+        const visionBodyText = await readBodyAsText(visionResponse.body);
+        log.info('Raw NVIDIA Vision API response:', visionBodyText);
+
+        let visionParsed;
+        try {
+          visionParsed = JSON.parse(visionBodyText);
+        } catch {
+          throw new OcrServiceError(
+            'NVIDIA Vision API returned invalid JSON.',
+            502,
+            'NVIDIA_INVALID_RESPONSE'
+          );
+        }
+
+        const visionContent = visionParsed?.choices?.[0]?.message?.content;
+        if (!visionContent || typeof visionContent !== 'string') {
+          throw new OcrServiceError(
+            'NVIDIA Vision API response missing message content.',
+            502,
+            'NVIDIA_INVALID_RESPONSE'
+          );
+        }
+
+        const text = visionContent.trim();
+        log.info(`NVIDIA vision transcription complete: ${text.length} characters`);
+        return text;
       });
-
-      clearTimeout(visionTimeoutId);
-      const visionRequestEnd = Date.now();
-      log.info(`NVIDIA vision response received: status=${visionResponse.status} requestTimeMs=${visionRequestEnd - visionRequestStart}ms`);
-
-      if (!visionResponse.ok) {
-        const errorText = await readBodyAsText(visionResponse.body);
-        log.error(`NVIDIA Vision API returned ${visionResponse.status}: ${errorText}`);
-        throw new OcrServiceError(
-          `NVIDIA Vision API returned status ${visionResponse.status}.`,
-          visionResponse.status >= 500 ? 502 : 400,
-          'NVIDIA_API_ERROR'
-        );
-      }
-
-      const visionBodyText = await readBodyAsText(visionResponse.body);
-      log.info('Raw NVIDIA Vision API response:', visionBodyText);
-
-      let visionParsed;
-      try {
-        visionParsed = JSON.parse(visionBodyText);
-      } catch {
-        throw new OcrServiceError(
-          'NVIDIA Vision API returned invalid JSON.',
-          502,
-          'NVIDIA_INVALID_RESPONSE'
-        );
-      }
-
-      const visionContent = visionParsed?.choices?.[0]?.message?.content;
-      if (!visionContent || typeof visionContent !== 'string') {
-        throw new OcrServiceError(
-          'NVIDIA Vision API response missing message content.',
-          502,
-          'NVIDIA_INVALID_RESPONSE'
-        );
-      }
-
-      transcribedText = visionContent.trim();
-      log.info(`NVIDIA vision transcription complete: ${transcribedText.length} characters`);
     } catch (err) {
-      clearTimeout(visionTimeoutId);
       if (err instanceof OcrServiceError) throw err;
       if (err.name === 'AbortError' || err.message?.includes('abort')) {
         throw new OcrServiceError(
@@ -392,11 +454,6 @@ Do not add anything that is not visible in the image.`;
     // --------------------------------------------------------
     // Schritt 2: Text-Modell parst den transkribierten Text in JSON
     // --------------------------------------------------------
-    const parseStart = Date.now();
-    const parseController = new AbortController();
-    const parseTimeoutId = setTimeout(() => parseController.abort(), timeoutMs);
-    log.info(`NVIDIA parse step starting: model=${this.textModel} timeout=${timeoutMs}ms transcribedLength=${transcribedText.length}chars`);
-
     const parsePrompt = `You are a recipe data extraction assistant. You will receive raw recipe text transcribed from an image. Extract the recipe into a JSON object that matches the schema below.
 
 Schema:
@@ -569,81 +626,87 @@ ${transcribedText}
 
     let analysis;
     try {
-      log.info(`NVIDIA parse request sent: model=${this.textModel} transcribedLength=${transcribedText.length}chars`);
-      const parseRequestStart = Date.now();
-      const parseResponse = await safeRequest(this.endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${this.apiKey}`,
-          'Content-Length': String(Buffer.byteLength(parseBody)),
-        },
-        body: parseBody,
-        signal: parseController.signal,
-      });
+      analysis = await requestWithRetry('parse', async () => {
+        const parseController = new AbortController();
+        const parseTimeoutId = setTimeout(() => parseController.abort(), timeoutMs);
+        log.info(`NVIDIA parse request sent: model=${this.textModel} transcribedLength=${transcribedText.length}chars`);
+        const parseRequestStart = Date.now();
+        const parseResponse = await safeRequest(this.endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${this.apiKey}`,
+            'Content-Length': String(Buffer.byteLength(parseBody)),
+          },
+          body: parseBody,
+          signal: parseController.signal,
+        });
 
-      clearTimeout(parseTimeoutId);
-      const parseRequestEnd = Date.now();
-      log.info(`NVIDIA parse response received: status=${parseResponse.status} requestTimeMs=${parseRequestEnd - parseRequestStart}ms`);
+        clearTimeout(parseTimeoutId);
+        const parseRequestEnd = Date.now();
+        log.info(`NVIDIA parse response received: status=${parseResponse.status} requestTimeMs=${parseRequestEnd - parseRequestStart}ms`);
 
-      if (!parseResponse.ok) {
-        const errorText = await readBodyAsText(parseResponse.body);
-        log.error(`NVIDIA Parse API returned ${parseResponse.status}: ${errorText}`);
-        throw new OcrServiceError(
-          `NVIDIA Parse API returned status ${parseResponse.status}.`,
-          parseResponse.status >= 500 ? 502 : 400,
-          'NVIDIA_PARSE_ERROR'
-        );
-      }
-
-      const parseBodyText = await readBodyAsText(parseResponse.body);
-      log.info('Raw NVIDIA Parse API response:', parseBodyText);
-
-      let parseParsed;
-      try {
-        parseParsed = JSON.parse(parseBodyText);
-      } catch {
-        throw new OcrServiceError(
-          'NVIDIA Parse API returned invalid JSON.',
-          502,
-          'NVIDIA_PARSE_INVALID_RESPONSE'
-        );
-      }
-
-      const parseContent = parseParsed?.choices?.[0]?.message?.content;
-      if (!parseContent || typeof parseContent !== 'string') {
-        throw new OcrServiceError(
-          'NVIDIA Parse API response missing message content.',
-          502,
-          'NVIDIA_PARSE_INVALID_RESPONSE'
-        );
-      }
-
-      // Defensive JSON parsing: find first { and last }
-      const firstBrace = parseContent.indexOf('{');
-      const lastBrace = parseContent.lastIndexOf('}');
-      if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-        const jsonText = parseContent.substring(firstBrace, lastBrace + 1);
-        try {
-          analysis = JSON.parse(jsonText);
-        } catch {
-          analysis = null;
-        }
-      }
-
-      // Markdown fallback: sometimes the text model returns formatted text instead of raw JSON.
-      if (!analysis) {
-        analysis = parseNvidiaMarkdown(parseContent);
-        if (!analysis) {
+        if (!parseResponse.ok) {
+          const errorText = await readBodyAsText(parseResponse.body);
+          log.error(`NVIDIA Parse API returned ${parseResponse.status}: ${errorText}`);
           throw new OcrServiceError(
-            'NVIDIA Parse API returned neither JSON nor parseable markdown.',
+            `NVIDIA Parse API returned status ${parseResponse.status}.`,
+            parseResponse.status >= 500 ? 502 : 400,
+            'NVIDIA_PARSE_ERROR'
+          );
+        }
+
+        const parseBodyText = await readBodyAsText(parseResponse.body);
+        log.info('Raw NVIDIA Parse API response:', parseBodyText);
+
+        let parseParsed;
+        try {
+          parseParsed = JSON.parse(parseBodyText);
+        } catch {
+          throw new OcrServiceError(
+            'NVIDIA Parse API returned invalid JSON.',
             502,
             'NVIDIA_PARSE_INVALID_RESPONSE'
           );
         }
-      }
+
+        const parseContent = parseParsed?.choices?.[0]?.message?.content;
+        if (!parseContent || typeof parseContent !== 'string') {
+          throw new OcrServiceError(
+            'NVIDIA Parse API response missing message content.',
+            502,
+            'NVIDIA_PARSE_INVALID_RESPONSE'
+          );
+        }
+
+        // Defensive JSON parsing: find first { and last }
+        let resultAnalysis;
+        const firstBrace = parseContent.indexOf('{');
+        const lastBrace = parseContent.lastIndexOf('}');
+        if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+          const jsonText = parseContent.substring(firstBrace, lastBrace + 1);
+          try {
+            resultAnalysis = JSON.parse(jsonText);
+          } catch {
+            resultAnalysis = null;
+          }
+        }
+
+        // Markdown fallback: sometimes the text model returns formatted text instead of raw JSON.
+        if (!resultAnalysis) {
+          resultAnalysis = parseNvidiaMarkdown(parseContent);
+          if (!resultAnalysis) {
+            throw new OcrServiceError(
+              'NVIDIA Parse API returned neither JSON nor parseable markdown.',
+              502,
+              'NVIDIA_PARSE_INVALID_RESPONSE'
+            );
+          }
+        }
+
+        return resultAnalysis;
+      });
     } catch (err) {
-      clearTimeout(parseTimeoutId);
       if (err instanceof OcrServiceError) throw err;
       if (err.name === 'AbortError' || err.message?.includes('abort')) {
         throw new OcrServiceError(

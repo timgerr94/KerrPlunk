@@ -6,6 +6,10 @@
 .recipes-page {
   /* Geteilter Küchen-Akzent, siehe --module-kitchen in tokens.css. */
   --module-accent: var(--module-kitchen);
+  /* The recipe carrier clips the scrollport's bottom padding out of the
+   * scrollable range. Preserve the shared shell reserve before moving it to an
+   * in-flow track after the carrier. */
+  --recipes-scroll-tail: var(--shell-tail);
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -31,8 +35,25 @@
  * 720er-Lesespalte teilt der Tab jetzt Fläche und Rhythmus mit Einkauf und
  * Vorrat, statt ein viertes Layout zu sein (Critique 2026-07-30). */
 .recipes-list {
+  /* The trailing flex item below supplies the reserve beyond the carrier's
+   * overflow clip. */
+  --shell-tail: 0px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
   padding-inline: var(--page-inline-pad);
   padding-block-start: var(--space-4);
+}
+
+.recipes-list > .row-carrier {
+  flex: 0 0 auto;
+}
+
+.recipes-list:has(> .row-carrier)::after {
+  content: '';
+  display: block;
+  flex: 0 0 var(--recipes-scroll-tail);
+  block-size: var(--recipes-scroll-tail);
 }
 
 /* Der Stretch-und-Clip-Fix für lange, ungruppierte Zeilenlisten (.row-carrier,
