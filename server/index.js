@@ -113,7 +113,8 @@ const logYuvomi = createLogger('Yuvomi');
 const { version: APP_VERSION } = JSON.parse(
   readFileSync(new URL('../package.json', import.meta.url), 'utf-8')
 );
-const SERVICE_WORKER_PATH = new URL('../public/sw.js', import.meta.url);
+const DIST_SW_PATH = new URL('../public/dist/sw.js', import.meta.url);
+const SERVICE_WORKER_PATH = existsSync(DIST_SW_PATH) ? DIST_SW_PATH : new URL('../public/sw.js', import.meta.url);
 const SERVICE_WORKER_OPTIONS = {
   appVersion: APP_VERSION,
   buildRevision: process.env.APP_BUILD_REVISION,
@@ -290,8 +291,13 @@ const staticOptions = {
   redirect: false,
   setHeaders(res, filePath) {
     const ext = path.extname(filePath).toLowerCase();
+    const basename = path.basename(filePath);
     const isPwaIcon = /\/icons\/(icon-|apple-touch-icon|favicon)/.test(filePath);
-    if (isPwaIcon) {
+    const isHashedAsset = /\.[a-f0-9]{8,}\.(css|js)$/i.test(basename);
+    if (isHashedAsset) {
+      // Content-hashed assets are immutable — repeat visits skip revalidation.
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    } else if (isPwaIcon) {
       // PWA-Icons müssen bei Deployments sofort aktualisiert werden
       res.setHeader('Cache-Control', 'no-cache, must-revalidate');
     } else if (['.png', '.jpg', '.jpeg', '.ico', '.svg', '.webp', '.woff2', '.woff'].includes(ext)) {

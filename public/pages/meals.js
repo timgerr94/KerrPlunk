@@ -61,13 +61,21 @@ let state = {
   categories:       [],     // Einkaufskategorien für Zutaten
   modal:            null,
   visibleMealTypes: ['breakfast', 'lunch', 'dinner', 'snack'],
-  /** Suchbegriff der Rezept-Spalte (Rail). Dieselben Trefferfelder wie die
-   *  Rezeptsuche, nur auf die Spalte begrenzt - siehe filteredRailRecipes(). */
+  /** Suchbegriff der Rezept-Spalte (Rail). Wird an den Server gesendet, um
+   *  passende Rezepte zu finden - siehe loadRailRecipes(). */
   railQuery: '',
   /** Gefangener Fehler des letzten Wochen-Ladevorgangs, sonst null.
    *  Ohne dieses Feld ist eine fehlgeschlagene Woche von einer leeren Woche
    *  nicht zu unterscheiden - und der Renderer zeigte den Leerzustand. */
   loadError:        null,
+  // Rail-Pagination für die Rezept-Spalte (weitere Bildschirme)
+  railRecipes: [],
+  railOffset: 0,
+  railLimit: 25,
+  railLoadingMore: false,
+  railHasMore: true,
+  // Suche läuft gerade (Server-Abfrage)
+  railSearching: false,
 };
 
 // Container-Referenz für Hilfsfunktionen (wird in render() gesetzt)
@@ -82,6 +90,7 @@ let _dragRecipeId = null;
  *  clear() und Fokus im Leerzustand der Suche. Bei jedem Neuaufbau der
  *  Spalte neu gesetzt, denn jedes renderRecipeSidebar() erzeugt ein frisches Feld. */
 let _railSearch = null;
+let _railList = null;
 
 // --------------------------------------------------------
 // Datumshelfer
@@ -141,7 +150,7 @@ function railRecipeTarget({ recipe, weekStart, today, hour, visibleMealTypes, me
 
 /** Rezept aus der Spalte in den Dialog "Mahlzeit hinzufuegen" (Klick/Enter). */
 function planRecipeFromRail(recipeId) {
-  const recipe = state.recipes.find((r) => r.id === Number(recipeId));
+  const recipe = state.railRecipes.find((r) => r.id === Number(recipeId)) || state.recipes.find((r) => r.id === Number(recipeId));
   if (!recipe) return;
   const { date, mealType } = railRecipeTarget({
     recipe,
@@ -258,14 +267,14 @@ function wireMealTitleCombobox(panel, { onRecipe } = {}) {
     const mine = ++seq;
     if (!q) { show([]); return; }
     timer = setTimeout(async () => {
-      let history = [];
+      let recipes = [];
       try {
-        const res = await api.get(`/meals/suggestions?q=${encodeURIComponent(q)}`);
-        history = res?.data ?? [];
-      } catch { history = []; }
+        const res = await api.get(`/recipes?search=${encodeURIComponent(q)}&limit=25&offset=0`);
+        recipes = res?.data ?? [];
+      } catch { recipes = []; }
       // Eine spaete Antwort auf eine alte Eingabe ueberschreibt nichts.
       if (mine !== seq) return;
-      show(mealTitleSuggestions(q, state.recipes, history));
+      show(recipes.map((r) => ({ title: r.title, recipeId: r.id })));
     }, 200);
   });
 
@@ -484,6 +493,44 @@ async function loadRecipes() {
   }
 }
 
+/** Lädt die erste Seite von Rezepten für die Rail-Spalte (serverseitige Suche). */
+async function loadRailRecipes(search = '', { append = false } = {}) {
+  try {
+    const offset = append ? state.railOffset : 0;
+    if (!append) {
+      state.railRecipes = [];
+      state.railOffset = 0;
+      state.railHasMore = true;
+      state.railSearching = true;
+    }
+    const res = await api.get(`/recipes?limit=${state.railLimit}&offset=${offset}${search ? `&search=${encodeURIComponent(search)}` : ''}`);
+    const data = res.data ?? [];
+    if (append) {
+      state.railRecipes.push(...data);
+    } else {
+      state.railRecipes = data;
+    }
+    state.railOffset = offset + data.length;
+    state.railHasMore = offset + data.length < (res.total ?? 0);
+    state.railSearching = false;
+  } catch {
+    state.railSearching = false;
+    if (!append) {
+      state.railRecipes = [];
+    }
+  }
+}
+
+/** Lädt die nächste Seite von Rezepten für die Rail-Spalte und hängt sie an. */
+async function loadMoreRailRecipes() {
+  if (state.railLoadingMore || !state.railHasMore || !_railList) return;
+  state.railLoadingMore = true;
+  fillRailList(_railList); // zeige Lade-Punktchen
+  await loadRailRecipes(state.railQuery, { append: true });
+  state.railLoadingMore = false;
+  fillRailList(_railList); // zeige neue Rezepte
+}
+
 async function loadPreferences() {
   try {
     const res = await api.get('/preferences');
@@ -605,7 +652,7 @@ function mealsToolsMenuHtml() {
   });
 }
 
-export async function render(container, { user }) {
+export async function render(container, { user, signal }) {
   _container = container;
   _railSettled = false;
   container.replaceChildren();
@@ -661,12 +708,18 @@ export async function render(container, { user }) {
   state.currentWeek = monday;
   syncTodayButton();
 
-  await Promise.all([loadWeek(monday), loadLists(), loadPreferences(), loadCategories(), loadRecipes()]);
+  await Promise.all([loadWeek(monday), loadRailRecipes('')]);
+  state.recipes = state.railRecipes;
   renderWeekGrid();
-  renderRecipeSidebar();
+  await renderRecipeSidebar(signal);
   wireNav();
   wireRecipeSidebar();
   wireRailToggle();
+
+  // Hintergrund: restliche Daten nachladen und Grid/Seitenleiste aktualisieren.
+  await Promise.all([loadLists(), loadPreferences(), loadCategories()]);
+  if (signal?.aborted || !container.isConnected) return;
+  renderWeekGrid();
 
   findPageFab('fab-new-meal').addEventListener('click', () => {
     const firstType = state.visibleMealTypes[0] ?? 'lunch';
@@ -898,7 +951,7 @@ function revealToday(grid) {
   }
 }
 
-function renderRecipeSidebar() {
+async function renderRecipeSidebar(signal) {
   const sidebar = _container.querySelector('#recipe-sidebar');
   if (!sidebar) return;
   sidebar.replaceChildren();
@@ -961,9 +1014,13 @@ function renderRecipeSidebar() {
   // Fokus bei jedem Tastenanschlag aus der Eingabe.
   _railSearch = wirePageSearch(sidebar, {
     id: 'meals-rail-search',
-    onQuery: (value) => {
+    onQuery: async (value) => {
       state.railQuery = value.trim();
-      renderRailList();
+      state.railSearching = true;
+      fillRailList(list); // zeige Skelett-Zeilen während der Server antwortet
+      await loadRailRecipes(state.railQuery);
+      if (signal?.aborted) return;
+      fillRailList(list);
     },
   });
 
@@ -971,7 +1028,22 @@ function renderRecipeSidebar() {
   list.className = 'recipe-sidebar__list';
   list.id = 'recipe-rail-list';
   sidebar.appendChild(list);
+  _railList = list;
+  // state.railRecipes wurde bereits in render() via loadRailRecipes('') geladen,
+  // direkt anzeigen statt erneut zu laden.
   fillRailList(list);
+
+  // Unendliches Scrollen: mehr Rezepte laden, wenn der Nutzer ans Ende scrollt
+  let _railScrollHandler = null;
+  const onRailScroll = () => {
+    if (list.scrollTop + list.clientHeight >= list.scrollHeight - 300) {
+      loadMoreRailRecipes();
+    }
+  };
+  list.addEventListener('scroll', onRailScroll, { passive: true });
+  signal?.addEventListener('abort', () => {
+    list.removeEventListener('scroll', onRailScroll);
+  }, { once: true });
 }
 
 /**
@@ -981,17 +1053,6 @@ function renderRecipeSidebar() {
  * eigene Treffermenge waere eine zweite Wahrheit fuer dieselbe Frage. Die
  * Rezeptliste ist vollstaendig geladen, ein Server-Roundtrip waere Umweg.
  */
-function filteredRailRecipes() {
-  const q = state.railQuery.trim().toLowerCase();
-  if (!q) return state.recipes;
-  return state.recipes.filter((r) =>
-    r.title?.toLowerCase().includes(q)
-    || r.notes?.toLowerCase().includes(q)
-    || (r.ingredients ?? []).some((i) => i.name?.toLowerCase().includes(q))
-    || r.cuisine?.toLowerCase().includes(q)
-    || (r.diet ?? []).some((d) => String(d).toLowerCase().includes(q)));
-}
-
 /**
  * Baut die Liste der Spalte neu, ohne das Suchfeld anzutassen - der Rueckweg
  * eines Tastenanschlags (200 ms Entprellung im Baustein) darf den Fokus nicht
@@ -1009,10 +1070,24 @@ function renderRailList() {
  * utils/empty-state.js).
  */
 function fillRailList(list) {
-  const recipes = filteredRailRecipes();
-  list.replaceChildren();
+  if (!list) return;
+  const recipes = state.railRecipes;
 
-  if (!recipes.length) {
+  if (!state.railLoadingMore) {
+    list.replaceChildren();
+  }
+
+  // Suche läuft: Skelett-Zeilen anzeigen, bis die Treffer da sind
+  if (state.railSearching && recipes.length === 0) {
+    list.replaceChildren();
+    for (let i = 0; i < 5; i++) {
+      list.insertAdjacentHTML('beforeend', renderRailSkeleton());
+    }
+    if (window.lucide) window.lucide.createIcons({ el: list });
+    return;
+  }
+
+  if (!recipes.length && !state.railLoadingMore) {
     list.appendChild(emptyStateEl({
       variant: 'no-results',
       title: t('recipes.noResultsTitle'),
@@ -1023,10 +1098,9 @@ function fillRailList(list) {
         label: t('common.searchClear'),
         onClick: () => {
           state.railQuery = '';
-          // clear() versteckt zugleich den Leeren-Knopf; ein blankes
-          // `value = ''` liesse ihn ueber dem leeren Feld stehen.
           _railSearch?.clear();
-          renderRailList();
+          loadRailRecipes('');
+          fillRailList(list);
           _railSearch?.input.focus();
         },
       },
@@ -1098,6 +1172,38 @@ function fillRailList(list) {
 
     list.appendChild(card);
   });
+
+  // Lade-Punktchen am Ende, wenn noch mehr nachgeladen werden
+  if (state.railLoadingMore && state.railHasMore) {
+    const existing = list.querySelector('.recipes-loading-dots');
+    if (!existing) {
+      list.insertAdjacentHTML('beforeend', renderLoadingDots());
+    }
+  }
+}
+
+/** Animierte Lade-Punktchen für das Nachladen beim Scrollen. */
+function renderLoadingDots() {
+  return `
+    <div class="recipes-loading-dots" role="status" aria-label="Lade mehr Rezepte">
+      <span class="recipes-loading-dot"></span>
+      <span class="recipes-loading-dot"></span>
+      <span class="recipes-loading-dot"></span>
+    </div>
+  `;
+}
+
+/** Eine Skelett-Zeile für die Suche in der Rezept-Spalte. */
+function renderRailSkeleton() {
+  return `
+    <li class="recipe-sidebar__card recipe-skeleton">
+      <div class="list-row recipe-row recipe-skeleton__row">
+        <div class="recipe-skeleton__line recipe-skeleton__line--title"></div>
+        <div class="recipe-skeleton__line recipe-skeleton__line--short"></div>
+        <div class="recipe-skeleton__line recipe-skeleton__line--short"></div>
+      </div>
+    </li>
+  `;
 }
 
 /**
@@ -1203,6 +1309,11 @@ function renderSlot(date, type, mealsForDay, dayCol, typeRow) {
           <i data-lucide="grip-vertical" class="icon-md" aria-hidden="true"></i>
         </span>
         <div class="meal-card__actions">
+          <button class="meal-card__action-btn meal-card__action-btn--edit"
+            data-action="edit-meal"
+            data-meal-id="${meal.id}"
+            aria-label="${esc(t('common.edit'))}"
+          ><i data-lucide="pencil" class="icon-md" aria-hidden="true"></i></button>
           ${meal.recipe_id && recipesReachable() ? `<a class="meal-card__action-btn meal-card__action-btn--recipe"
             data-action="open-linked-recipe"
             href="/recipes?open=${encodeURIComponent(meal.recipe_id)}"
@@ -1839,10 +1950,10 @@ function openMealModal(opts) {
       // Zutaten
       const ingList   = panel.querySelector('#ingredient-list');
       const addIngBtn = panel.querySelector('#add-ingredient-btn');
-      const recipeSelect = panel.querySelector('#modal-recipe-id');
       const recipeScaleInput = panel.querySelector('#modal-recipe-scale');
       const saveAsRecipeBtn = panel.querySelector('#modal-save-as-recipe');
       let currentAppliedRecipe = null;
+      state.modal.linkedRecipeId = isEdit ? (meal?.recipe_id || null) : null;
 
       const applyRecipe = (recipeId) => {
         const id = Number(recipeId);
@@ -1878,15 +1989,10 @@ function openMealModal(opts) {
         if (window.lucide) lucide.createIcons({ el: ingList });
       };
 
-      recipeSelect?.addEventListener('change', () => {
-        if (recipeScaleInput) recipeScaleInput.value = '1';
-        applyRecipe(recipeSelect.value);
-      });
-
       // Namensfeld als Combobox (Re-Kritik 2026-09-28, A4 P1-1): ein
       // Rezepttreffer geht denselben Weg wie die Rezeptauswahl darunter.
       const chooseRecipe = (id) => {
-        if (recipeSelect) recipeSelect.value = String(id);
+        state.modal.linkedRecipeId = id;
         if (recipeScaleInput) recipeScaleInput.value = '1';
         applyRecipe(id);
       };
@@ -1896,7 +2002,7 @@ function openMealModal(opts) {
       if (opts.recipeId) chooseRecipe(opts.recipeId);
 
       recipeScaleInput?.addEventListener('input', () => {
-        const currentRecipeId = Number(recipeSelect?.value || 0);
+        const currentRecipeId = Number(state.modal.linkedRecipeId || 0);
         if (!currentRecipeId || !currentAppliedRecipe) return;
 
         const factor = Number(recipeScaleInput.value || 1);
@@ -1939,13 +2045,8 @@ function openMealModal(opts) {
           state.recipes.push(created.data);
           renderRecipeSidebar();
 
-          if (recipeSelect) {
-            const option = document.createElement('option');
-            option.value = String(created.data.id);
-            option.textContent = created.data.title;
-            recipeSelect.appendChild(option);
-            recipeSelect.value = String(created.data.id);
-          }
+          state.modal.linkedRecipeId = created.data.id;
+          applyRecipe(created.data.id);
 
           window.yuvomi?.showToast(t('recipes.created'), 'success');
         } catch (err) {
@@ -2080,34 +2181,14 @@ function buildModalContent({ mode, date, mealType, meal, fromSlot = false, recip
   // Transfer abwiese (#1290) - ein Auswahlfeld ohne Knopf verspraeche dasselbe.
   const canTransfer = hasIngOpen && mayTransferMealToShopping(meal.id);
 
-  const chosenRecipeId = isEdit ? meal.recipe_id : recipeId;
-  const recipeOptionHtml = (r) => `<option value="${r.id}" ${chosenRecipeId === r.id ? 'selected' : ''}>${esc(r.title)}</option>`;
+
   // Optgroups nur, sobald gespiegelte Rezepte wirklich vorkommen: ohne Mirror-
   // Account bleibt die flache Liste von vorher unverändert (kein UI-Rauschen).
   const hasMirroredRecipes = state.recipes.some((r) => r.source !== 'native');
   const mirroredSources = [...new Set(state.recipes.map((r) => r.source).filter((s) => s !== 'native'))].sort();
-  const recipeOptions = hasMirroredRecipes
-    ? [
-      `<option value="">${t('meals.savedRecipePlaceholder')}</option>`,
-      `<optgroup label="${esc(t('recipes.sourceNative'))}">${state.recipes.filter((r) => r.source === 'native').map(recipeOptionHtml).join('')}</optgroup>`,
-      ...mirroredSources.map((s) => `<optgroup label="${esc(t(`recipes.source${s[0].toUpperCase()}${s.slice(1)}`))}">${state.recipes.filter((r) => r.source === s).map(recipeOptionHtml).join('')}</optgroup>`),
-    ].join('')
-    : [
-      `<option value="">${t('meals.savedRecipePlaceholder')}</option>`,
-      ...state.recipes.map(recipeOptionHtml),
-    ].join('');
-
-  // Wie beim Bearbeiten einer Mahlzeit mit Rezept: aus der Rezept-Spalte
-  // geoeffnet, steht die Rezeptauswahl offen da, damit sichtbar ist, WOHER Titel
-  // und Zutaten kommen.
-  const advancedOpen = (isEdit && (!!meal.recipe_id || !!meal.notes || !!meal.recipe_url || isRecurring)) || Boolean(recipeId);
+  const advancedOpen = (isEdit && (!!meal.notes || !!meal.recipe_url || isRecurring)) || Boolean(recipeId);
 
   const advancedFieldsHtml = `
-    <div class="form-group">
-      <label class="form-label" for="modal-recipe-id">${t('meals.savedRecipeLabel')}</label>
-      <select class="form-input" id="modal-recipe-id">${recipeOptions}</select>
-    </div>
-
     <div class="modal-grid modal-grid--2">
       <div class="form-group">
         <label class="form-label" for="modal-recipe-scale">${t('meals.recipeScaleLabel')}</label>
@@ -2204,14 +2285,13 @@ function buildModalContent({ mode, date, mealType, meal, fromSlot = false, recip
   return `
     ${fromSlot && !isEdit ? nameHtml + whenHtml : whenHtml + nameHtml}
 
-    <div class="form-group">
-      <label class="form-label">${t('meals.ingredientsLabel')}</label>
+    ${advancedSection(`
       <div class="ingredient-list" id="ingredient-list">${ingRows}</div>
       <button class="btn btn--secondary add-ingredient-btn" id="add-ingredient-btn" type="button">
         <i data-lucide="plus" class="icon-md" aria-hidden="true"></i>
         ${t('meals.addIngredient')}
       </button>
-    </div>
+    `, { label: t('meals.ingredientsLabel'), open: false })}
 
     ${createRecurrenceHtml}
 
@@ -2260,7 +2340,7 @@ async function saveModal(overlay) {
   const title     = overlay.querySelector('#modal-title').value.trim();
   const notes     = overlay.querySelector('#modal-notes').value.trim() || null;
   const recipe_url = overlay.querySelector('#modal-recipe-url').value.trim() || null;
-  const recipe_id = overlay.querySelector('#modal-recipe-id')?.value || null;
+  const recipe_id = state.modal?.linkedRecipeId || null;
   const repeat_frequency = state.modal?.mode === 'create' && overlay.querySelector('#modal-repeat')?.checked
     ? overlay.querySelector('#modal-repeat-frequency')?.value || 'weekly'
     : null;
@@ -2523,7 +2603,6 @@ export const __test = {
   wireRecipeSidebar,
   // Die Suche der Rezept-Spalte: Treffermenge und Liste werden als Programm
   // gefahren (test-meals-recipe-entry.js, Abschnitt (d)).
-  filteredRailRecipes,
   renderRailList,
   mealTitleSuggestions,
 };

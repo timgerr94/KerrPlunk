@@ -75,6 +75,16 @@ import {
 } from '/settings/module-order.js';
 
 // --------------------------------------------------------
+// Asset-Map: gehaschte Seiten-Modul-Pfade (nur im dist/-Build vorhanden).
+// Im Dev-Modus (ohne dist/) bleibt die Map leer und die Originalpfade gelten.
+// --------------------------------------------------------
+let assetMap = new Map();
+try {
+  const { assetMap: am } = await import('/_asset-map.js');
+  assetMap = am;
+} catch { /* dev mode: kein dist/, Originalpfade gelten */ }
+
+// --------------------------------------------------------
 // Routen-Definitionen
 // Jede Route hat: path, page (dynamisch geladen), requiresAuth, module (für theme-color),
 // titleKey (Locale-Key für den Dokumenttitel).
@@ -266,7 +276,9 @@ let activePageStyle = null;
 
 function loadPageStyle(moduleName, routeStyle = null) {
   if (!moduleName && !routeStyle) return { ready: Promise.resolve(), cleanup: () => {} };
-  const href = routeStyle || `/styles/${moduleName}.css`;
+  const cssKey = moduleName ? `${moduleName}.css` : null;
+  const hashedCss = cssKey ? assetMap.get(cssKey) : null;
+  const href = routeStyle || `/styles/${hashedCss || cssKey}`;
   if (activePageStyle?.getAttribute('href') === href) {
     return { ready: Promise.resolve(), cleanup: () => {} };
   }
@@ -349,11 +361,12 @@ async function importPage(pagePath) {
   if (shellStale && reloadOnce()) {
     return new Promise(() => {});
   }
-  if (!moduleCache.has(pagePath)) {
+  const resolvedPath = assetMap.get(pagePath) || pagePath;
+  if (!moduleCache.has(resolvedPath)) {
     try {
-      moduleCache.set(pagePath, await import(pagePath));
+      moduleCache.set(resolvedPath, await import(resolvedPath));
     } catch (err) {
-      moduleCache.delete(pagePath);
+      moduleCache.delete(resolvedPath);
       // Zweiter Rettungsanker: das Update kam ohne Vorankündigung durch (der
       // Service Worker kann den Tab zwischen zwei Fetches übernehmen). Reload
       // statt Fehlerbildschirm - beim zweiten Mal fällt der Fehler durch.
@@ -363,7 +376,7 @@ async function importPage(pagePath) {
       throw err;
     }
   }
-  return moduleCache.get(pagePath);
+  return moduleCache.get(resolvedPath);
 }
 
 // --------------------------------------------------------
@@ -391,11 +404,13 @@ function prefetchRoute(path) {
     _prefetchedPages.add(route.page);
     const link = document.createElement('link');
     link.rel = 'modulepreload';
-    link.href = route.page;
+    link.href = assetMap.get(route.page) || route.page;
     document.head.appendChild(link);
   }
 
-  const cssHref = route.style || (route.module && !route.thirdPartyModule ? `/styles/${route.module}.css` : null);
+  const cssKey = route.module ? `${route.module}.css` : null;
+  const hashedCss = cssKey ? assetMap.get(cssKey) : null;
+  const cssHref = route.style || (route.module && !route.thirdPartyModule ? `/styles/${hashedCss || cssKey}` : null);
   if (cssHref && !_prefetchedStyles.has(cssHref)) {
     _prefetchedStyles.add(cssHref);
     const link = document.createElement('link');

@@ -6563,12 +6563,14 @@ textarea::placeholder {
   border-radius: var(--radius-glass-inner);
 }
 
-/* Rezept-Modal: Menge und Einheit stehen als ZWEI Felder nebeneinander, die
- * Kategorie rutscht dahinter. Menge und Einheit haben gleiche Breite.
- * "..."-Button steht auf der Menge/Einheit-Zeile neben der Kategorie. */
+/* Mahlzeiten-Modal: Menge und Einheit stehen als ZWEI Felder nebeneinander,
+ * die Kategorie rutscht dahinter. Menge und Einheit sind auf etwa die
+ * Halfte ihrer vorherigen Breite reduziert, die Kategorie fuellt den
+ * gewonnenen Platz. Name nimmt die volle Breite (minus Entfernen-Knopf).
+ * Kein "..."-Button (showMore: false), die 4. Spalte ist nur fuer remove. */
 .ingredient-row--with-unit {
-  grid-template-columns: minmax(0, 2fr) minmax(0, 2fr) minmax(0, 1.4fr) auto;
-  grid-template-areas: "name name remove" "qty unit cat more";
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 3fr) auto;
+  grid-template-areas: "name name name remove" "qty unit cat .";
 }
 
 /* Rezept-Modal MIT Notiz (v241): die Notiz steht in der NAMENS-Zeile, schmaler

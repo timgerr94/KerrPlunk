@@ -288,32 +288,8 @@ const APP_SHELL = [
 ];
 
 const APP_LOCALES = [
-  '/locales/ar.json',
-  '/locales/cs.json',
   '/locales/de.json',
-  '/locales/el.json',
   '/locales/en.json',
-  '/locales/es.json',
-  '/locales/fa.json',
-  '/locales/fil.json',
-  '/locales/fr.json',
-  '/locales/hi.json',
-  '/locales/hu.json',
-  '/locales/id.json',
-  '/locales/it.json',
-  '/locales/ja.json',
-  '/locales/ko.json',
-  '/locales/nb.json',
-  '/locales/nl.json',
-  '/locales/pl.json',
-  '/locales/pt-BR.json',
-  '/locales/pt.json',
-  '/locales/ru.json',
-  '/locales/sv.json',
-  '/locales/tr.json',
-  '/locales/uk.json',
-  '/locales/vi.json',
-  '/locales/zh.json',
 ];
 
 // Seiten-Module: lazy geladen, aber vorab gecacht für Offline.

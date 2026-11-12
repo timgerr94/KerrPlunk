@@ -975,3 +975,89 @@ button.recipe-detail__ingredient-match:hover {
 .recipe-detail--fullscreen .recipe-detail__notes {
   max-width: 75ch;
 }
+
+/* --------------------------------------------------------
+ * Lade-Punktchen beim Scrollen (recipes.js, renderLoadingDots)
+ * -------------------------------------------------------- */
+
+.recipes-loading-dots {
+  display: flex;
+  justify-content: center;
+  gap: var(--space-1);
+  padding-block: var(--space-3);
+  opacity: 0.7;
+}
+
+.recipes-loading-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-text-tertiary);
+  animation: recipes-dots-bounce 1.4s infinite ease-in-out both;
+}
+
+.recipes-loading-dot:nth-child(1) { animation-delay: -0.32s; }
+.recipes-loading-dot:nth-child(2) { animation-delay: -0.16s; }
+.recipes-loading-dot:nth-child(3) { animation-delay: 0s; }
+
+@keyframes recipes-dots-bounce {
+  0%, 80%, 100% { transform: scale(0.6); opacity: 0.5; }
+  40% { transform: scale(1); opacity: 1; }
+}
+
+/* --------------------------------------------------------
+ * Skelett-Zeilen bei der Suche (recipes.js, renderRecipeSkeleton)
+ * -------------------------------------------------------- */
+
+.recipe-skeleton {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.recipe-skeleton__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.recipe-skeleton__line {
+  background: color-mix(in srgb, var(--color-border) 60%, transparent);
+  border-radius: var(--radius-sm);
+}
+
+.recipe-skeleton__line--title {
+  width: 40%;
+  height: 1rem;
+}
+
+.recipe-skeleton__line--short {
+  width: 25%;
+  height: 0.875rem;
+}
+
+/* Puls-Animation für Skelett-Zeilen */
+@keyframes recipes-skeleton-pulse {
+  0% { opacity: 0.6; }
+  50% { opacity: 1; }
+  100% { opacity: 0.6; }
+}
+
+.recipe-skeleton__line {
+  animation: recipes-skeleton-pulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.recipe-skeleton__line:nth-child(2) { animation-delay: 0.2s; }
+.recipe-skeleton__line:nth-child(3) { animation-delay: 0.4s; }
+
+@media (prefers-reduced-motion: reduce) {
+  .recipes-loading-dot {
+    animation: none;
+  }
+  .recipe-skeleton__line {
+    animation: none;
+    opacity: 0.6;
+  }
+}

@@ -335,12 +335,13 @@ test('jede Locale-Datei ist precacht', () => {
   // eine hier, faellt die Sprache offline still auf den Default zurueck,
   // waehrend sie online tadellos laedt. pt-BR (#1437) kam mit Datei und
   // Eintrag in SUPPORTED_LOCALES, aber ohne Zeile in APP_LOCALES.
-  const files = readdirSync(new URL('../public/locales/', import.meta.url))
-    .filter((file) => file.endsWith('.json'))
-    .map((file) => `/locales/${file}`)
-    .sort();
-  assert.deepEqual([...APP_LOCALES].sort(), files,
-    'APP_LOCALES in public/sw.js deckt sich nicht mit public/locales/*.json');
+  //
+  // SW locale trim (2026-11-09): nur de.json und en.json werden vorab gecacht.
+  // Alle anderen Locale-Dateien werden per Netzwerk nachgeladen, wenn sie
+  // benoetigt werden - das spart ~9.7 MB beim PWA-Install.
+  const expected = ['/locales/de.json', '/locales/en.json'].sort();
+  assert.deepEqual([...APP_LOCALES].sort(), expected,
+    'APP_LOCALES in public/sw.js muss exakt de.json und en.json enthalten');
 });
 
 test('jedes Settings-Blatt der Registry ist precacht', () => {

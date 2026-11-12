@@ -16,7 +16,22 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createHash } from 'node:crypto';
 import { build, transform } from 'esbuild';
+
+// Esbuild-Plugin: root-relative Imports (/api.js, /components/modal.js, …)
+// werden aus public/ aufgelöst, nicht vom Dateisystem-Root.
+const publicDirPlugin = {
+  name: 'public-dir-resolver',
+  setup(build) {
+    build.onResolve({ filter: /^\// }, (args) => {
+      const resolvedPath = path.join(publicDir, args.path.slice(1));
+      if (fs.existsSync(resolvedPath)) {
+        return { path: resolvedPath, namespace: 'file' };
+      }
+    });
+  },
+};
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, '..');
@@ -75,6 +90,21 @@ await build({
   outfile: path.join(distDir, 'styles', SHELL_BUNDLE),
   logLevel: 'warning',
 });
+
+// Content-hash the shell bundle for immutable caching.
+const shellBundleContent = fs.readFileSync(path.join(distDir, 'styles', SHELL_BUNDLE));
+const shellHash = createHash('sha256').update(shellBundleContent).digest('hex').slice(0, 8);
+const hashedShellName = `shell.${shellHash}.css`;
+fs.renameSync(
+  path.join(distDir, 'styles', SHELL_BUNDLE),
+  path.join(distDir, 'styles', hashedShellName),
+);
+
+// Asset manifest so server and SW can resolve hashed names.
+fs.writeFileSync(
+  path.join(distDir, '.asset-manifest.json'),
+  JSON.stringify({ [SHELL_BUNDLE]: hashedShellName }, null, 2),
+);
 
 /** 2. Per-Route-Stylesheets: transform-only (kein Bundling). */
 const shellSet = new Set(shellStyles);
@@ -138,9 +168,109 @@ if (from === -1 || to < from) {
 }
 distHtml =
   indexHtml.slice(0, from) +
-  `  <link rel="stylesheet" href="/styles/${SHELL_BUNDLE}" />` +
+  `  <link rel="stylesheet" href="/styles/${hashedShellName}" />` +
   indexHtml.slice(to);
 writeTracked(path.join(distDir, 'index.html'), distHtml);
+
+/** JS hashing: kritische Shell-Scripts für immutable Caching. */
+const shellScripts = ['lang-init.js', 'theme-init.js'];
+const scriptHashes = {};
+for (const name of shellScripts) {
+  const srcPath = path.join(distDir, name);
+  const content = fs.readFileSync(srcPath);
+  const hash = createHash('sha256').update(content).digest('hex').slice(0, 8);
+  const hashedName = name.replace(/\.js$/, `.${hash}.js`);
+  fs.renameSync(srcPath, path.join(distDir, hashedName));
+  scriptHashes[name] = hashedName;
+}
+
+// Asset manifest ergänzen.
+const manifestPath = path.join(distDir, '.asset-manifest.json');
+const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+Object.assign(manifest, scriptHashes);
+fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+
+// dist/index.html: Script-Tags auf hashed Namen umschreiben.
+for (const [original, hashed] of Object.entries(scriptHashes)) {
+  distHtml = distHtml.replace(`src="/${original}"`, `src="/${hashed}"`);
+}
+writeTracked(path.join(distDir, 'index.html'), distHtml);
+
+// dist/sw.js: APP_SHELL-Einträge auf hashed Namen umschreiben.
+const swSrc = fs.readFileSync(path.join(publicDir, 'sw.js'), 'utf8');
+let swDist = swSrc;
+for (const [original, hashed] of Object.entries(scriptHashes)) {
+  swDist = swDist.replace(`'/${original}'`, `'/${hashed}'`);
+}
+fs.writeFileSync(path.join(distDir, 'sw.js'), swDist);
+
+// CSS hashing: kritische Seiten-Stylesheets für immutable Caching.
+const shellCssFiles = ['meals.css', 'recipes.css'];
+const cssHashes = {};
+for (const name of shellCssFiles) {
+  const srcPath = path.join(distDir, 'styles', name);
+  const content = fs.readFileSync(srcPath);
+  const hash = createHash('sha256').update(content).digest('hex').slice(0, 8);
+  const hashedName = name.replace(/\.css$/, `.${hash}.css`);
+  fs.renameSync(srcPath, path.join(distDir, 'styles', hashedName));
+  cssHashes[name] = hashedName;
+}
+
+// Asset manifest ergänzen.
+const cssManifestPath = path.join(distDir, '.asset-manifest.json');
+const cssManifest = JSON.parse(fs.readFileSync(cssManifestPath, 'utf8'));
+Object.assign(cssManifest, cssHashes);
+fs.writeFileSync(cssManifestPath, JSON.stringify(cssManifest, null, 2));
+
+// dist/sw.js: APP_SHELL-Einträge auf hashed CSS-Namen umschreiben.
+let cssSwDist = fs.readFileSync(path.join(distDir, 'sw.js'), 'utf8');
+for (const [original, hashed] of Object.entries(cssHashes)) {
+  cssSwDist = cssSwDist.replace(`'/styles/${original}'`, `'/styles/${hashed}'`);
+}
+fs.writeFileSync(path.join(distDir, 'sw.js'), cssSwDist);
+
+/** Page-Module bündeln: meals.js + recipes.js mit allen Transitiv-Imports.
+ *  Jedes `import()` im Router löst sonst einen ES-Modul-Import-Wasserfall
+ *  (Seite + 20+ transitive Imports) aus. Bundling reduziert das auf 1 Request. */
+const pageModules = ['pages/meals.js', 'pages/recipes.js'];
+const pageModuleHashes = {};
+for (const entry of pageModules) {
+  const bundled = await build({
+    entryPoints: [path.join(publicDir, entry)],
+    bundle: true,
+    minify: true,
+    charset: 'utf8',
+    plugins: [publicDirPlugin],
+    external: [],
+    write: false,
+  });
+  const content = bundled.outputFiles[0].contents;
+  const hash = createHash('sha256').update(content).digest('hex').slice(0, 8);
+  const hashedName = entry.replace(/\.js$/, `.${hash}.js`);
+  const destPath = path.join(distDir, hashedName);
+  fs.mkdirSync(path.dirname(destPath), { recursive: true });
+  fs.writeFileSync(destPath, content);
+  pageModuleHashes[entry] = hashedName;
+}
+
+// Asset manifest ergänzen.
+const manifestPath2 = path.join(distDir, '.asset-manifest.json');
+const manifest2 = JSON.parse(fs.readFileSync(manifestPath2, 'utf8'));
+Object.assign(manifest2, pageModuleHashes);
+Object.assign(manifest2, cssHashes);
+fs.writeFileSync(manifestPath2, JSON.stringify(manifest2, null, 2));
+
+// Asset-Map für den Router: originaler Pfad -> gehaschter Pfad.
+const allHashes = { ...pageModuleHashes, ...cssHashes };
+const assetMapContent = `export const assetMap = new Map(${JSON.stringify([...Object.entries(allHashes)])});\n`;
+fs.writeFileSync(path.join(distDir, '_asset-map.js'), assetMapContent);
+
+// dist/sw.js: PAGE_MODULES-Einträge auf hashed Namen umschreiben.
+let swDist2 = fs.readFileSync(path.join(distDir, 'sw.js'), 'utf8');
+for (const [original, hashed] of Object.entries(pageModuleHashes)) {
+  swDist2 = swDist2.replace(`'${original}'`, `'${hashed}'`);
+}
+fs.writeFileSync(path.join(distDir, 'sw.js'), swDist2);
 
 /** 6. Zusammenfassung. */
 function treeBytes(dir) {
@@ -154,10 +284,16 @@ function treeBytes(dir) {
 const shellRawBytes = shellStyles.reduce((s, n) => s + fs.statSync(path.join(stylesDir, n)).size, 0);
 const rawBytes = shellRawBytes +
   cssFiles.reduce((s, f) => s + fs.statSync(path.join(stylesDir, f)).size, 0);
-const shellOut = fs.statSync(path.join(distDir, 'styles', SHELL_BUNDLE)).size;
-const cssAfter = shellOut + cssFiles.reduce((s, f) => s + fs.statSync(path.join(distDir, 'styles', f)).size, 0);
+const shellOut = fs.statSync(path.join(distDir, 'styles', hashedShellName)).size;
+const cssAfter = shellOut + cssFiles.reduce((s, f) => {
+  const hashed = cssHashes[f] || f;
+  return s + fs.statSync(path.join(distDir, 'styles', hashed)).size;
+}, 0);
 const distTotal = treeBytes(distDir);
-console.log(`shell bundle: ${shellStyles.length} Dateien -> ${SHELL_BUNDLE}  ${(shellRawBytes / 1024).toFixed(1)} KB raw -> ${(shellOut / 1024).toFixed(1)} KB minifiziert`);
+console.log(`shell bundle: ${shellStyles.length} Dateien -> ${hashedShellName}  ${(shellRawBytes / 1024).toFixed(1)} KB raw -> ${(shellOut / 1024).toFixed(1)} KB minifiziert`);
 console.log(`css gesamt : ${cssFiles.length + shellStyles.length} Dateien  ${(rawBytes / 1024).toFixed(1)} KB -> ${(cssAfter / 1024).toFixed(1)} KB`);
 console.log(`dist gesamt : ${(distTotal / 1024 / 1024).toFixed(1)} MB Mirror (Quelle public/ ohne dist: ${((treeBytes(publicDir) - distTotal) / 1024 / 1024).toFixed(1)} MB)`);
-console.log(`index.html : 22 <link rel="stylesheet"> -> 1 <link rel="stylesheet" href="/styles/${SHELL_BUNDLE}" />`);
+console.log(`index.html : 22 <link rel="stylesheet"> -> 1 <link rel="stylesheet" href="/styles/${hashedShellName}" />`);
+console.log(`scripts    : ${Object.keys(scriptHashes).length} Shell-Scripts gehasht -> immutable Caching`);
+console.log(`page-modules: ${Object.keys(pageModuleHashes).length} Seiten-Module gebündelt + gehasht`);
+console.log(`css-hashed  : ${Object.keys(cssHashes).length} Seiten-CSS gehasht -> immutable Caching`);

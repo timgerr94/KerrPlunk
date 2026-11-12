@@ -125,6 +125,13 @@ const state = {
   sourceFilter: 'all',
   // Rezept-IDs, die im Wochenplan der AKTUELLEN Woche stehen (loadPlannedRecipes).
   plannedRecipeIds: new Set(),
+  // Pagination für unendliches Scrollen
+  offset: 0,
+  limit: 25,
+  loadingMore: false,
+  hasMore: true,
+  // Suche läuft gerade (Server-Abfrage)
+  searching: false,
 };
 
 // Client-seitige Suche über Titel, Notizen, Zutaten, Küche und Diet (Audit A1-21):
@@ -183,16 +190,44 @@ function mealTypeOptions() {
  * nur eine Liste fehlte (Critique P0, 2026-07-30). Ein Modul, das seine Daten
  * nicht bekommt, darf höchstens sich selbst verlieren.
  */
-async function loadRecipes() {
+async function loadRecipes(search = '', { append = false } = {}) {
   try {
-    const res = await api.get('/recipes');
-    state.recipes = res.data ?? [];
+    const offset = append ? state.offset : 0;
+    if (!append) {
+      state.recipes = [];
+      state.offset = 0;
+      state.hasMore = true;
+      state.searching = true;
+    }
+    const res = await api.get(`/recipes?limit=${state.limit}&offset=${offset}${search ? `&search=${encodeURIComponent(search)}` : ''}`);
+    const data = res.data ?? [];
+    if (append) {
+      state.recipes.push(...data);
+    } else {
+      state.recipes = data;
+    }
+    state.offset = offset + data.length;
+    state.hasMore = offset + data.length < (res.total ?? 0);
     state.loadError = null;
+    state.searching = false;
   } catch (err) {
     console.error('[Recipes] loadRecipes Fehler:', err);
-    state.recipes = [];
-    state.loadError = err;
+    state.searching = false;
+    if (!append) {
+      state.recipes = [];
+      state.loadError = err;
+    }
   }
+}
+
+/** Lädt die nächste Seite Rezepte und hängt sie an die bestehende Liste an. */
+async function loadMoreRecipes() {
+  if (state.loadingMore || !state.hasMore) return;
+  state.loadingMore = true;
+  renderRecipeList();
+  await loadRecipes(state.query, { append: true });
+  state.loadingMore = false;
+  renderRecipeList();
 }
 
 async function loadCategories() {
@@ -429,16 +464,35 @@ export async function render(container, { signal } = {}) {
 
   if (window.lucide) window.lucide.createIcons({ el: container });
 
-  await Promise.all([loadRecipes(), loadCategories(), loadShoppingLists(), loadPlannedRecipes(), ensureMealTypeNames()]);
-  // Ein Seitenwechsel waehrend des Ladens: die Seite ist schon abgebaut, ein
-  // Einhaengen jetzt schriebe in eine fremde Adresse.
+  // Kritischer Pfad: Rezepte zuerst laden und rendern, damit die Liste
+  // sofort sichtbar ist. Kategorien, Einkaufslisten, geplante Rezepte und
+  // Mahlzeit-Typen kommen im Hintergrund und lösen einen Nach-Render aus.
+  state.searching = true;
+  renderRecipeList();
+  await loadRecipes(state.query);
+  // Ein Seitenwechsel während des Ladens: die Seite ist schon abgebaut.
   if (signal?.aborted || !page.isConnected) return;
+  state.searching = false;
   renderSourceFilter();
-  // VOR dem ersten Listenbau: der Baustein loest `?open=` beim Einhaengen ein
-  // und braucht dafuer die geladenen Rezepte, nicht die Zeilen -
-  // renderRecipeList() setzt danach die Markierung (refresh).
   _md = mountRecipeDetail(split, signal);
   renderRecipeList();
+
+  // Hintergrund: restliche Daten nachladen und Liste aktualisieren.
+  await Promise.all([loadCategories(), loadShoppingLists(), loadPlannedRecipes(), ensureMealTypeNames()]);
+  if (signal?.aborted || !page.isConnected) return;
+  renderRecipeList();
+
+  // Unendliches Scrollen: mehr Rezepte laden, wenn der Nutzer ans Ende der Liste scrollt
+  let _scrollHandler = null;
+  const onScroll = () => {
+    if (list.scrollTop + list.clientHeight >= list.scrollHeight - 300) {
+      loadMoreRecipes();
+    }
+  };
+  list.addEventListener('scroll', onScroll, { passive: true });
+  signal?.addEventListener('abort', () => {
+    list.removeEventListener('scroll', onScroll);
+  }, { once: true });
 
   // Deep-Link: ?open=<id> klappt das Rezept auf und scrollt es ins Bild.
   // Dieselbe Schreibweise wie in Kontakten und auf der Startseite, damit nicht
@@ -467,8 +521,13 @@ export async function render(container, { signal } = {}) {
   // Leeren-Knopf über einem leeren Feld stehen.
   _search = wirePageSearch(toolbar, {
     id: 'recipes-search',
-    onQuery: (value) => {
+    onQuery: async (value) => {
       state.query = value.trim();
+      state.searching = true;
+      renderRecipeList();
+      await loadRecipes(state.query);
+      if (signal?.aborted || !page.isConnected) return;
+      state.searching = false;
       renderRecipeList();
     },
   });
@@ -584,12 +643,60 @@ function renderSourceFilter() {
  * dem Formular.
  */
 function renderRecipeList({ repaint = false } = {}) {
+  // Suche läuft: Skelett-Zeilen anzeigen, bis die Treffer da sind
+  if (state.searching) {
+    const list = _container.querySelector('#recipes-list');
+    if (list) {
+      list.replaceChildren();
+      for (let i = 0; i < 5; i++) {
+        list.insertAdjacentHTML('beforeend', renderRecipeSkeleton());
+      }
+    }
+    syncRowMode();
+    _md?.refresh({ repaint });
+    refreshFullscreenDetail();
+    return;
+  }
   buildRecipeList();
+  // Lade-Punktchen am Ende, wenn noch mehr nachgeladen werden
+  if (state.loadingMore && state.hasMore) {
+    const list = _container.querySelector('#recipes-list');
+    if (list) {
+      const existing = list.querySelector('.recipes-loading-dots');
+      if (!existing) {
+        list.insertAdjacentHTML('beforeend', renderLoadingDots());
+      }
+    }
+  }
   syncRowMode();
   _md?.refresh({ repaint });
   // Das Vollbild steht ausserhalb der Spaltenwurzel: ein Neuaufbau der Liste
   // haelt es mit (sonst zeigte es den Stand vor dem Speichern im Formular).
   refreshFullscreenDetail();
+}
+
+/** Animierte Lade-Punktchen für das Nachladen beim Scrollen. */
+function renderLoadingDots() {
+  return `
+    <div class="recipes-loading-dots" role="status" aria-label="Lade mehr Rezepte">
+      <span class="recipes-loading-dot"></span>
+      <span class="recipes-loading-dot"></span>
+      <span class="recipes-loading-dot"></span>
+    </div>
+  `;
+}
+
+/** Eine Skelett-Zeile für die Suchanzeige. */
+function renderRecipeSkeleton() {
+  return `
+    <li class="recipe-row-item recipe-skeleton">
+      <div class="list-row recipe-row recipe-skeleton__row">
+        <div class="recipe-skeleton__line recipe-skeleton__line--title"></div>
+        <div class="recipe-skeleton__line recipe-skeleton__line--short"></div>
+        <div class="recipe-skeleton__line recipe-skeleton__line--short"></div>
+      </div>
+    </li>
+  `;
 }
 
 /* LISTE + DETAIL (Breitenregel, Regime 2 - DESIGN.md)
@@ -1032,7 +1139,7 @@ function buildRecipeList() {
       retryLabel: t('common.retry'),
       onRetry: async () => {
         list.setAttribute('aria-busy', 'true');
-        await loadRecipes();
+        await loadRecipes(state.query);
         renderRecipeList();
       },
     });

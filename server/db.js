@@ -10287,6 +10287,94 @@ const MIGRATIONS = [
       ALTER TABLE recipes ADD COLUMN unreviewed INTEGER NOT NULL DEFAULT 0;
     `,
   },
+  {
+    version: 246,
+    description: 'Indexes for recipe search on notes, cuisine, diet, ingredient name',
+    up: `
+      -- Rezept-Suche fuehrt fuehrende-Wildcard-LIKES ueber mehrere Spalten
+      -- aus (title, notes, cuisine, diet, ingredient name). B-Tree-Indizes
+      -- helfen bei '%text%' nicht direkt, aber die Zutaten-Tabelle ist meist
+      -- die grossere, und der EXISTS-Unterabfrage nutzt ein Index auf name.
+      CREATE INDEX IF NOT EXISTS idx_recipe_ingredients_name ON recipe_ingredients(name);
+      CREATE INDEX IF NOT EXISTS idx_recipes_notes ON recipes(notes);
+      CREATE INDEX IF NOT EXISTS idx_recipes_cuisine ON recipes(cuisine);
+      CREATE INDEX IF NOT EXISTS idx_recipes_diet ON recipes(diet);
+    `,
+  },
+  {
+    version: 247,
+    description: 'FTS5 full-text search index for recipes',
+    up: `
+      -- Volltextsuche fuer Rezepte: FTS5-Index ueber title, notes, cuisine,
+      -- diet und ingredient_name. Ersetzt fuehrende-Wildcard-LIKES bei der
+      -- Suche und liefert BM25-Relevanz-Ranking.
+      --
+      -- content=recipes bedeutet: der Index speichert nur den Volltext-Index,
+      -- die eigentlichen Daten bleiben in recipes. content_rowid=id verknuepft
+      -- die Zeilen.
+      CREATE VIRTUAL TABLE IF NOT EXISTS recipes_fts USING fts5(
+        title,
+        notes,
+        cuisine,
+        diet,
+        ingredient_name,
+        content=recipes,
+        content_rowid=id
+      );
+
+      -- Bestehende Rezepte in den Index uebertragen
+      INSERT INTO recipes_fts(rowid, title, notes, cuisine, diet)
+        SELECT id, title, notes, cuisine, diet FROM recipes;
+
+      -- Zutatennamen als separate Spalte im FTS-Index: eine Zeile pro
+      -- (rezept, zutat)-Kombination, damit die Suche nach Zutatennamen
+      -- funktioniert. content=recipe_ingredients, content_rowid=id.
+      CREATE VIRTUAL TABLE IF NOT EXISTS recipe_ingredients_fts USING fts5(
+        name,
+        recipe_id,
+        content=recipe_ingredients,
+        content_rowid=id
+      );
+      INSERT INTO recipe_ingredients_fts(rowid, name, recipe_id)
+        SELECT id, name, recipe_id FROM recipe_ingredients;
+
+      -- Trigger halten recipes_fts bei Aenderungen synchron
+      CREATE TRIGGER recipes_fts_ai AFTER INSERT ON recipes BEGIN
+        INSERT INTO recipes_fts(rowid, title, notes, cuisine, diet)
+          VALUES (new.id, new.title, new.notes, new.cuisine, new.diet);
+      END;
+
+      CREATE TRIGGER recipes_fts_ad AFTER DELETE ON recipes BEGIN
+        INSERT INTO recipes_fts(recipes_fts, rowid, title, notes, cuisine, diet)
+          VALUES ('delete', old.id, old.title, old.notes, old.cuisine, old.diet);
+      END;
+
+      CREATE TRIGGER recipes_fts_au AFTER UPDATE ON recipes BEGIN
+        INSERT INTO recipes_fts(recipes_fts, rowid, title, notes, cuisine, diet)
+          VALUES ('delete', old.id, old.title, old.notes, old.cuisine, old.diet);
+        INSERT INTO recipes_fts(rowid, title, notes, cuisine, diet)
+          VALUES (new.id, new.title, new.notes, new.cuisine, new.diet);
+      END;
+
+      -- Trigger fuer recipe_ingredients_fts
+      CREATE TRIGGER recipe_ingredients_fts_ai AFTER INSERT ON recipe_ingredients BEGIN
+        INSERT INTO recipe_ingredients_fts(rowid, name, recipe_id)
+          VALUES (new.id, new.name, new.recipe_id);
+      END;
+
+      CREATE TRIGGER recipe_ingredients_fts_ad AFTER DELETE ON recipe_ingredients BEGIN
+        INSERT INTO recipe_ingredients_fts(recipe_ingredients_fts, rowid, name, recipe_id)
+          VALUES ('delete', old.id, old.name, old.recipe_id);
+      END;
+
+      CREATE TRIGGER recipe_ingredients_fts_au AFTER UPDATE ON recipe_ingredients BEGIN
+        INSERT INTO recipe_ingredients_fts(recipe_ingredients_fts, rowid, name, recipe_id)
+          VALUES ('delete', old.id, old.name, old.recipe_id);
+        INSERT INTO recipe_ingredients_fts(rowid, name, recipe_id)
+          VALUES (new.id, new.name, new.recipe_id);
+      END;
+    `,
+  },
 ];
 /**
  * Hat ein ANDERER Prozess genau diese Migration inzwischen verbucht? (#1331)

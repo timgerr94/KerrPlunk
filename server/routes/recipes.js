@@ -161,7 +161,7 @@ function withSource(recipe) {
   }
   return {
     ...rest,
-    has_own_image: !!image_data,
+    has_own_image: !!recipe.has_own_image,
     nutrition: nutritionData,
     diet: dietList,
     source: recipe.provider_account_id ? recipe.provider_type : 'native',
@@ -246,14 +246,77 @@ function loadRecipeWithIngredients(req, id) {
 
 router.get('/', (req, res) => {
   try {
+    const limit = Math.min(parseInt(req.query.limit ?? '25', 10) || 25, 500);
+    const offset = Math.max(parseInt(req.query.offset ?? '0', 10) || 0, 0);
+    const search = String(req.query.search ?? '').trim();
+
+    let where = '';
+    const params = [];
+    let ftsRecipeIds = null; // Set of recipe IDs from FTS5 search, null = not using FTS5
+
+    if (search) {
+      // Pruefe ob FTS5-Tabellen existieren (Migration 247)
+      const ftsTables = db.get().prepare(`
+        SELECT name FROM sqlite_master
+        WHERE type = 'table' AND name IN ('recipes_fts', 'recipe_ingredients_fts')
+      `).all();
+      const hasFts = ftsTables.length === 2;
+
+      if (hasFts) {
+        // FTS5 Volltextsuche: recipes_fts fuer title/notes/cuisine/diet,
+        // recipe_ingredients_fts fuer Zutatennamen. UNION beider Ergebnismengen.
+        // FTS5-MATCH erwartet rohe Query-Syntax (keine SQL-String-Anfuehrungszeichen),
+        // doppelte Anfuehrungszeichen werden als "" escapiert, * fuehrt
+        // Praefix-Suche durch.
+        const ftsSearch = search.replace(/"/g, '""') + '*';
+
+        const recipeIdRows = db.get().prepare(`
+          SELECT rowid AS id FROM recipes_fts WHERE recipes_fts MATCH ?
+          UNION
+          SELECT DISTINCT recipe_id AS id FROM recipe_ingredients_fts
+            WHERE recipe_ingredients_fts MATCH ?
+        `).all(ftsSearch, ftsSearch);
+
+        ftsRecipeIds = new Set(recipeIdRows.map((r) => r.id));
+
+        if (ftsRecipeIds.size === 0) {
+          // Keine Treffer: leeres Ergebnis, kein LIKE-Fallback noetig
+          res.json({ data: [], total: 0, limit, offset });
+          return;
+        }
+
+        // WHERE ueber die gefundenen IDs (IN-Klausel)
+        const idList = [...ftsRecipeIds];
+        const placeholders = idList.map(() => '?').join(',');
+        where = `WHERE r.id IN (${placeholders})`;
+        params.push(...idList);
+      } else {
+        // Fallback: fuehrende-Wildcard-LIKES (vor Migration 247)
+        const like = `%${search}%`;
+        where = `WHERE r.title LIKE ? ESCAPE '\\' OR r.notes LIKE ? ESCAPE '\\' OR r.cuisine LIKE ? ESCAPE '\\' OR r.diet LIKE ? ESCAPE '\\' OR EXISTS (SELECT 1 FROM recipe_ingredients ri WHERE ri.recipe_id = r.id AND ri.name LIKE ? ESCAPE '\\')`;
+        params.push(like, like, like, like, like);
+      }
+    }
+
+    const totalRow = db.get().prepare(`
+      SELECT COUNT(*) AS total FROM recipes r ${where}
+    `).all(...params);
+    const total = totalRow[0].total;
+
     const recipes = db.get().prepare(`
-      SELECT r.*, u.display_name AS creator_name, u.avatar_color AS creator_color,
+      SELECT r.id, r.title, r.notes, r.recipe_url, r.meal_types, r.cuisine,
+             r.servings, r.cookTime, r.prepTime, r.diet, r.nutrition,
+             r.unreviewed, r.provider_account_id, r.provider_has_image,
+             CASE WHEN r.image_data IS NOT NULL AND length(r.image_data) > 0 THEN 1 ELSE 0 END as has_own_image,
+             u.display_name AS creator_name, u.avatar_color AS creator_color,
              p.name AS provider_account_name, p.provider AS provider_type
       FROM recipes r
       LEFT JOIN users u ON u.id = r.created_by
       LEFT JOIN recipe_provider_accounts p ON p.id = r.provider_account_id
+      ${where}
       ORDER BY r.title COLLATE NOCASE ASC, r.id DESC
-    `).all();
+      LIMIT ? OFFSET ?
+    `).all(...params, limit, offset);
 
     const ids = recipes.map((r) => r.id);
     let ingredientMap = {};
@@ -261,7 +324,9 @@ router.get('/', (req, res) => {
     if (ids.length > 0) {
       const placeholders = ids.map(() => '?').join(',');
       const ingredients = attachPantryMatches(req, db.get().prepare(`
-        SELECT * FROM recipe_ingredients
+        SELECT id, recipe_id, name, quantity, unit, category, section, note,
+               secondary_quantity, secondary_unit
+        FROM recipe_ingredients
         WHERE recipe_id IN (${placeholders})
         ORDER BY id ASC
       `).all(...ids));
@@ -272,11 +337,16 @@ router.get('/', (req, res) => {
       }
     }
 
-    res.json({ data: recipes.map((r) => withSource({
-      ...r,
-      meal_types: normalizeRecipeMealTypes(r.meal_types),
-      ingredients: ingredientMap[r.id] || [],
-    })) });
+    res.json({
+      data: recipes.map((r) => withSource({
+        ...r,
+        meal_types: normalizeRecipeMealTypes(r.meal_types),
+        ingredients: ingredientMap[r.id] || [],
+      })),
+      total,
+      limit,
+      offset,
+    });
   } catch (err) {
     log.error('GET / error:', err);
     res.status(500).json({ error: 'Internal error', code: 500 });
@@ -333,6 +403,46 @@ function validateRecipeImage(val) {
 function validateImageContent(dataUrl) {
   return dataUrlContentMatches(dataUrl);
 }
+
+/**
+ * Einzelnes Rezept mit allen Feldern (inkl. image_data) fuer Detailansicht
+ * und Bearbeitung. Die Listenansicht (GET /) liefert eine abgespeckte Version
+ * ohne image_data (~5 MB base64 pro Zeile); dieses Endpunkt liefert das
+ * komplette Rezept bei Bedarf.
+ */
+router.get('/:id', (req, res) => {
+  try {
+    const recipe = db.get().prepare(`
+      SELECT r.*, u.display_name AS creator_name, u.avatar_color AS creator_color,
+             p.name AS provider_account_name, p.provider AS provider_type
+      FROM recipes r
+      LEFT JOIN users u ON u.id = r.created_by
+      LEFT JOIN recipe_provider_accounts p ON p.id = r.provider_account_id
+      WHERE r.id = ?
+    `).get(req.params.id);
+
+    if (!recipe) {
+      return res.status(404).json({ error: 'Recipe not found', code: 404 });
+    }
+
+    const ingredients = attachPantryMatches(req, db.get().prepare(`
+      SELECT id, recipe_id, name, quantity, unit, category, section, note,
+             secondary_quantity, secondary_unit
+      FROM recipe_ingredients
+      WHERE recipe_id = ?
+      ORDER BY id ASC
+    `).all(req.params.id));
+
+    res.json(withSource({
+      ...recipe,
+      meal_types: normalizeRecipeMealTypes(recipe.meal_types),
+      ingredients,
+    }));
+  } catch (err) {
+    log.error('GET /:id error:', err);
+    res.status(500).json({ error: 'Internal error', code: 500 });
+  }
+});
 
 router.post('/', (req, res) => {
   try {
